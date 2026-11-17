@@ -221,7 +221,7 @@ $env:PATH = "$r\node\bin;$r\bin\fallback;$r\native\git\cmd;$r\native\git\mingw64
 ### Final Gate Verification Results (Latest Pass — Linux VM & External Windows/Azure Packaging Note)
 ```bash
 git pull --ff-only origin main                                               # Passed (exit 0, up to date)
-pnpm run typecheck                                                           # Passed (exit 0, 0 TS errors)
+pnpm exec next typegen && pnpm run typecheck                                 # Passed (exit 0, 0 TS errors)
 pnpm test                                                                    # Passed: 268 files, 2,707 tests (0 failures, 142.51s)
 pnpm run build                                                               # Passed: Next.js 16.4.3 (webpack, 32.0s), TS (4.5s), 6/6 static pages (631ms), output: "standalone"
 node scripts/stage-azure-standalone.mjs --context-dir /tmp/affentrader-aca   # Passed: 2,459 symlink-free files staged cross-platform
