@@ -8,7 +8,7 @@ export interface LayoutModeQuery {
 
 /** Dialogs use the full workspace host: choose touch presentation by viewport, not cell width. */
 export function bindNativeLayoutMode(renderer: Pick<Vela["renderer"], "setLayoutMode">, supplied?: LayoutModeQuery): () => void {
-  const query = supplied ?? (typeof window !== "undefined" ? window.matchMedia("(max-width: 760px)") : null);
+  const query = supplied ?? (typeof window !== "undefined" ? window.matchMedia("(max-width: 768px)") : null);
   if (!query) return () => {};
   let disposed = false, current: "mobile" | "desktop" | undefined;
   const update = () => {

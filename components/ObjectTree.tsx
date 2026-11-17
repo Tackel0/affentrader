@@ -14,6 +14,7 @@ import {
   ArrowDownToLine,
   Folder,
   Bell,
+  Pencil,
   Settings2,
 } from "lucide-react";
 import { supportsDrawingAlert } from "@/lib/alerts/drawing";
@@ -154,6 +155,9 @@ export function ObjectTree() {
             <span className="tree-label">{label(d, items.length - items.indexOf(d))}</span>
           )}
           <span className="tree-actions">
+            <IconButton label="Rename drawing" onClick={(e) => { e.stopPropagation(); setEditing(d.id); setDraft(tree.names[d.id] ?? ""); }}>
+              <Pencil size={13} />
+            </IconButton>
             <IconButton label="Drawing settings" onClick={(e) => { e.stopPropagation(); chart?.drawings.openSettings(d.id); }}>
               <Settings2 size={13} />
             </IconButton>
@@ -238,6 +242,9 @@ export function ObjectTree() {
             </span>
           )}
           <span className="tree-actions always">
+            <IconButton label="Rename group" onClick={() => { setEditing(g.id); setDraft(g.name); }}>
+              <Pencil size={13} />
+            </IconButton>
             <IconButton label={node.visible === true ? "Hide group" : "Show group"} onClick={() => setFlag(node.drawingIds, { visible: node.visible !== true })}>
               {node.visible === true ? <Eye size={13} /> : <EyeOff size={13} />}
             </IconButton>

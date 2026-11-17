@@ -7,6 +7,7 @@ import type { NewsItem } from "@/lib/server/feeds";
 import { getSymbol } from "@/lib/symbols";
 
 export function timeAgo(time: number, now = Date.now()): string {
+  if (!Number.isFinite(time)) return "";
   const minutes = Math.max(0, Math.round((now - time) / 60_000));
   if (minutes < 1) return "just now";
   if (minutes < 60) return `${minutes} min ago`;
@@ -61,9 +62,10 @@ export function NewsPanel() {
   const shown = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return items.filter((n) => {
-      if (scope === "symbol" && !n.symbols.includes(symbol)) return false;
-      if (scope === "watchlist" && !n.symbols.some((s) => watch.includes(s))) return false;
-      return !needle || `${n.title} ${n.summary}`.toLowerCase().includes(needle);
+      const syms = Array.isArray(n.symbols) ? n.symbols : [];
+      if (scope === "symbol" && !syms.includes(symbol)) return false;
+      if (scope === "watchlist" && !syms.some((s) => watch.includes(s))) return false;
+      return !needle || `${n.title ?? ""} ${n.summary ?? ""}`.toLowerCase().includes(needle);
     });
   }, [items, scope, symbol, watch, query]);
   return (
@@ -106,24 +108,30 @@ export function NewsPanel() {
       {error ? <p className="error-message screener-error">{error}</p> : null}
       <div className="news-list">
         {loading && !shown.length && !error ? <div className="empty-table">Loading news feeds…</div> : null}
-        {shown.map((n) => (
-          <article key={n.id}>
-            <a href={n.link} target="_blank" rel="noopener noreferrer">
-              {n.title}
-              <ExternalLink size={11} />
-            </a>
-            <p>{n.summary}</p>
-            <footer>
-              <span className="mono" style={{ textTransform: "uppercase", letterSpacing: "0.04em" }}>{n.source}</span>
-              <span className="mono">{timeAgo(n.published)}</span>
-              {n.symbols.slice(0, 4).map((s) => (
-                <button key={s} className="chip" onClick={() => useChartStore.getState().set({ symbol: s })}>
-                  {getSymbol(s).base}
-                </button>
-              ))}
-            </footer>
-          </article>
-        ))}
+        {shown.map((n) => {
+          const syms = Array.isArray(n.symbols) ? n.symbols : [];
+          const publishedTs = Number.isFinite(n.published)
+            ? n.published
+            : Date.parse((n as NewsItem & { publishedAt?: string }).publishedAt ?? "");
+          return (
+            <article key={n.id}>
+              <a href={n.link} target="_blank" rel="noopener noreferrer">
+                {n.title}
+                <ExternalLink size={11} />
+              </a>
+              {n.summary ? <p>{n.summary}</p> : null}
+              <footer>
+                <span className="mono" style={{ textTransform: "uppercase", letterSpacing: "0.04em" }}>{n.source}</span>
+                {Number.isFinite(publishedTs) ? <span className="mono">{timeAgo(publishedTs)}</span> : null}
+                {syms.slice(0, 4).map((s) => (
+                  <button key={s} className="chip" onClick={() => useChartStore.getState().set({ symbol: s })}>
+                    {getSymbol(s).base}
+                  </button>
+                ))}
+              </footer>
+            </article>
+          );
+        })}
         {!shown.length && !loading && !error ? <div className="empty-table">No stories match.</div> : null}
       </div>
     </div>

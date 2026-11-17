@@ -29,6 +29,7 @@ export function IconButton({
     </button>
   );
 }
+const modalStack: symbol[] = [];
 export function Modal({
   title,
   children,
@@ -45,14 +46,18 @@ export function Modal({
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
   useEffect(() => {
+    const token = Symbol("modal");
+    modalStack.push(token);
     const prev = document.activeElement as HTMLElement | null;
     const el = ref.current;
     const focus = () =>
       el?.querySelector<HTMLElement>("input,textarea,select,button")?.focus();
     focus();
     const handle = (e: KeyboardEvent) => {
+      if (modalStack[modalStack.length - 1] !== token) return;
       if (e.key === "Escape") {
         e.preventDefault();
+        e.stopPropagation();
         closeRef.current();
       }
       if (e.key === "Tab") {
@@ -72,9 +77,11 @@ export function Modal({
         }
       }
     };
-    document.addEventListener("keydown", handle);
+    document.addEventListener("keydown", handle, true);
     return () => {
-      document.removeEventListener("keydown", handle);
+      const idx = modalStack.lastIndexOf(token);
+      if (idx >= 0) modalStack.splice(idx, 1);
+      document.removeEventListener("keydown", handle, true);
       prev?.focus();
     };
   }, []);

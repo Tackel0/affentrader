@@ -22,7 +22,7 @@
 .dom-spread-gap{padding:8px;text-align:center;color:var(--muted);border-block:1px dashed var(--border);font-size:11px;overflow-wrap:anywhere}.dom-panel>.form-help{padding:8px 12px;margin:0;overflow-wrap:anywhere}
 .chart-heading .ohlc-strip[hidden] {display:none;}
 .ohlc-strip .bar-change {font-variant-numeric:tabular-nums;}
-@media(max-width:760px) {
+@media(max-width:768px) {
   .chart-heading .ohlc-strip {max-height:none;flex-basis:100%;}
   .chart-heading .ohlc-strip > .ohlc-open,.chart-heading .ohlc-strip > .ohlc-high,.chart-heading .ohlc-strip > .ohlc-low {display:none;}
   .chart-heading .ohlc-strip > .ohlc-close,.chart-heading .ohlc-strip > .bar-change,.chart-heading .ohlc-strip > .ohlc-volume {display:flex;}
@@ -44,11 +44,11 @@
 .indicator-action-list button {display:flex;align-items:center;gap:10px;text-align:left;padding:13px 12px;border-radius:4px;}
 .indicator-action-list button:hover,.indicator-action-list button:focus-visible {background:var(--hover);}
 .layout-eight .study-legend,.layout-six .study-legend {display:none;}
-@media(max-width:760px) {
+@media(max-width:768px) {
   .study-legend .chip-actions {display:none;}
-  .chart-heading .study-legend .indicator-chip .chip-more {display:inline-flex;opacity:1;width:26px;height:26px;flex-shrink:0;}
-  .study-legend .indicator-chips .indicator-chip {min-height:26px;}
-  .study-legend .legend-fold {min-width:28px;min-height:24px;}
+  .chart-heading .study-legend .indicator-chip .chip-more {display:inline-flex;opacity:1;width:36px;height:36px;min-width:36px;min-height:36px;flex-shrink:0;}
+  .study-legend .indicator-chips .indicator-chip {min-height:36px;}
+  .study-legend .legend-fold {min-width:36px;min-height:36px;}
   .multi-chart .study-legend {display:none;}
 }
 .chip-values {display:inline-flex;gap:7px;font-size:11px;font-variant-numeric:tabular-nums;max-width:100%;flex-wrap:wrap;}.chip-values > span {white-space:nowrap;}
@@ -78,8 +78,8 @@
 .replay-date-error {flex-basis:100%;color:var(--negative);font-size:11px;padding:3px 0;}
 .replay-bar:has(.replay-date-error), .replay-bar:has([aria-label="Replay time occurrence"]) {flex-wrap:wrap;padding-top:5px;padding-bottom:5px;}
 .replay-bar:has([aria-label="Replay time occurrence"]) .replay-remaining {display:none;}
-@media(max-width:760px) {.replay-bar:has(.replay-date-error),.replay-bar:has([aria-label="Replay time occurrence"]) {flex-wrap:nowrap;}}
-@media(max-width:760px) {.replay-date-control {flex-shrink:0;flex-wrap:nowrap;}.replay-date-control .replay-date-error {max-width:260px;white-space:normal;}}
+@media(max-width:768px) {.replay-bar:has(.replay-date-error),.replay-bar:has([aria-label="Replay time occurrence"]) {flex-wrap:nowrap;}}
+@media(max-width:768px) {.replay-date-control {flex-shrink:0;flex-wrap:nowrap;}.replay-date-control .replay-date-error {max-width:260px;white-space:normal;}}
 .quote-price-basis {font-size:8px;margin-left:3px;color:var(--muted);text-transform:uppercase;}
 .detail-price-basis {font-size:10px;margin-top:-3px;margin-bottom:5px;}
 :root,
@@ -125,7 +125,7 @@ body {
 .trading-app {
   background: var(--tv-shell);
   gap: 4px;
-  min-height: 400px;
+  min-height: 0;
 }
 .trading-app button {
   font-weight: 400;
@@ -242,6 +242,8 @@ body {
   top: 38px;
   left: 0;
   width: 255px;
+  max-height: calc(100dvh - 56px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  overflow-y: auto;
   padding: 7px 0;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -250,7 +252,11 @@ body {
   box-shadow: 0 4px 16px #0003;
   font-size: 13px;
 }
-.tv-popover > button {
+.tv-popover > form {
+  display: contents;
+}
+.tv-popover > button,
+.tv-popover > form > button {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -266,7 +272,8 @@ body {
 .tv-popover button.selected {
   color: var(--accent);
 }
-.tv-popover > button > svg:last-child:not(:first-child) {
+.tv-popover > button > svg:last-child:not(:first-child),
+.tv-popover > form > button > svg:last-child:not(:first-child) {
   margin-left: auto;
 }
 .tv-popover hr {
@@ -1385,28 +1392,29 @@ body {
     display: none;
   }
 }
-@media (max-width: 760px) {
+@media (max-width: 768px) {
   .workspace-toolbar.tv-toolbar {
-    height: 40px;
-    min-height: 40px;
-    gap: 1px;
+    height: 42px;
+    min-height: 42px;
+    gap: 2px;
     overflow: visible;
   }
   .tv-toolbar .symbol-selector {
-    min-width: 78px;
-    padding: 6px;
+    min-width: 68px;
+    padding: 0 8px;
     font-size: 11px;
   }
   .tv-toolbar .toolbar-button {
     font-size: 0;
     gap: 0;
-    padding: 0 3px;
+    padding: 0 4px;
   }
   .tv-toolbar .toolbar-button > span {
     display: none;
   }
   .tv-toolbar .icon-button {
-    width: 27px;
+    width: 36px;
+    height: 36px;
   }
   .tv-toolbar > .icon-button:nth-last-child(n + 3) {
     display: none;
@@ -1415,11 +1423,11 @@ body {
     margin: 0 1px;
   }
   .tv-interval-select {
-    width: 32px;
+    width: 36px;
     font-size: 11px;
   }
   .tv-toolbar .chart-style-select {
-    width: 24px;
+    width: 36px;
   }
   .tv-toolbar .chart-style-select > svg {
     width: 17px;
@@ -1428,26 +1436,31 @@ body {
     gap: 3px;
   }
   .drawing-toolbar {
-    width: 39px;
-    padding: 5px 2px;
+    width: 44px;
+    padding: 6px 4px;
   }
   .drawing-toolbar .icon-button {
-    width: 32px;
-    height: 31px;
+    width: 36px;
+    height: 36px;
   }
   .utility-rail {
-    width: 35px;
+    width: 44px;
   }
   .utility-rail .icon-button {
-    width: 29px;
+    width: 36px;
+    height: 36px;
   }
   .right-sidebar {
-    top: 44px;
-    bottom: var(--sidebar-chart-bottom, 23px);
-    right: 38px;
+    top: 0;
+    bottom: auto;
+    right: calc(44px + env(safe-area-inset-right));
     position: absolute;
-    max-width: calc(100vw - 80px);
-    z-index: 15;
+    width: min(82vw, 340px);
+    max-width: calc(100% - 88px - env(safe-area-inset-left) - env(safe-area-inset-right));
+    min-height: 200px;
+    max-height: max(200px, 55dvh);
+    height: clamp(200px, calc(100% - var(--sidebar-chart-bottom, 0px)), max(200px, 55dvh));
+    z-index: 30;
     box-shadow: -4px 0 16px #0002;
   }
   .panel-heading {
@@ -1493,23 +1506,24 @@ body {
     font-size: 9px;
   }
   .range-toolbar {
-    font-size: 10px;
+    font-size: 11px;
     gap: 2px;
   }
   .range-toolbar > div > button {
-    font-size: 10px;
-    padding: 0 4px;
+    font-size: 11px;
+    min-height: 36px;
+    padding: 0 7px;
   }
   .utc-clock {
     font-size: 9px;
   }
   .replay-bar {
     gap: 4px;
-    padding: 0 5px;
+    padding: 4px 5px;
     font-size: 10px;
     overflow-x: auto;
     scrollbar-width: none;
-    min-height: 39px;
+    min-height: 44px;
   }
   .replay-label {
     font-size: 0;
@@ -1519,26 +1533,30 @@ body {
     width: 16px;
   }
   .replay-bar .icon-button {
-    width: 24px;
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    min-height: 36px;
   }
   .replay-bar input {
     width: 145px;
-    font-size: 10px;
+    font-size: 11px;
+    min-height: 36px;
   }
   .replay-remaining {
     display: none;
   }
   .replay-bar .button {
-    font-size: 10px;
-    min-height: 26px;
-    padding: 0 6px;
+    font-size: 11px;
+    min-height: 36px;
+    padding: 0 10px;
   }
   .layout-popover {
     right: -90px;
     width: 260px;
   }
   .main-menu {
-    width: 245px;
+    width: min(260px, calc(100vw - 16px - env(safe-area-inset-left) - env(safe-area-inset-right)));
   }
   .bottom-panel-tabs {
     gap: 5px;
@@ -1550,12 +1568,13 @@ body {
   }
   .app-status {
     font-size: 8px;
-    height: 18px;
-    min-height: 18px;
+    height: auto;
+    min-height: 22px;
+    padding-bottom: calc(2px + env(safe-area-inset-bottom));
   }
   .drawing-catalog {
-    left: 35px;
-    width: 270px;
+    left: calc(44px + env(safe-area-inset-left));
+    width: min(270px, calc(100vw - 52px - env(safe-area-inset-left) - env(safe-area-inset-right)));
   }
   .multi-chart .chart-heading {
     right: 50px;
@@ -1646,6 +1665,11 @@ body {
 .chart-grid-cell:hover .cell-controls,
 .chart-grid-cell:focus-within .cell-controls {
   opacity: 1;
+}
+@media (max-width: 768px), (pointer: coarse) {
+  .multi-chart .cell-controls {
+    opacity: 1;
+  }
 }
 .satellite-source-badge {
   position: absolute;

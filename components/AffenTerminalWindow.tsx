@@ -182,22 +182,25 @@ export function AffenTerminalWindow({
           <span className="pulse-tag">
             <Activity size={12} /> PULSE
           </span>
-          {macro.crossAssets.map((a) => (
-            <button
-              key={a.symbol}
-              type="button"
-              className="chip"
-              onClick={() => useChartStore.getState().set({ symbol: a.symbol, timeframe: "1D" })}
-              title={`Open chart: ${a.label}`}
-            >
-              <span>{a.label}</span>{" "}
-              <strong className="mono">{a.price}</strong>{" "}
-              <span className={`mono ${a.changePct >= 0 ? "positive" : "negative"}`}>
-                {a.changePct >= 0 ? "+" : ""}
-                {a.changePct.toFixed(1)}%
-              </span>
-            </button>
-          ))}
+          {(macro.crossAssets ?? []).map((a) => {
+            const pctVal = Number.isFinite(a.changePct) ? a.changePct : 0;
+            return (
+              <button
+                key={a.symbol}
+                type="button"
+                className="chip"
+                onClick={() => useChartStore.getState().set({ symbol: a.symbol, timeframe: "1D" })}
+                title={`Open chart: ${a.label}`}
+              >
+                <span>{a.label}</span>{" "}
+                <strong className="mono">{a.price}</strong>{" "}
+                <span className={`mono ${pctVal >= 0 ? "positive" : "negative"}`}>
+                  {pctVal >= 0 ? "+" : ""}
+                  {pctVal.toFixed(1)}%
+                </span>
+              </button>
+            );
+          })}
           {macro.fearGreed ? (
             <span className="mono affen-fear-greed">
               F&amp;G: <strong>{macro.fearGreed.value}</strong> ({macro.fearGreed.classification})

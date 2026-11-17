@@ -35,7 +35,7 @@ function externalUrl(request: NextRequest, target: string): URL {
 function login(next: string, error = "", status = 200): NextResponse {
   return new NextResponse(siteLoginPage(next, error), { status, headers: {
     ...privateHeaders, "Content-Type": "text/html; charset=utf-8",
-    "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+    "Content-Security-Policy": "default-src 'none'; img-src 'self'; manifest-src 'self'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
   } });
 }
 
@@ -48,6 +48,7 @@ export async function proxy(request: NextRequest) {
   if (request.nextUrl.pathname === "/sw.js" && ["GET", "HEAD"].includes(request.method)) {
     const response = NextResponse.next();
     response.headers.set("Cache-Control", "no-store");
+    response.headers.set("X-Content-Type-Options", "nosniff");
     return response;
   }
   const settings = siteAccessConfig();

@@ -624,12 +624,12 @@
 .order-ticket > * {
   flex-shrink: 0;
 }
-.order-ticket input,
+.order-ticket input:not([type="checkbox"]),
 .order-ticket select,
-.account-settings input,
-.lot-form input,
+.account-settings input:not([type="checkbox"]),
+.lot-form input:not([type="checkbox"]),
 .lot-form select,
-.dom-toolbar input,
+.dom-toolbar input:not([type="checkbox"]),
 .dom-toolbar select {
   height: 28px;
   padding: 0 8px;
@@ -1287,6 +1287,22 @@
   width: 22px;
   height: 22px;
 }
+@media (max-width: 768px), (pointer: coarse) {
+  .tree-row {
+    flex-wrap: wrap;
+    min-height: 40px;
+    padding: 4px 8px 4px 0;
+  }
+  .tree-row .tree-actions {
+    visibility: visible;
+    flex-wrap: wrap;
+    gap: 2px;
+  }
+  .tree-actions .icon-button {
+    width: 36px;
+    height: 36px;
+  }
+}
 .study-dot {
   width: 8px;
   height: 8px;
@@ -1721,23 +1737,32 @@
   opacity: 0.6;
   margin-left: 6px;
 }
-/* Phones: the sidebar floats over the chart instead of squeezing it away */
-@media (max-width: 760px) {
+/* Phones & tablets: the sidebar floats cleanly over the chart in a bounded sheet */
+@media (max-width: 768px) {
   .workspace-main {
     position: relative;
   }
   .right-sidebar {
     position: absolute;
     top: 0;
-    right: 46px;
-    bottom: var(--sidebar-chart-bottom, 0px);
+    right: calc(44px + env(safe-area-inset-right));
+    bottom: auto;
     z-index: 30;
-    width: min(78vw, 340px) !important;
-    max-width: 78vw;
+    width: min(82vw, 340px) !important;
+    max-width: calc(100% - 88px - env(safe-area-inset-left) - env(safe-area-inset-right));
+    min-height: 200px;
+    max-height: max(200px, 55dvh);
+    height: clamp(200px, calc(100% - var(--sidebar-chart-bottom, 0px)), max(200px, 55dvh));
     box-shadow: -8px 0 24px rgba(0, 0, 0, 0.28);
   }
   .center-workspace {
     min-width: 0;
+  }
+}
+@media (max-width: 768px), (pointer: coarse) {
+  .watchlist-row.dynamic {
+    min-height: 40px;
+    padding-right: 40px;
   }
 }
 .book-view{font-variant-numeric:tabular-nums;font-size:var(--book-text);margin:10px 0}
@@ -2004,8 +2029,10 @@
   border-radius: 0;
   background: transparent;
 }
+.research-terminal .pane-content .table-scroll,
 .research-terminal .pane-content .stock-base-results,
 .research-terminal .pane-content .screener-results {
+  max-width: 100%;
   max-height: none;
   overflow-y: visible;
   overflow-x: auto;
@@ -2105,6 +2132,7 @@
 }
 .affen-window-shell {
   height: 100dvh;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
   display: flex;
   flex-direction: column;
   background: var(--bg, #08090c);
@@ -2371,15 +2399,22 @@
   .affen-window-shell {
     height: 100dvh;
     min-height: 0;
-    overflow-x: hidden;
-    overflow-y: auto;
+    overflow: hidden;
+  }
+  .affen-window-body {
+    overflow: hidden;
   }
   .affen-window-header {
     height: auto;
     max-height: none;
-    min-height: 36px;
+    min-height: 40px;
     padding: 4px 8px;
     gap: 6px;
+  }
+  .affen-window-header .button,
+  .affen-window-header .icon-button {
+    min-height: 36px;
+    min-width: 36px;
   }
   .affen-macro-ribbon {
     flex-wrap: nowrap;
@@ -2401,46 +2436,62 @@
     flex-shrink: 0;
   }
   .research-terminal {
-    height: auto;
-    overflow: visible;
+    flex: 1;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
     padding: 4px 6px;
   }
   .research-terminal.is-embedded {
     padding: 0;
   }
-  .affen-terminal .terminal-workspace-grid {
+  .research-terminal.is-single-pane {
+    padding: 4px 6px;
+  }
+  .research-terminal.is-embedded.is-single-pane {
+    padding: 0;
+  }
+  .research-terminal.is-single-pane .terminal-workspace-grid {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    margin-top: 0;
+  }
+  .research-terminal.is-single-pane .terminal-pane,
+  .research-terminal.is-single-pane .terminal-primary-pane {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .research-terminal:not(.is-single-pane) .terminal-workspace-grid {
     grid-template-columns: minmax(0, 1fr) !important;
+    flex: 1;
+    min-height: 0;
     overflow-y: auto;
   }
-  .terminal-pane,
-  .terminal-primary-pane,
-  .terminal-secondary-pane,
-  .terminal-tertiary-pane {
+  .research-terminal:not(.is-single-pane) .terminal-pane,
+  .research-terminal:not(.is-single-pane) .terminal-primary-pane,
+  .research-terminal:not(.is-single-pane) .terminal-secondary-pane,
+  .research-terminal:not(.is-single-pane) .terminal-tertiary-pane {
     height: auto;
-    min-height: 240px;
+    min-height: 260px;
+  }
+  .research-terminal .pane-content > .heatmap-panel {
+    height: 100%;
+    min-height: 260px;
+  }
+  .research-terminal.is-embedded .pane-content > .heatmap-panel {
+    min-height: 180px;
   }
 }
 @media (max-width: 640px) {
   .terminal-command {
     gap: 5px;
-    padding: 5px 8px;
+    padding: 5px 6px;
   }
   .terminal-command-input-wrap {
     flex: 1 1 100%;
     min-width: 0;
-  }
-  .terminal-command input {
-    height: 30px;
-    font-size: 13px;
-  }
-  .terminal-command button[type="submit"],
-  .affen-terminal-launch,
-  .terminal-command .segmented {
-    height: 28px;
-  }
-  .terminal-command .segmented button {
-    height: 26px;
-    padding: 0 7px;
   }
   .screener-toolbar {
     gap: 6px;
@@ -2453,8 +2504,144 @@
   }
   .screener-toolbar select,
   .screener-toolbar input {
-    min-height: 28px;
     max-width: 100%;
+  }
+}
+@media (max-width: 768px), (pointer: coarse) {
+  .research-terminal .panel-tabs > button {
+    min-height: 36px;
+    height: 36px;
+    padding: 0 10px;
+  }
+  .terminal-command input {
+    min-height: 36px;
+    height: 36px;
+    font-size: 13px;
+  }
+  .terminal-command button[type="submit"],
+  .terminal-command .affen-terminal-launch {
+    min-height: 36px;
+    height: 36px;
+  }
+  .terminal-command .segmented {
+    min-height: 38px;
+    height: auto;
+  }
+  .terminal-command .segmented button {
+    min-height: 36px;
+    height: 36px;
+    padding: 0 8px;
+  }
+  .autocomplete-item {
+    min-height: 40px;
+    padding: 8px 10px;
+  }
+  .screener-toolbar select,
+  .screener-toolbar input,
+  .screener-toolbar button,
+  .pane-icon-btn {
+    min-height: 36px;
+  }
+  .pane-icon-btn {
+    width: 36px;
+    height: 36px;
+  }
+  .pane-view-select {
+    min-height: 36px;
+    height: 36px;
+  }
+  .order-ticket input:not([type="checkbox"]),
+  .order-ticket select,
+  .quick-sizes button,
+  .account-settings input:not([type="checkbox"]),
+  .dom-toolbar input:not([type="checkbox"]),
+  .dom-toolbar select,
+  .order-ticket .check,
+  .trading-panel .button,
+  .modal-card .button,
+  .button.small {
+    min-height: 36px;
+  }
+  .tree-row .caret,
+  .watchlist-section > button {
+    min-width: 28px;
+    min-height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .flag-menu {
+    padding: 10px;
+    gap: 8px;
+  }
+  .flag-menu button {
+    width: 28px;
+    height: 28px;
+  }
+  .flag-filter button {
+    width: 16px;
+    height: 16px;
+  }
+}
+@media (max-width: 768px) {
+  .trading-panel,
+  .portfolio-panel {
+    flex-direction: column;
+    height: auto;
+  }
+  .order-ticket {
+    width: 100%;
+    flex: 0 0 auto;
+    overflow: visible;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .trading-tables,
+  .portfolio-main {
+    flex: 0 0 auto;
+    overflow: visible;
+  }
+  .portfolio-sidebar {
+    width: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 6px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .portfolio-sidebar > button:not(.link-button) {
+    flex: 1 1 auto;
+    min-height: 36px;
+    align-items: center;
+  }
+  .portfolio-grid {
+    grid-template-columns: 1fr;
+  }
+  .bottom-panel-content > .research-terminal.is-embedded,
+  .research-terminal.is-embedded.is-single-pane {
+    height: auto;
+    min-height: 100%;
+    overflow: visible;
+  }
+  .research-terminal.is-embedded.is-single-pane .terminal-workspace-grid,
+  .research-terminal.is-embedded.is-single-pane .terminal-pane,
+  .research-terminal.is-embedded.is-single-pane .terminal-primary-pane,
+  .research-terminal.is-embedded .pane-content {
+    height: auto;
+    overflow: visible;
+  }
+  .research-terminal.is-embedded .terminal-autocomplete {
+    max-height: 160px;
+  }
+  .research-terminal.is-embedded .pane-content > .heatmap-panel {
+    min-height: 200px;
+    height: 220px;
+  }
+}
+@media (max-width: 480px) {
+  .dom-row {
+    grid-template-columns: 44px 1fr 84px 1fr 44px;
   }
 }
 @media (max-width: 540px) {

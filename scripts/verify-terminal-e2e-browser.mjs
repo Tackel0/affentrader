@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -5,7 +6,25 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { build } from "esbuild";
 
-const CHROME_PATH = process.env.CHROME_PATH || "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
+function resolveChromePath() {
+  if (process.env.CHROME_PATH) return process.env.CHROME_PATH;
+  const candidates =
+    process.platform === "win32"
+      ? [
+          "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+          "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+        ]
+      : process.platform === "darwin"
+        ? ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"]
+        : [
+            "/usr/bin/google-chrome",
+            "/usr/bin/chromium",
+            "/usr/bin/chromium-browser",
+          ];
+  return candidates.find((p) => existsSync(p)) ?? candidates[0];
+}
+
+const CHROME_PATH = resolveChromePath();
 
 const MOCK_OSINT_PAYLOAD = {
   fetchedAt: Date.now(),
@@ -343,12 +362,14 @@ async function run() {
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
   const baseUrl = `http://127.0.0.1:${address.port}`;
-  const userDataDir = await mkdtemp(join(tmpdir(), "affentrader-chrome-e2e-"));
+  const tempDirs = [];
 
   let chrome;
   let cdp;
-  try {
-    chrome = spawn(
+  const launchChrome = async (extraArgs = []) => {
+    const userDataDir = await mkdtemp(join(tmpdir(), "affentrader-chrome-e2e-"));
+    tempDirs.push(userDataDir);
+    const proc = spawn(
       CHROME_PATH,
       [
         "--headless=new",
@@ -358,6 +379,7 @@ async function run() {
         "--window-size=1280,1200",
         "--remote-debugging-port=0",
         `--user-data-dir=${userDataDir}`,
+        ...extraArgs,
         "about:blank",
       ],
       { stdio: ["ignore", "pipe", "pipe"] },
@@ -365,8 +387,11 @@ async function run() {
 
     const browserWsUrl = await new Promise((resolve, reject) => {
       let stderr = "";
-      const timer = setTimeout(() => reject(new Error(`Chrome DevTools startup timeout. stderr=${stderr}`)), 15_000);
-      chrome.stderr.on("data", (chunk) => {
+      const timer = setTimeout(() => {
+        if (proc.exitCode === null) proc.kill("SIGKILL");
+        reject(new Error(`Chrome DevTools startup timeout. stderr=${stderr}`));
+      }, 15_000);
+      proc.stderr.on("data", (chunk) => {
         stderr += chunk.toString("utf8");
         const m = stderr.match(/DevTools listening on (ws:\/\/[^\s]+)/);
         if (m) {
@@ -374,11 +399,27 @@ async function run() {
           resolve(m[1]);
         }
       });
-      chrome.once("exit", (code) => {
+      proc.once("exit", (code) => {
         clearTimeout(timer);
         reject(new Error(`Chrome exited early (${code}). stderr=${stderr}`));
       });
     });
+
+    return { proc, browserWsUrl };
+  };
+
+  try {
+    let browserWsUrl;
+    try {
+      ({ proc: chrome, browserWsUrl } = await launchChrome());
+    } catch (firstErr) {
+      if (process.platform !== "linux") throw firstErr;
+      ({ proc: chrome, browserWsUrl } = await launchChrome([
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+      ]));
+    }
 
     const parsedWs = new URL(browserWsUrl);
     const listRes = await fetch(`http://127.0.0.1:${parsedWs.port}/json/list`);
@@ -441,7 +482,7 @@ async function run() {
       await new Promise((r) => setTimeout(r, 150));
     }
     server.close();
-    await rm(userDataDir, { recursive: true, force: true }).catch(() => {});
+    await Promise.all(tempDirs.map((dir) => rm(dir, { recursive: true, force: true }).catch(() => {})));
   }
 }
 

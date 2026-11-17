@@ -22,8 +22,10 @@ import { hyperliquidCatalog } from "@/hooks/useHyperliquidCatalog";
 import { buildMissingOrderflowIndicators, resolveOrderflowTarget } from "@/lib/orderflow/equityOrderflow";
 import { broadcastWorkspaceAction } from "@/hooks/useWindowLink";
 
-const pct = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(1)}%`;
-const distPct = (target: number, current: number) => ((target - current) / current) * 100;
+const pct = (n: number | null | undefined) => (Number.isFinite(n) ? `${n! >= 0 ? "+" : ""}${n!.toFixed(1)}%` : "—");
+const distPct = (target: number, current: number) =>
+  Number.isFinite(target) && Number.isFinite(current) && current > 0 ? ((target - current) / current) * 100 : NaN;
+const fixed = (n: number | null | undefined, digits = 2) => (Number.isFinite(n) ? n!.toFixed(digits) : "—");
 
 function OpportunityMiniChart({ opportunity }: { opportunity: TradeOpportunity }) {
   const bars = opportunity.chart;
@@ -110,7 +112,7 @@ function OpportunityMiniChart({ opportunity }: { opportunity: TradeOpportunity }
         Invalidierung/Stop: <strong className="negative">{formatPrice(invalidation)}</strong> ({pct(distPct(invalidation, opportunity.levels.lastClose))}) ·
         Ziel 1: <strong className="positive">{formatPrice(target1)}</strong> ({pct(distPct(target1, opportunity.levels.lastClose))}) ·
         Ziel 2: <strong className="positive">{formatPrice(target2)}</strong> ({pct(distPct(target2, opportunity.levels.lastClose))}) ·
-        CRV (R:R): <strong>{opportunity.levels.riskReward.toFixed(2)}R</strong>
+        CRV (R:R): <strong>{fixed(opportunity.levels.riskReward, 2)}R</strong>
         {structure && <div>1 Erstes Tief {formatPrice(structure.firstLow.price)} ({structure.firstLow.session}) · 2 Retest {formatPrice(structure.retest.price)} ({structure.retest.session}) · Gestrichelt: Zwischenhoch {formatPrice(structure.neckline)}</div>}
       </figcaption>
     </figure>
@@ -183,8 +185,19 @@ export function OpportunitiesHub({
       const body = (await response.json()) as OpportunityScanResult & { error?: string };
       if (!response.ok) throw new Error(body.error ?? "Opportunity scan unavailable.");
       if (!controller.signal.aborted) {
-        setResult(targetScope === "watchlist" ? { ...body, page, pages: watchPages } : body);
-        const first = body.opportunities[0] ?? null;
+        const normalized: OpportunityScanResult = {
+          ...body,
+          benchmark: body.benchmark ?? STOCK_BASE_MARKETS.find(m => m.id === (body.market ?? targetMarket))?.benchmark ?? "Index",
+          benchmarkSession: body.benchmarkSession ?? "—",
+          evaluated: Number.isFinite(body.evaluated) ? body.evaluated : 0,
+          universe: Number.isFinite(body.universe) ? body.universe : 0,
+          opportunities: Array.isArray(body.opportunities) ? body.opportunities : [],
+          unavailable: Array.isArray(body.unavailable) ? body.unavailable : [],
+          dataSources: Array.isArray(body.dataSources) ? body.dataSources : [],
+          ...(targetScope === "watchlist" ? { page, pages: watchPages } : {}),
+        };
+        setResult(normalized);
+        const first = normalized.opportunities[0] ?? null;
         setSelectedId(first?.id ?? null);
       }
     } catch (err) {
@@ -209,14 +222,22 @@ export function OpportunitiesHub({
       return true;
     });
     return [...list].sort((a, b) => {
-      if (sortBy === "rr") return b.levels.riskReward - a.levels.riskReward || b.score - a.score;
-      if (sortBy === "rs") return b.technicals.relativeStrengthPct - a.technicals.relativeStrengthPct || b.score - a.score;
+      const rrA = Number.isFinite(a.levels.riskReward) ? a.levels.riskReward : -Infinity;
+      const rrB = Number.isFinite(b.levels.riskReward) ? b.levels.riskReward : -Infinity;
+      if (sortBy === "rr") return rrB - rrA || b.score - a.score;
+      if (sortBy === "rs") {
+        const rsA = Number.isFinite(a.technicals.relativeStrengthPct) ? a.technicals.relativeStrengthPct : -Infinity;
+        const rsB = Number.isFinite(b.technicals.relativeStrengthPct) ? b.technicals.relativeStrengthPct : -Infinity;
+        return rsB - rsA || b.score - a.score;
+      }
       if (sortBy === "upside") {
-        const upA = distPct(a.levels.target1, a.levels.lastClose);
-        const upB = distPct(b.levels.target1, b.levels.lastClose);
+        const rawA = distPct(a.levels.target1, a.levels.lastClose);
+        const rawB = distPct(b.levels.target1, b.levels.lastClose);
+        const upA = Number.isFinite(rawA) ? rawA : -Infinity;
+        const upB = Number.isFinite(rawB) ? rawB : -Infinity;
         return upB - upA || b.score - a.score;
       }
-      return b.score - a.score || b.levels.riskReward - a.levels.riskReward;
+      return b.score - a.score || rrB - rrA;
     });
   }, [result, categoryFilter, subTypeFilter, minScore, sortBy]);
 
@@ -368,8 +389,9 @@ export function OpportunitiesHub({
       {result && (
         <div className="screener-toolbar" style={{ gap: "3px 6px", padding: "3px 6px" }}>
           <span className="screener-count mono" role="status">
-            <strong>{result.benchmark}</strong> ({result.benchmarkSession}) · {result.evaluated}/{result.universe} ·{" "}
-            <strong>{filtered.length}</strong> Trade-Setups aktiv{result.excluded ? ` · ${result.excluded} ex-eq` : ""} · {result.dataSources.join(" + ")}
+            <strong>{result.benchmark ?? benchmarkTicker ?? "Index"}</strong> ({result.benchmarkSession ?? "—"}) · {result.evaluated ?? 0}/{result.universe ?? 0} ·{" "}
+            <strong>{filtered.length}</strong> Trade-Setups aktiv{result.excluded ? ` · ${result.excluded} ex-eq` : ""}
+            {Array.isArray(result.dataSources) && result.dataSources.length ? ` · ${result.dataSources.join(" + ")}` : ""}
           </span>
           {(result.pages ?? 1) > 1 && <>
             <button type="button" className="button small" disabled={!result.page} onClick={() => void runScan(market, scope, (result.page ?? 0) - 1)}>Vorherige Gruppe</button>
@@ -446,14 +468,19 @@ export function OpportunitiesHub({
                       {formatPrice(row.levels.target1)} ({pct(t1Dist)}) / {formatPrice(row.levels.target2)}
                     </td>
                     <td className="mono">
-                      <strong>{row.levels.riskReward.toFixed(2)}R</strong>
+                      <strong>{fixed(row.levels.riskReward, 2)}R</strong>
                     </td>
                     <td className={`mono ${row.technicals.relativeStrengthPct >= 0 ? "positive" : "negative"}`}>
                       {pct(row.technicals.relativeStrengthPct)}
                     </td>
                     <td className="mono">
-                      {row.fundamentals?.forwardPe ? `${row.fundamentals.forwardPe.toFixed(1)}×` : "—"} /{" "}
-                      {row.fundamentals?.fcfYieldPct ? `${row.fundamentals.fcfYieldPct.toFixed(1)}%` : "—"}
+                      {Number.isFinite(row.fundamentals?.forwardPe) && row.fundamentals!.forwardPe! > 0
+                        ? `${fixed(row.fundamentals?.forwardPe, 1)}×`
+                        : "—"}{" "}
+                      /{" "}
+                      {Number.isFinite(row.fundamentals?.fcfYieldPct) && row.fundamentals!.fcfYieldPct !== 0
+                        ? `${fixed(row.fundamentals?.fcfYieldPct, 1)}%`
+                        : "—"}
                     </td>
                   </tr>
                 );
@@ -526,15 +553,55 @@ export function OpportunitiesHub({
               type="button"
               className="button small"
               onClick={() => {
-                const entryMid = Math.round(((selected.levels.entryZone[0] + selected.levels.entryZone[1]) / 2) * 100) / 100;
-                usePaperStore.getState().setTicket({
-                  side: "buy",
-                  type: "limit",
-                  price: entryMid,
-                  stopLoss: selected.levels.invalidation,
-                  takeProfit: selected.levels.target1,
-                  reduceOnly: false,
-                });
+                const rawMid = (selected.levels.entryZone[0] + selected.levels.entryZone[1]) / 2;
+                const entryMid =
+                  Number.isFinite(rawMid) && rawMid > 0
+                    ? rawMid >= 1
+                      ? Math.round(rawMid * 100) / 100
+                      : Number(rawMid.toPrecision(6))
+                    : selected.levels.lastClose;
+                const currentQty = usePaperStore.getState().ticket.quantity;
+                const qty = Number.isFinite(currentQty) && currentQty > 0 ? currentQty : 0.01;
+                const tp1 = selected.levels.target1;
+                const tp2 = selected.levels.target2;
+                const sl = selected.levels.invalidation;
+                const leg1Qty = Number((qty / 2).toPrecision(8));
+                const leg2Qty = qty - leg1Qty;
+                const validTp1 = Number.isFinite(tp1) && tp1 > entryMid;
+                const validSl = Number.isFinite(sl) && sl > 0 && sl < entryMid;
+                const hasTwoTargets =
+                  validTp1 &&
+                  Number.isFinite(tp2) &&
+                  tp2 > tp1 &&
+                  validSl &&
+                  leg1Qty >= 1e-12 &&
+                  leg2Qty >= 1e-12;
+                usePaperStore.getState().setTicket(
+                  hasTwoTargets
+                    ? {
+                        side: "buy",
+                        type: "limit",
+                        quantity: qty,
+                        price: entryMid,
+                        stopLoss: undefined,
+                        takeProfit: undefined,
+                        exitLevels: [
+                          { quantity: leg1Qty, takeProfit: tp1, stopLoss: sl },
+                          { quantity: leg2Qty, takeProfit: tp2, stopLoss: sl },
+                        ],
+                        reduceOnly: false,
+                      }
+                    : {
+                        side: "buy",
+                        type: "limit",
+                        quantity: qty,
+                        price: entryMid,
+                        stopLoss: validSl ? sl : undefined,
+                        takeProfit: validTp1 ? tp1 : undefined,
+                        exitLevels: undefined,
+                        reduceOnly: false,
+                      },
+                );
                 useChartStore.getState().set({
                   symbol: selected.symbol,
                   timeframe: "1D",
@@ -542,8 +609,10 @@ export function OpportunitiesHub({
                   bottomTab: "trading",
                 });
                 const toastPayload = {
-                  title: "Bracket-Order vorbereitet",
-                  message: `${selected.ticker}: Limit ${formatPrice(entryMid)} · Stop ${formatPrice(selected.levels.invalidation)} · TP ${formatPrice(selected.levels.target1)}`,
+                  title: hasTwoTargets || validSl || validTp1 ? "Bracket-Order vorbereitet" : "Limit-Order vorbereitet",
+                  message: hasTwoTargets
+                    ? `${selected.ticker}: Limit ${formatPrice(entryMid)} · Stop ${formatPrice(sl)} · TP1 (50%) ${formatPrice(tp1)} · TP2 (50%) ${formatPrice(tp2)}`
+                    : `${selected.ticker}: Limit ${formatPrice(entryMid)}${validSl ? ` · Stop ${formatPrice(sl)}` : ""}${validTp1 ? ` · TP ${formatPrice(tp1)}` : ""}`,
                   tone: "success" as const,
                 };
                 broadcastWorkspaceAction({
@@ -595,7 +664,7 @@ export function OpportunitiesHub({
           <div>
             <strong>Warum ist das ein Setup? (Evidenz & Begründung)</strong>
             <ul className="form-help">
-              {selected.whySetup.map((reason, idx) => (
+              {(selected.whySetup ?? []).map((reason, idx) => (
                 <li key={idx}>{reason}</li>
               ))}
             </ul>
@@ -623,7 +692,7 @@ export function OpportunitiesHub({
             <div>
               <dt>Chance-Risiko-Verhältnis (CRV)</dt>
               <dd className="mono">
-                <strong>{selected.levels.riskReward.toFixed(2)} : 1</strong>
+                <strong>{fixed(selected.levels.riskReward, 2)} : 1</strong>
               </dd>
             </div>
             <div>
@@ -637,20 +706,20 @@ export function OpportunitiesHub({
             <div>
               <dt>Volumen Dry-Up & Up/Down-Ratio</dt>
               <dd className="mono">
-                Dry-Up {(selected.technicals.volumeDryUpRatio * 100).toFixed(0)}% · Up/Down {selected.technicals.upDownVolumeRatio.toFixed(2)}× · RVOL {selected.technicals.rvol20.toFixed(2)}×
+                Dry-Up {fixed(Number.isFinite(selected.technicals.volumeDryUpRatio) ? selected.technicals.volumeDryUpRatio * 100 : undefined, 0)}% · Up/Down {fixed(selected.technicals.upDownVolumeRatio, 2)}× · RVOL {fixed(selected.technicals.rvol20, 2)}×
               </dd>
             </div>
             <div>
               <dt>OBV / A-D Akkumulation & RSI(14)</dt>
               <dd className="mono">
                 OBV-Div: {selected.technicals.obvDivergence ? "Ja (Bullisch)" : "Neutral"} · A/D-Div:{" "}
-                {selected.technicals.adDivergence ? "Ja (Bullisch)" : "Neutral"} · RSI {selected.technicals.rsi14.toFixed(1)}
+                {selected.technicals.adDivergence ? "Ja (Bullisch)" : "Neutral"} · RSI {fixed(selected.technicals.rsi14, 1)}
               </dd>
             </div>
             <div>
               <dt>VCP-Kontraktionen & Bollinger-Bandbreite</dt>
               <dd className="mono">
-                {selected.technicals.vcpContractions} Wellen · BB-Width {selected.technicals.bbBandwidthPct.toFixed(1)}% ({selected.technicals.bbSqueezePercentile.toFixed(0)}. Perzentil)
+                {selected.technicals.vcpContractions} Wellen · BB-Width {fixed(selected.technicals.bbBandwidthPct, 1)}% ({fixed(selected.technicals.bbSqueezePercentile, 0)}. Perzentil)
               </dd>
             </div>
           </dl>
@@ -658,7 +727,7 @@ export function OpportunitiesHub({
           <details>
             <summary>Setup-Score Aufschlüsselung · {selected.score}/100 Punkte</summary>
             <dl>
-              {Object.entries(selected.scoreBreakdown).map(([label, pts]) => (
+              {Object.entries(selected.scoreBreakdown ?? {}).map(([label, pts]) => (
                 <div key={label}>
                   <dt>{label}</dt>
                   <dd className="mono">+{pts}</dd>

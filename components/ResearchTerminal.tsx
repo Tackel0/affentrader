@@ -382,9 +382,40 @@ export function ResearchTerminal({
   const request = useRef<AbortController | null>(null);
   const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const userChangedLayoutRef = useRef(false);
+  const preMobileLayoutRef = useRef<TerminalLayoutMode | null>(null);
+  const layoutModeRef = useRef(layoutMode);
+  layoutModeRef.current = layoutMode;
+  const lastPickedSuggestionRef = useRef<{ key: string; at: number } | null>(null);
 
   const chartSymbol = useChartStore((s) => s.symbol);
   const prevChartSymbol = useRef(chartSymbol);
+
+  useEffect(() => {
+    if (defaultLayout || typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const query = window.matchMedia("(max-width: 768px)");
+    const syncPhoneLayout = () => {
+      if (userChangedLayoutRef.current) return;
+      if (query.matches) {
+        if (preMobileLayoutRef.current === null && layoutModeRef.current !== "single") {
+          preMobileLayoutRef.current = layoutModeRef.current;
+        }
+        setMaximizedPane(null);
+        setLayoutMode("single");
+        setActivePane("p1");
+      } else if (preMobileLayoutRef.current !== null) {
+        setLayoutMode(preMobileLayoutRef.current);
+        preMobileLayoutRef.current = null;
+      }
+    };
+    syncPhoneLayout();
+    if (typeof query.addEventListener === "function") {
+      query.addEventListener("change", syncPhoneLayout);
+      return () => query.removeEventListener("change", syncPhoneLayout);
+    }
+    query.addListener(syncPhoneLayout);
+    return () => query.removeListener(syncPhoneLayout);
+  }, [defaultLayout]);
 
   useEffect(() => {
     return () => {
@@ -484,12 +515,14 @@ export function ResearchTerminal({
   };
 
   const applyLayoutMode = (nextMode: TerminalLayoutMode) => {
+    userChangedLayoutRef.current = true;
     setMaximizedPane(null);
     setLayoutMode(nextMode);
     setActivePane((prev) => resolveActivePaneForLayout(prev, nextMode));
   };
 
   const closePane = (paneId: "p2" | "p3") => {
+    userChangedLayoutRef.current = true;
     const next = computePaneCloseState(paneId, layoutMode, activePane, pane2View, pane3View);
     setMaximizedPane(null);
     setLayoutMode(next.layoutMode);
@@ -721,8 +754,10 @@ export function ResearchTerminal({
     if (parsed.kind === "pane") {
       setMaximizedPane(null);
       if (parsed.pane === "p2" && layoutMode === "single") {
+        userChangedLayoutRef.current = true;
         setLayoutMode("split-2");
       } else if (parsed.pane === "p3" && layoutMode !== "split-3") {
+        userChangedLayoutRef.current = true;
         setLayoutMode("split-3");
       }
       setActivePane(parsed.pane);
@@ -937,7 +972,7 @@ export function ResearchTerminal({
               blurTimer.current = setTimeout(() => {
                 setIsAutocompleteOpen(false);
                 setHasNavigatedSuggestion(false);
-              }, 200);
+              }, 250);
             }}
             onKeyDown={(e) => {
               if (e.key === "ArrowUp") {
@@ -1000,20 +1035,39 @@ export function ResearchTerminal({
 
           {isAutocompleteOpen && suggestions.length > 0 && (
             <div className="terminal-autocomplete" role="listbox" aria-label="Command suggestions">
-              {suggestions.map((item, idx) => (
+              {suggestions.map((item, idx) => {
+                const pickSuggestion = () => {
+                  const now = Date.now();
+                  const prev = lastPickedSuggestionRef.current;
+                  if (prev && prev.key === item.key && now - prev.at < 300) return;
+                  lastPickedSuggestionRef.current = { key: item.key, at: now };
+                  if (blurTimer.current !== null) {
+                    clearTimeout(blurTimer.current);
+                    blurTimer.current = null;
+                  }
+                  setCommand(item.key);
+                  setIsAutocompleteOpen(false);
+                  setHasNavigatedSuggestion(false);
+                  execute(item.key);
+                };
+                return (
                 <button
                   key={item.key}
                   type="button"
                   role="option"
                   aria-selected={idx === autocompleteIndex}
                   className={`autocomplete-item${idx === autocompleteIndex ? " highlighted" : ""}`}
+                  onPointerDown={(e) => {
+                    if (e.pointerType !== "mouse" && blurTimer.current !== null) {
+                      clearTimeout(blurTimer.current);
+                      blurTimer.current = null;
+                    }
+                  }}
                   onMouseDown={(e) => {
                     e.preventDefault();
-                    setCommand(item.key);
-                    setIsAutocompleteOpen(false);
-                    setHasNavigatedSuggestion(false);
-                    execute(item.key);
+                    pickSuggestion();
                   }}
+                  onClick={pickSuggestion}
                 >
                   <span className="autocomplete-key">
                     <span className="autocomplete-cat">{item.category}</span>
@@ -1021,7 +1075,8 @@ export function ResearchTerminal({
                   </span>
                   <span className="autocomplete-desc">{item.description}</span>
                 </button>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

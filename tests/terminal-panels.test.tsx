@@ -364,14 +364,19 @@ describe("Analytical Terminal Sub-Panels", () => {
       expect(useChartStore.getState().symbol).toBe("YF:MU");
       expect(onSelectOpportunity).toHaveBeenCalledWith(expect.objectContaining({ ticker: "MU" }), mu.fundamentals);
 
-      // Stage bracket order updates paper ticket
+      // Stage bracket order updates paper ticket with 50/50 two-leg exitLevels across target1 and target2
       const bracketBtn = within(container).getByRole("button", { name: /Bracket-Order vorbereiten/i });
       fireEvent.click(bracketBtn);
       const ticket = usePaperStore.getState().ticket;
       expect(ticket.side).toBe("buy");
       expect(ticket.type).toBe("limit");
-      expect(ticket.stopLoss).toBe(92);
-      expect(ticket.takeProfit).toBe(124);
+      expect(ticket.quantity).toBe(0.01);
+      expect(ticket.stopLoss).toBeUndefined();
+      expect(ticket.takeProfit).toBeUndefined();
+      expect(ticket.exitLevels).toEqual([
+        { quantity: 0.005, takeProfit: 124, stopLoss: 92 },
+        { quantity: 0.005, takeProfit: 136, stopLoss: 92 },
+      ]);
 
       // Filter by category value-garp -> keeps only MU
       const catSelect = within(container).getByLabelText("Strategy category") as HTMLSelectElement;

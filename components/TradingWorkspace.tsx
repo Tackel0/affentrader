@@ -94,9 +94,9 @@ function Workspace({ deployment }: { deployment?: ReactNode }) {
     const offBounds = chart ? bindSidebarChartBounds(sidebar, chart) : undefined;
     return () => { offResize(); offBounds?.(); };
   }, [sidebarOpen]);
-  // Keep the chart visible when entering the phone layout, including resizes.
+  // Keep the chart visible when entering the phone/tablet layout, including resizes.
   useEffect(() => {
-    const phone = window.matchMedia("(max-width: 760px)");
+    const phone = window.matchMedia("(max-width: 768px)");
     const adapt = () => { if (phone.matches) setSidebarOpen(false); };
     adapt();
     phone.addEventListener("change", adapt);

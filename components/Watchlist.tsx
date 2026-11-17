@@ -46,7 +46,8 @@ import { useDismiss } from "./WorkspaceMenus";
 import { baseVolume, notionalVolume, periodLabel, quoteRange, rangeDescription } from "@/lib/market/quoteMetrics";
 import { useQuoteRanges } from "@/hooks/useQuoteRanges";
 
-const ROW = 30;
+const DESKTOP_ROW = 30;
+const TOUCH_ROW = 40;
 const MAX_VIEW = 396;
 const EMPTY_FLAGS: Record<string, WatchFlag> = {};
 const EMPTY_QUOTES: Record<string, Quote> = {};
@@ -122,6 +123,7 @@ function Cell({ column, quote }: { column: WatchColumn; quote?: Quote }) {
 interface RowProps {
   symbol: string;
   columns: WatchColumn[];
+  rowHeight: number;
   flag?: WatchFlag;
   active: boolean;
   selected: boolean;
@@ -136,6 +138,7 @@ interface RowProps {
 const SymbolRow = memo(function SymbolRow({
   symbol,
   columns,
+  rowHeight,
   flag,
   active,
   selected,
@@ -151,7 +154,7 @@ const SymbolRow = memo(function SymbolRow({
   return (
     <div
       className={`watchlist-row dynamic ${active ? "selected" : ""} ${selected ? "multi" : ""}`}
-      style={{ gridTemplateColumns: `minmax(76px,1fr) ${columns.map((c) => `${COLUMN_WIDTH[c]}px`).join(" ")}`, height: ROW }}
+      style={{ gridTemplateColumns: `minmax(76px,1fr) ${columns.map((c) => `${COLUMN_WIDTH[c]}px`).join(" ")}`, height: rowHeight }}
       draggable={draggable}
       onDragStart={(e) => e.dataTransfer.setData("text/plain", symbol)}
       onDragOver={(e) => e.preventDefault()}
@@ -479,7 +482,20 @@ export function Watchlist() {
     [flagFilter, setFlagFilter] = useState<WatchFlag | null>(null),
     [selected, setSelected] = useState<Set<string>>(new Set()),
     [scroll, setScroll] = useState(0),
+    [rowHeight, setRowHeight] = useState(DESKTOP_ROW),
     [flagMenu, setFlagMenu] = useState<{ symbol: string; x: number; y: number } | null>(null);
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const query = window.matchMedia("(max-width: 768px), (pointer: coarse)");
+    const syncRowHeight = () => setRowHeight(query.matches ? TOUCH_ROW : DESKTOP_ROW);
+    syncRowHeight();
+    if (typeof query.addEventListener === "function") {
+      query.addEventListener("change", syncRowHeight);
+      return () => query.removeEventListener("change", syncRowHeight);
+    }
+    query.addListener(syncRowHeight);
+    return () => query.removeListener(syncRowHeight);
+  }, []);
   const flagRef = useDismiss(flagMenu !== null, () => setFlagMenu(null));
   const active = store.lists.find((l) => l.id === store.activeId) ?? store.lists[0];
   const flags = active.flags ?? EMPTY_FLAGS;
@@ -514,9 +530,9 @@ export function Watchlist() {
   }, [matched, sort, flags]);
   const entries = useChartStore(useShallow(selectEntries));
   const count = active.symbols.filter((e) => !isSection(e)).length;
-  const viewHeight = Math.min(entries.length * ROW, MAX_VIEW);
-  const first = Math.max(0, Math.floor(scroll / ROW) - 4);
-  const last = Math.min(entries.length, Math.ceil((scroll + viewHeight) / ROW) + 4);
+  const viewHeight = Math.min(entries.length * rowHeight, MAX_VIEW);
+  const first = Math.max(0, Math.floor(scroll / rowHeight) - 4);
+  const last = Math.min(entries.length, Math.ceil((scroll + viewHeight) / rowHeight) + 4);
   const visibleQuoteKey = entries.slice(first, last).filter(entry => entry.startsWith("HL:")).join(",");
   useEffect(() => {
     useChartStore.getState().set({ visibleWatchSymbols: visibleQuoteKey ? visibleQuoteKey.split(",") : [] });
@@ -684,16 +700,16 @@ export function Watchlist() {
       ) : null}
       <div
         className="watchlist-rows virtual"
-        style={{ height: viewHeight || undefined, overflowY: entries.length * ROW > MAX_VIEW ? "auto" : "visible" }}
+        style={{ height: viewHeight || undefined, overflowY: entries.length * rowHeight > MAX_VIEW ? "auto" : "visible" }}
         onScroll={(e) => setScroll(e.currentTarget.scrollTop)}
       >
-        <div style={{ height: entries.length * ROW, position: "relative" }}>
+        <div style={{ height: entries.length * rowHeight, position: "relative" }}>
           {entries.slice(first, last).map((entry, i) =>
             isSection(entry) ? (
               <div
                 key={`section-${first + i}-${entry}`}
                 className="watchlist-section"
-                style={{ position: "absolute", top: (first + i) * ROW, height: ROW, left: 0, right: 0 }}
+                style={{ position: "absolute", top: (first + i) * rowHeight, height: rowHeight, left: 0, right: 0 }}
               >
                 {sectionName(entry)}
                 <button
@@ -704,10 +720,11 @@ export function Watchlist() {
                 </button>
               </div>
             ) : (
-              <div key={entry} style={{ position: "absolute", top: (first + i) * ROW, left: 0, right: 0 }}>
+              <div key={entry} style={{ position: "absolute", top: (first + i) * rowHeight, left: 0, right: 0 }}>
                 <SymbolRow
                   symbol={entry}
                   columns={columns}
+                  rowHeight={rowHeight}
                   flag={flags[entry]}
                   active={symbol === entry}
                   selected={selected.has(entry)}

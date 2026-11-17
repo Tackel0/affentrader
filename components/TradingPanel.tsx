@@ -1,6 +1,7 @@
 "use client";
 import { symbolLabel } from "@/lib/symbolId";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { scaleExitLevels } from "@/lib/trading/exitLevels";
 import {usePaperQuote,usePaperMarkPrices} from "@/hooks/usePaperQuotes";
 import {OrderModification} from "./OrderModification";
 import {OrderExitLevelsDialog} from "./OrderExitLevelsDialog";
@@ -78,6 +79,21 @@ function OrderTicket() {
   const notional = reference ? reference * ticket.quantity : 0;
   const fee = notional * account.feeRate;
   const power = price ? buyingPower(account, marks) : 0;
+  const sizingPrice =
+    ticket.type === "market"
+      ? (book ? Math.max(book.ask, book.bid, price ?? 0) : price)
+      : (ticket.price ?? ticket.stopPrice ?? price);
+  const effectivePrice = sizingPrice && sizingPrice > 0 ? sizingPrice : price;
+  const maxOrderQty =
+    effectivePrice && power > 0
+      ? power / (effectivePrice * (1 + Math.max(0, account.feeRate) * account.leverage))
+      : 0;
+  const lastPositiveQtyRef = useRef(ticket.quantity > 0 ? ticket.quantity : 0.01);
+  useEffect(() => {
+    if (Number.isFinite(ticket.quantity) && ticket.quantity > 0) {
+      lastPositiveQtyRef.current = ticket.quantity;
+    }
+  }, [ticket.quantity]);
   const asset = getSymbol(symbol);
   const submit = async(side: Ticket["side"]) => {
     if(busy)return;setBusy(true);setMessage(null);
@@ -151,7 +167,17 @@ function OrderTicket() {
           min={0}
           step="any"
           value={ticket.quantity}
-          onChange={(e) => set({ quantity: Number(e.target.value) })}
+          onChange={(e) => {
+            const raw = e.target.value === "" ? 0 : Number(e.target.value);
+            if (!Number.isFinite(raw) || raw < 0) return;
+            const prevQty = lastPositiveQtyRef.current;
+            const hasLevels = Boolean(ticket.exitLevels?.length);
+            const scaled = raw > 0 && hasLevels ? scaleExitLevels(ticket.exitLevels, prevQty, raw) : undefined;
+            set({
+              quantity: raw,
+              ...(raw > 0 && hasLevels ? { exitLevels: scaled } : {}),
+            });
+          }}
         />
       </label>
       <div className="quick-sizes">
@@ -159,8 +185,26 @@ function OrderTicket() {
           <button
             key={fraction}
             type="button"
-            disabled={!price}
-            onClick={() => price && set({ quantity: Number(((power * fraction) / price).toPrecision(4)) })}
+            disabled={!effectivePrice || !(power > 0)}
+            onClick={() => {
+              if (!effectivePrice || !(maxOrderQty > 0)) return;
+              const rawQty = maxOrderQty * fraction;
+              let quantity = Number(rawQty.toPrecision(4));
+              if (quantity > maxOrderQty) {
+                const exp = Math.pow(10, 3 - Math.floor(Math.log10(maxOrderQty)));
+                quantity = Math.floor(maxOrderQty * exp) / exp;
+                if (quantity > maxOrderQty) {
+                  quantity = Math.max(0, (Math.floor(maxOrderQty * exp) - 1) / exp);
+                }
+              }
+              const prevQty = lastPositiveQtyRef.current;
+              const hasLevels = Boolean(ticket.exitLevels?.length);
+              const scaled = quantity > 0 && hasLevels ? scaleExitLevels(ticket.exitLevels, prevQty, quantity) : undefined;
+              set({
+                quantity,
+                ...(quantity > 0 && hasLevels ? { exitLevels: scaled } : {}),
+              });
+            }}
           >
             {fraction * 100}%
           </button>

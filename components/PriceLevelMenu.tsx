@@ -27,12 +27,20 @@ export function PriceLevelMenu({ price, draw, drawArea, children }: {
   }, [position]);
   const open = () => {
     const rect = anchor.current?.getBoundingClientRect();
-    if (rect) setPosition({ left: Math.max(4, Math.min(rect.left, window.innerWidth - 164)), top: Math.max(4, Math.min(rect.bottom, window.innerHeight - (drawArea ? 120 : 90))) });
+    const menuHeight = drawArea ? 142 : 98;
+    if (rect) {
+      setPosition({
+        left: Math.max(4, Math.min(rect.left, window.innerWidth - 168)),
+        top: Math.max(4, Math.min(rect.bottom, window.innerHeight - menuHeight)),
+      });
+    }
   };
+  const openRef = useRef(open);
+  openRef.current = open;
   return <span ref={anchor}>
-    {children(priceLevelAction(open))}
+    {children(priceLevelAction(() => openRef.current()))}
     {position && createPortal(<div ref={menu} role="group" aria-label={`Actions for price ${price}`}
-      style={{ position: "fixed", ...position, zIndex: 2000, display: "grid", gap: 4, padding: 6, background: "Canvas", color: "CanvasText", border: "1px solid GrayText", borderRadius: 4 }}
+      style={{ position: "fixed", ...position, zIndex: 2000, display: "grid", gap: 4, padding: 6, background: "var(--tv-dialog, Canvas)", color: "var(--text, CanvasText)", border: "1px solid var(--border, GrayText)", borderRadius: 4, boxShadow: "0 6px 20px rgba(0,0,0,0.28)" }}
       onKeyDown={event => { if (event.key === "Escape") { event.stopPropagation(); close(true); } }}
       onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) close(); }}>
       <button type="button" className="button small" onClick={() => { close(true); draw(); }}>Draw line</button>
