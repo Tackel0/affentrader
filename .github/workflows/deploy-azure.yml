@@ -1,0 +1,189 @@
+name: Verify & Deploy to Azure Container Apps
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      skip_tests:
+        description: "Skip Vitest suite (typecheck & Next.js build still run)"
+        type: boolean
+        required: false
+        default: false
+
+concurrency:
+  group: azure-deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  verify_and_deploy:
+    name: Verify & Deploy AffenTerminal
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Run Vitest suite
+        if: ${{ inputs.skip_tests != true }}
+        run: pnpm test
+
+      - name: Build Next.js standalone bundle
+        run: pnpm run build || pnpm run build
+
+      - name: Stage symlink-free Azure Container Apps context
+        run: node scripts/stage-azure-standalone.mjs --context-dir "${{ runner.temp }}/affentrader-aca-ctx"
+
+      - name: Detect Azure authentication configuration
+        id: auth_mode
+        env:
+          SP_CREDS: ${{ secrets.AZURE_CREDENTIALS }}
+          OIDC_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          OIDC_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          OIDC_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          if [ -n "$OIDC_CLIENT_ID" ] && [ -n "$OIDC_TENANT_ID" ] && [ -n "$OIDC_SUBSCRIPTION_ID" ]; then
+            echo "mode=oidc" >> "$GITHUB_OUTPUT"
+          elif [ -n "$SP_CREDS" ]; then
+            echo "mode=creds" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=none" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Report missing Azure credentials
+        if: steps.auth_mode.outputs.mode == 'none'
+        run: |
+          cat <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+          ### Azure Container Apps deployment skipped (credentials not yet configured)
+
+          Verification (`typecheck`, `test`, `build`, `stage-azure-standalone.mjs`) succeeded cleanly.
+          To enable automatic deployments to **affenterminal** (`affentrader-rg`), add **either**:
+          - **`AZURE_CREDENTIALS`** repository secret (Service Principal JSON), **or**
+          - **`AZURE_CLIENT_ID`**, **`AZURE_TENANT_ID`**, **`AZURE_SUBSCRIPTION_ID`** repository secrets for OpenID Connect (OIDC).
+          EOF
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "::error::Azure credentials missing. Configure AZURE_CREDENTIALS or OIDC secrets in GitHub repository Settings -> Secrets -> Actions."
+            exit 1
+          fi
+          echo "::warning title=Azure deploy skipped::Configure AZURE_CREDENTIALS (or OIDC secrets) in GitHub repository secrets to enable automatic Azure Container Apps rollout."
+
+      - name: Azure Login (OIDC)
+        if: steps.auth_mode.outputs.mode == 'oidc'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Azure Login (Service Principal JSON)
+        if: steps.auth_mode.outputs.mode == 'creds'
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Push ACR image, update Container App & verify live revision
+        if: steps.auth_mode.outputs.mode != 'none'
+        env:
+          SECRET_ACR_USER: ${{ secrets.ACR_USERNAME }}
+          SECRET_ACR_PASS: ${{ secrets.ACR_PASSWORD }}
+          CONTEXT_DIR: ${{ runner.temp }}/affentrader-aca-ctx
+        run: |
+          set -euo pipefail
+
+          ACR_LOGIN_SERVER="affentraderacr853a.azurecr.io"
+          ACR_NAME="affentraderacr853a"
+          RESOURCE_GROUP="affentrader-rg"
+          APP_NAME="affenterminal"
+          LIVE_BASE="https://affenterminal.livelydesert-dd29fc84.germanywestcentral.azurecontainerapps.io"
+
+          if [ -n "$SECRET_ACR_USER" ] && [ -n "$SECRET_ACR_PASS" ]; then
+            ACR_USER=$(printf '%s' "$SECRET_ACR_USER" | tr -d '\r\n')
+            ACR_PASS=$(printf '%s' "$SECRET_ACR_PASS" | tr -d '\r\n')
+          else
+            ACR_USER=$(az acr credential show -n "$ACR_NAME" -g "$RESOURCE_GROUP" --query username -o tsv | tr -d '\r\n')
+            ACR_PASS=$(az acr credential show -n "$ACR_NAME" -g "$RESOURCE_GROUP" --query 'passwords[0].value' -o tsv | tr -d '\r\n')
+          fi
+          if [ -z "$ACR_USER" ] || [ -z "$ACR_PASS" ]; then
+            echo "::error::Failed to obtain non-empty ACR credentials for ${ACR_LOGIN_SERVER}."
+            exit 1
+          fi
+          echo "::add-mask::$ACR_USER"
+          echo "::add-mask::$ACR_PASS"
+
+          UTC_COMPACT=$(date -u +%Y%m%d%H%M%S)
+          SHORT_SHA8=$(git rev-parse HEAD | cut -c1-8)
+          TAG="v${UTC_COMPACT:0:8}-${UTC_COMPACT:8:6}-${SHORT_SHA8}"
+          SUFFIX="r${UTC_COMPACT}-${SHORT_SHA8}"
+          EXPECTED_ISO="${UTC_COMPACT:0:4}-${UTC_COMPACT:4:2}-${UTC_COMPACT:6:2}T${UTC_COMPACT:8:2}:${UTC_COMPACT:10:2}:${UTC_COMPACT:12:2}.000Z"
+
+          ACR_LOGIN_SERVER="$ACR_LOGIN_SERVER" \
+          ACR_USERNAME="$ACR_USER" \
+          ACR_PASSWORD="$ACR_PASS" \
+          APP_CONTEXT_DIR="$CONTEXT_DIR" \
+          TARGET_REPO="affenterminal" \
+          TARGET_TAG="$TAG" \
+          node scripts/push-acr-image.mjs
+
+          az config set extension.use_dynamic_install=yes_without_prompt >/dev/null
+          az extension add --name containerapp --upgrade --only-show-errors || true
+
+          az containerapp update \
+            --name "$APP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --image "${ACR_LOGIN_SERVER}/${APP_NAME}:${TAG}" \
+            --revision-suffix "$SUFFIX" \
+            --output none
+
+          OK=0
+          for attempt in $(seq 1 24); do
+            LOGIN_CODE=$(curl -sS --max-time 15 -o /tmp/live-login.html -w "%{http_code}" "${LIVE_BASE}/login" || echo "000")
+            MANIFEST_CODE=$(curl -sS --max-time 15 -o /dev/null -w "%{http_code}" "${LIVE_BASE}/manifest.webmanifest" || echo "000")
+            ICON_CODE=$(curl -sS --max-time 15 -o /dev/null -w "%{http_code}" "${LIVE_BASE}/icons/icon-192.png" || echo "000")
+            SW_CODE=$(curl -sS --max-time 15 -o /dev/null -w "%{http_code}" "${LIVE_BASE}/sw.js" || echo "000")
+            if [ "$LOGIN_CODE" = "200" ] && [ "$MANIFEST_CODE" = "200" ] && [ "$ICON_CODE" = "200" ] && [ "$SW_CODE" = "200" ] \
+              && grep -q "datetime=\"${EXPECTED_ISO}\"" /tmp/live-login.html \
+              && grep -q "viewport-fit=cover" /tmp/live-login.html; then
+              OK=1
+              break
+            fi
+            echo "Attempt ${attempt}/24: login=${LOGIN_CODE} manifest=${MANIFEST_CODE} icon=${ICON_CODE} sw=${SW_CODE} (waiting for ${EXPECTED_ISO})"
+            sleep 5
+          done
+          rm -f /tmp/live-login.html
+
+          if [ "$OK" -ne 1 ]; then
+            echo "::error::Live verification failed to observe revision ${SUFFIX} (${EXPECTED_ISO}) at ${LIVE_BASE}/login"
+            exit 1
+          fi
+
+          {
+            printf '### Azure Container Apps Deployment Verified\n\n'
+            printf -- '- **Live URL:** %s\n' "$LIVE_BASE"
+            printf -- '- **Image:** `%s/%s:%s`\n' "$ACR_LOGIN_SERVER" "$APP_NAME" "$TAG"
+            printf -- '- **Revision Suffix:** `%s`\n' "$SUFFIX"
+            printf -- '- **Verified Timestamp:** `%s`\n' "$EXPECTED_ISO"
+            printf -- '- **Checks:** `/login` (200 + `viewport-fit=cover`), `/manifest.webmanifest` (200), `/icons/icon-192.png` (200), `/sw.js` (200)\n'
+          } >> "$GITHUB_STEP_SUMMARY"
