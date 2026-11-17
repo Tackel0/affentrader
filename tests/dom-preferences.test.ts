@@ -1,7 +1,7 @@
 import {afterEach,describe,expect,it,vi} from "vitest";
 import {defaultDomPreferences,validDomPreferences,readDomPreferences,setDomGrouping,domGrouping} from "@/lib/orderflow/domPreferences";
 afterEach(()=>{vi.unstubAllGlobals();vi.resetModules();});
-function storage(){const disk=new Map<string,string>();vi.stubGlobal("localStorage",{getItem:(k:string)=>disk.get(k)??null,setItem:(k:string,v:string)=>disk.set(k,v),removeItem:(k:string)=>disk.delete(k)});return disk;}
+function storage(){const disk=new Map<string,string>();vi.stubGlobal("navigator",{locks:{request:async(_name:string,_options:unknown,action:()=>Promise<unknown>)=>action()}});vi.stubGlobal("localStorage",{getItem:(k:string)=>disk.get(k)??null,setItem:(k:string,v:string)=>disk.set(k,v),removeItem:(k:string)=>disk.delete(k)});return disk;}
 describe("persisted DOM view preferences",()=>{
   it("validates only complete view settings and rejects order/runtime data and malformed column layouts",()=>{
     expect(validDomPreferences(defaultDomPreferences())).toBe(true);

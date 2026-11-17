@@ -242,7 +242,7 @@ export async function loadStrategyDataset(
         currency: "USDC",
         type: "future",
         tickSize: priceTick(asset.mark, asset.szDecimals),
-        quantityStep: 10 ** -asset.szDecimals,
+        quantityStep: Number(`1e-${asset.szDecimals}`),
         quantitySource: "exchange",
       };
     }

@@ -191,7 +191,7 @@ export function priceTick(price: number, szDecimals = 0): number {
   if (!(price > 0)) return 0.01;
   const magnitude = Math.floor(Math.log10(price)) + 1;
   const decimals = Math.max(0, Math.min(6 - szDecimals, 5 - magnitude));
-  return 10 ** -decimals;
+  return Number(`1e-${decimals}`);
 }
 
 /** Dex a coin lives on, from its name. */
