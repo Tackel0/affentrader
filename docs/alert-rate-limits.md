@@ -1,0 +1,34 @@
+# Excessive-trigger stops
+
+Implemented on 2026-10-25. The ordinary price pipeline, browser condition rules and local server runner now enforce durable rolling trigger limits independently of the visible event log.
+
+## Policy
+
+The primary [TradingView support reference](https://www.tradingview.com/support/solutions/43000690939-alert-was-triggered-too-often-and-stopped/) states a limit of 15 triggers in three minutes for a regular alert, 15 for each watchlist member and 1,000 across the whole watchlist. It explicitly says a member reaching its limit stops independently, while the whole watchlist stops at its aggregate limit.
+
+This implementation delivers the firing that reaches the limit and immediately records the stop. A sixteenth regular/member event or a 1,001st aggregate event is not delivered. The window is rolling `(now - 180,000 ms, now]`, rather than fixed wall-clock buckets. Timestamps retained after a backward clock correction continue to count; a clock rollback cannot clear a recent burst. Automatic stops persist beyond the window until an explicit restart or edit.
+
+The durable `rate` field keeps at most 1,000 recent committed firings and up to 1,000 stopped-member timestamps. An alert-wide `stop` identifies either the regular limit or the watchlist aggregate limit and records the stop time. These fields and the Stopped status survive normal LocalStorage/server JSON persistence and validated workspace backups. Clearing the visible log does not clear them. Legacy records without the new fields acquire counters on their next committed event; old display logs are not retrospectively reconstructed into rate history.
+
+## Execution and restart
+
+- Basic price alerts admit a firing in the same store update that records its log and status. Their rate clock is the actual observation clock, separate from a historical close timestamp.
+- Browser rules admit a firing together with the event and per-symbol frequency state. Duplicate event IDs cannot increment a counter. Only an accepted event reaches the sound/toast/browser-notification and webhook-forwarding callbacks. Stopped members are excluded from subscriptions and history preparation. A dispatch already in progress checks the current rule before evaluating another member.
+- The server serializes evaluations and admits each firing inside the atomic JSON commit, using the current aggregate/member counters. A pass with many matching members stops committing at exactly 1,000. Push is attempted only for accepted committed events. Replaying server events in the browser appends logs without mutating the server's authoritative counters or status.
+- Pause/resume preserves the rolling counts and stopped members. Resume establishes a fresh observation baseline without discarding persisted frequency gates. Its new baseline identifier also invalidates an evaluation that was in flight before pause/resume.
+- Restart alert clears its stop/counters and rearms its scope. Restart stopped symbols removes only those members' counters and firing state; other members retain their crossing baselines, completion and frequency gates. A paused watchlist stays paused. Expiration must be edited before a restart is accepted.
+- Server controls use an authenticated, narrow `PATCH /api/alerts` action (`pause`, `resume`, `restart`, `restart_symbols`). They operate on the current stored definition and retain webhook credentials, rather than overwriting it with a stale browser copy. Scope membership remains a separate mutually exclusive patch operation.
+
+The Alerts panel offers a Stopped filter, a visible stop reason and explicit Restart alert control. A watchlist with stopped members remains Active, exposes the affected symbols and their stop times, and offers Restart stopped symbols. Expired restart controls are disabled.
+
+## Evidence and limits
+
+The complete suite passed: 47 files / 539 tests (`artifacts/alert-rate-tests.log`). The 23 new rate cases check the threshold event, rolling boundary, clock rollback, independent and aggregate stops, persistent storage rehydration, log clearing, duplicate IDs, ordinary evaluator/store dispatch, cross-member routing/baselines, restart semantics and workspace validation. Six new server cases check actual JSON durability and restart, concurrent evaluation, an aggregate pass capped at 1,000, pause/resume during a pending market request, authenticated controls and secret retention, and expired/invalid control requests.
+
+Production browser checks used live Binance one-second candle rules with sound/browser notifications off. `Trigger limit verification` (BTCUSDT, close above 1, Once per bar) displayed Stopped and the 15-trigger reason at exactly 15 log events. Reload retained the stop. Restart alert made it Active and cleared the reason; it was then paused. `Watchlist rate verification` used the existing eight-member Crypto watchlist, close above 50,000 and Once per bar: only BTCUSDT stopped after another 15 events, while the watchlist remained Active with seven unaffected members. The details identified BTCUSDT and offered its restart. After pausing and reloading, the one stopped member remained recorded; Restart stopped symbols cleared it while the watchlist stayed Paused. The original five-member Hyperliquid watchlist was restored as the selected list. Screenshots: `artifacts/alert-rate-stopped.png` and `artifacts/alert-rate-watchlist.png`.
+
+Reactivating the paused regular check produced exactly 15 more events and stopped it again. The Stopped filter showed only that rule. The actual UI event log contained 45 BROWSER events: 30 for the regular check and 15 for the watchlist check, with no SIMULATION labels. The 45-event log scrolled to 3,655 px within its 643 px region while the heading remained at y=42 and the outer sidebar remained at scrollTop=0. The final state leaves the regular check Stopped and the watchlist check Paused; there are no active verification rules.
+
+These limits apply to managed PriceAlert/AlertRule records. Source inspection also confirmed that `hooks/useVelaChart.ts` native Pine alerts still use a transient toast path, not a saved subscription with frozen script/inputs and durable server evaluation. That separate Pine alert lifecycle remains unfinished and is explicit in the parity audit.
+
+This does not establish complete TradingView alert parity. Inactivity deactivation, exact exchange-session boundaries, exact native movement-window behavior and full-universe candle-alert capacity remain open. The browser still prepares at most 40 candle-dependent watchlist symbols, and the server loads at most 60 series per pass. Local server observation is normally polled every 15 seconds and upstream caches may be coarser; a rate gate does not provide unseen tick events or redundant hosted operation. No real external webhook/push delivery is claimed by these controlled-input tests.

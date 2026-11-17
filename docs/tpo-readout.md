@@ -1,0 +1,25 @@
+# TPO session inspection and history repairs
+
+The TPO chart now exposes the renderer's actual session model in the primary Data window. Fields include UTC session/loaded-candle bounds, observed candle slots and blocks, absent slots through the last loaded candle, opening coverage, opportunities, canonical POC row/midpoint, POC count, value-area bounds/count/actual share, single-block row count and dense price-row count.
+
+The native selected candle's raw opening timestamp selects a session by inclusive start and exclusive end. Values describe the whole loaded/revealed session snapshot, including revealed candles after the selected candle. They are not historical signals or candle volume. Replay uses only its revealed OHLC prefix. A cell/market/interval/source-epoch/Replay mismatch returns a waiting state. Missing sessions and calculation errors return notices without old numbers; layer ownership tokens fence obsolete cleanup.
+
+The native readout adapter now also exposes series bounds: first/last bar time, bar count and the last bar's high/low. TPO inspection compares these with the painted model before showing numbers. A backward Replay seek or changed developing tail therefore waits for the matching model instead of showing the previous longer prefix. The patch is pinned to Vela 0.9.0 and adapts all five published renderer bundles; it upgrades the prior timestamp adapter reproducibly.
+
+The TPO cache previously compared array identity, length and the last bar only. It now compares copied time/high/low fields of every contributing bar, catching older in-place corrections and recovering after invalid data is repaired. Display-only settings and open/close/volume edits reuse the model because they do not contribute to TPO calculation. Model settings still invalidate it. Session bars are sorted before coverage calculation; bars must align to the selected interval/session. Absent candle slots are reported through the last loaded candle, not through the unobserved future session end. An absent slot is not proof of an exchange outage: no-trade intervals can also lack candles.
+
+TPOs remain OHLC-derived approximations. A candle range does not establish actual execution at every intervening price. Zero absent slots is not proof of complete exchange history. Automatic price rows can change as the session range develops, so opportunity counts need not increase monotonically. No exchange trade volume, recorded execution Replay, Initial Balance controls, split/merge interaction or full platform parity is claimed by this change. The public [TradingView TPO reference](https://www.tradingview.com/support/solutions/43000725590-time-price-opportunity-charts-explained/) remains a broader comparison target.
+
+## Verification
+
+- **1,469 tests across 127 files passed**, with production build and TypeScript.
+- Seven new cases cover exact model readouts, missing opening/internal slots, older in-place high/low/time repairs and recovery, cosmetic/non-contributing edits, cell/source/Replay/layer ownership, shortened Replay/developing-tail fencing and explicit failures. Existing TPO/grid/calendar tests pass. Actual methods in all five native bundles now verify shortened series bounds as well as selected timestamps.
+- Production Hyperliquid BTC/5m inspection showed 96 loaded candles through 07:55 UTC, 16 observed 30-minute blocks, 302 opportunities and 212 value-area opportunities (70.1986754967%). The selected session opened at 00:00 UTC; no absent slots were reported through that last loaded candle. These are observations from the test run, not exchange-volume claims.
+- Actual Replay at 23:40 showed 285 loaded session candles. Seeking backward to 01:00 reduced that to 13 candles/3 blocks; two Next clicks produced 15 candles through 01:10. Exiting restored the current live session. The model's automatic row grid recalculated with its shorter revealed range.
+- At 375×900 the long timestamps, POC and value-area bounds fit/wrapped within the sidebar; measured dimensions are recorded in the bounds report. Switching back to Candles removed the TPO section. The viewport override was reset and the original EMA/Volume/Watchlist scene restored.
+
+Evidence is under `artifacts/tpo-readout-*`: tests/build logs, actual DOM snapshots, live value JSON, desktop/mobile screenshots, mobile width measurements and console output. The cache still scans all contributing bars on each read and performs model work synchronously when they change. Large/multi-chart responsiveness, complete TPO controls, complete exchange archives, licensed Nasdaq data, full parity and the separate intermittent older-candle issue remain open.
+
+[Initial Balance controls and coverage](tpo-initial-balance.md) subsequently add the opening-block range; see that document also for the observed post-Replay histogram-rendering issue.
+
+Current structural ranges and corrected Value Area tie behavior are documented in [TPO structure](tpo-structure.md). Older simultaneous-neighbor expansion descriptions are superseded.

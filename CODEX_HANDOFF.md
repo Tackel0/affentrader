@@ -1,0 +1,269 @@
+# CODEX_HANDOFF.md — AffenTerminal Architecture & Continuity Guide
+
+This document is the single self-contained architectural, operational, and iteration continuity guide for **ChatGPT / Codex** so any future session can take over **AffenTerminal** (`affentrader`, Windows workspace, Git `main` branch) immediately with zero lost context.
+
+---
+
+## 1. Completed Modules & Current Status
+
+### A. AffenTerminal Pro GUI, Command Bar & Multi-Pane Workspace (`components/ResearchTerminal.tsx`, `components/AffenTerminalWindow.tsx`, `app/terminal/page.tsx`, `lib/terminal/commands.ts`, `lib/terminal/orders.ts`, `lib/terminal/workspace.ts`)
+- **Standalone External Window (`/terminal`) & Institutional Dark Theme:**
+  - Launchable via the toolbar **`AffenTerminal ↗`** button, File menu, or the terminal's **`Pop-out ↗`** button (`openAffenTerminalWindow()` in `lib/windowScope.ts`), automatically isolated into the `"affen-terminal"` storage scope (`popoutId()` in `lib/windowScope.ts`) for `/terminal` and `/terminal/*` routes so `useChartStore` never collides with the main `"Chart Workspace"` tab.
+  - Defaults fresh standalone `/terminal` sessions to institutional pitch-charcoal dark mode (`#08090c` background, `#0d0f14` surface, `#ff9e00` amber accent) when no explicit `?theme=` URL parameter or persisted `affentrader-premium-v1` theme exists (`AffenTerminalWindow.tsx`), while honoring the Light/Dark toggle. CSS precedence rules in `app/globals.css` and `app/features.css` (`:root[data-theme="dark"]`, `[data-theme="dark"]`, `.affen-window-shell.theme-dark`, sharp `1px` `.button` / `.button.primary`) override legacy `tradingview.css` blue variables (`#2962ff`).
+  - Bidirectional symbol/workspace synchronization (`useWindowLink` / `BroadcastChannel("affentrader-link")` with validated `"workspace"` actions in `lib/windowLink.ts`, defaulting to `"red"` on initial mount only when neither `?link=` nor `sessionStorage` specifies a group, so `"Off"` persists across reloads), URL `?ticker=` initialization, and `window.opener.focus()` on `"Chart Workspace"`.
+  - Top responsive **Live Cross-Asset & Sentiment Pulse Ribbon** (`.affen-macro-ribbon`, wrapping cleanly across `1000px–1920px`) displaying FRED macro spreads, Crypto Fear & Greed (`alternative.me`), S&P 500, NASDAQ, DAX 40, VIX, US 10Y, Brent/WTI, Gold, and Bitcoin quotes.
+- **Keyboard-First Command Bar, Order Staging & Autocomplete (`lib/terminal/commands.ts`, `lib/terminal/orders.ts`):**
+  - **Global Shortcuts & History:** `Alt+K` focuses `#terminal-command`; 3-step `Escape` closes autocomplete, clears input, or blurs; `F1–F11` switch module views inside the active pane and `F12` toggles fullscreen; `Ctrl+1/2/3` and `Tab` (outside editable elements) cycle active panes; deduplicated max-50 command history persists under `localStorage["affentrader-terminal-history"]` with `ArrowUp`/`ArrowDown` recall.
+  - **Interactive Autocomplete (`role="listbox"`):** Live command, ticker, layout, pane, and order suggestions (`BASE_AUTOCOMPLETE_ITEMS` + catalog tickers) supporting `ArrowDown`/`ArrowUp`, `Tab`, `Enter`, and `mouseDown` selection.
+  - **Command Parser (`parseTerminalCommand`, `tokenizeTerminalCommand`):**
+    - *Modules & Ticker Shortcuts:* `OPPS`/`SETUPS`, `FA`/`VALUE`/`DES [TICKER]`, `SCAN`/`BASES`, `MARKETS`/`WEI`, `COMPARE`/`COMP`, `CAPM`/`BETA`, `MACRO`/`CALENDAR`/`YIELDS`, `NEWS`, `HEATMAP`, `OSINT`/`TANKER`/`AIS`/`FLIGHTS`/`ADSB`/`MAP`, `FLOW`/`FOOTPRINT`/`ORDERFLOW` (equity-to-Hyperliquid perp mapping via `resolveOrderflowTarget()` or OHLCV proxy), `CHART`/`GP`/`QUOTE <TICKER>`, `<TICKER> <GO>`, `<TICKER> <ACTION>`, `HELP`/`?`, `CLEAR`/`CLS`/`RESET`.
+    - *Layout & Pane Commands:* `SPLIT 1/2/3`, `1-PANE`/`2-PANE`/`3-PANE`, `GRID`, `PANE 1/2/3` (auto-expanding layout when targeting an unmounted pane).
+    - *Paper Order Staging (`parseOrderTokens`, `resolveOrderExecution`):* `BUY`/`SELL <TICKER> [QTY] [@ PRICE]` and ticker-first syntax stage market/limit orders directly into `usePaperStore`, normalize equities via `resolveOrderTargetSymbol()`, reject zero/negative quantities/prices, and block non-tradeable cash indices (`isNonTradeableIndex`, e.g. `^GSPC`, `SPX`, `NDX`, `VIX`).
+- **Modular Multi-Pane Workspace & Sub-Panel Density (`lib/terminal/workspace.ts`, `app/features.css`, `app/workspace-chrome.css`):**
+  - Supports **1-Pane** (`single`), **2-Pane** (`split-2`), and **3-Pane Bloomberg Grid** (`split-3`, default in `/terminal`). Embedded `ResearchTerminal` inside `BottomPanel` (`!externalWindow`) now defaults to flat **1-Pane (`single`)** mode (`defaultLayout ?? (externalWindow ? "split-3" : "single")`) with `.is-embedded` and `.is-single-pane` classes hiding redundant `.terminal-tile-header` chrome, keeping `.panel-tabs` single-row horizontally scrollable, removing outer box-in-box borders/scroll traps, and sizing mobile bottom drawers cleanly (`min(var(--panel-height, 280px), 48dvh)`, `min-height: 200px` in `app/workspace-chrome.css`). `@container terminal-shell (max-width: 780px)` and `@media (max-width: 800px)` / `(max-width: 640px)` / `(max-width: 540px)` wrap `.terminal-command` and `.screener-toolbar` cleanly on smartphones without horizontal overflow.
+  - `TerminalTileHeader` per pane (`P1`, `P2`, `P3`) provides active-pane amber focus highlighting, concise `selectLabel` module `<select>` pickers (`OPPS · Setups`, `FA · Value`, etc.), `Maximize` / `Restore`, and `Close` (`computePaneCloseState`). `resolveSecondaryPaneView()` keeps the secondary pane open (`GLOBAL MARKETS` in `split-2`, `MACRO CALENDAR` in `split-3`) when `P1` is set to `FA`.
+  - Analytical sub-panels (`OpportunitiesHub.tsx`, `NewsPanel.tsx`, `TerminalMarkets.tsx`, `FundamentalsPanel.tsx`, `StockBaseScanner.tsx`, `TerminalCompare.tsx`, `CalendarPanel.tsx`, `HeatmapPanel.tsx`, `OsintMapPanel.tsx`, `OrderFlowPanel.tsx`, alongside `BookView.tsx`) share unified `.error-message.screener-error` alerts, `.table-scroll` wrappers, `.terminal-telemetry-chip mono` / `.mono` tabular readouts, compact 5-column `TerminalMarkets` formatting (`Market`, `Close`, `1D`, `5D`, `20D`), and compact `OpportunitiesHub` toolbar/strategy bars so trade setups appear immediately inside 370px `BottomPanel` height.
+
+### B. Multi-Strategy „Trade-Möglichkeiten“-Engine (`lib/screener/opportunities.ts`, `lib/server/opportunities.ts`, `lib/quant/signals.ts`)
+Outputs filterable trade setups with a **Setup-Score (0–100)**, transparent point breakdown (`scoreBreakdown`), structured rationale (**„Warum ist das ein Setup?“**), and actionable **Key-Levels** (`entryZone`, `invalidation`/stop, `target1`, `target2`, `riskReward`), enriched with quantitative indicators (`trading-signals`, `technicalindicators`, `simple-statistics` in `lib/quant/signals.ts`):
+1. **Setup-Kategorie A — Überverkauft + Echte Bodenbildung & Strukturelle Stärke (`structural-bottom`):**
+   - Explicitly rejects naive `RSI < 30` falling knives.
+   - Detects **Wyckoff Accumulation / Spring (`wyckoff-spring`)**, **Higher Low + Break of Structure (`bos-hl-reclaim`)**, and **Confirmed Double Bottoms (`double-bottom`)** after a material drawdown ($\ge 10\%$ and $\ge 3.2\text{ ATR}$), combined with reclaim of 20-EMA / 20d-VWAP.
+   - Requires **Volume Confirmation**: Retest Volume Dry-Up ($\le 95\%$ of selloff volume), bullish **OBV** or **Accumulation/Distribution (A/D)** divergence, or positive up/down session volume ratio ($\ge 1.1\times$).
+   - Requires **Relative Strength (RS)** vs. matched benchmark sessions (`^GSPC`, `^GDAXI`, `^FTSE`).
+2. **Setup-Kategorie B — Fundamental unterbewertete Qualitätsaktien (`value-garp`):**
+   - Evaluates **Forward P/E (KGV)** and **EV/EBITDA** discount vs. sector median ($\ge 10\%$ discount), **PEG Ratio** ($\le 1.35$), AND discount vs. the company's own **5-year historical price-aligned SEC XBRL median P/E** (`fetchTrueHistoricalMedianPe`, returning `null` when price-aligned history is unavailable).
+   - Enforces balance sheet & cashflow quality: **Net Debt / EBITDA** $\le 2.6\times$, **Free-Cashflow-Yield** $\ge 3.2\%$, **Operating Margin** $\ge 10\%$, non-negative EPS revisions, and $\ge 12\%$ upside to Analyst Target / Consensus (`analystConsensus` via Yahoo + Finviz + Nasdaq) / Fair-Value model, paired with technical support stabilization.
+3. **Setup-Kategorie C — Weitere High-Conviction-Setups (`high-conviction`):**
+   - **C1: VCP & Bollinger-Squeeze (`vcp-squeeze`):** Progressive volatility contraction across swing waves (`vcpContractions >= 2` or low Bollinger Bandwidth percentile via `trading-signals`) with volume dry-up within $5.5\%$ below 40-day resistance and positive RS.
+   - **C2: Insider-Cluster & Institutionelle Akkumulation (`insider-cluster`):** Real parsed 90-day SEC Form 4 XML open-market buys (`transactionCode === "P"`) + **OpenInsider** (`P - Purchase`) clusters paired with EMA20/VWAP stabilization and institutional volume accumulation.
+   - **C3: Earnings-Gap & Post-Earnings-Drift (`earnings-drift`):** High-RVOL ($\ge 1.55\times$) catalyst gap/expansion bar followed by an orderly consolidation holding above the gap support and event-anchored VWAP.
+
+### C. TradingView-Core (Zero Bloat) & Footprint / Orderflow Suite (`lib/orderflow/*`, `hooks/useVelaChart.ts`, `hooks/useChartReadout.ts`)
+- **TradingView-Core (Zero Social Bloat):**
+  - 20 chart types (Candles, Heikin Ashi, Hollow, Volume Candles, Line, Area, Baseline, Renko, Line Break, Kagi, Point & Figure, Range, Bid×Ask Footprint, TPO).
+  - 79 native drawing tools with magnet/stay modes, favorites rail, object tree with groups, multi-chart layouts (1–8 panes) with crosshair/symbol/interval/range sync, Bar Replay, and PineTS v5/v6 worker execution.
+  - Community Scripts / social sharing UI removed from `components/BottomPanel.tsx`.
+- **Institutional Orderflow, Footprint & SMC Suite (see Section 3 for deep technical spec):**
+  - **Native `footprint` chart type + `af-footprint-overlay` + `af-visible-footprint`** (`velaPlugins.ts`, `footprintOverlay.ts`, `footprintOverlayRenderer.ts`) with frame-cached display bars & surfaces, `stripVenue` tick ingestion, candle-close validated `ABS`/`EXH` badges, log-scale `planFootprintText`, dynamic `FootprintMagnifier` (sub-minute `HH:MM:SS`), and microtask-diffed `FootprintReadout` subscriptions (`useChartReadout.ts`).
+  - **Signal & Profile Layers (`signalLayers.ts`, `volumeNodes.ts`, `footprintSignals.ts`, `deltaDivergence.ts`, `ohlcvOrderflowProxy.ts`):** Replay-fenced `af-volume-nodes` (HVN/LVN), `af-orderflow-signals` (`ABS`/`EXH` or OHLCV `ABS*`/`EXH*` proxy), and `af-delta-divergence` (`Bear`/`Bull Delta Div` with `"All data"` CVD anchoring & `PlacedRect` collision avoidance).
+  - **Live Drilldown (`FootprintInspector.tsx`, `OrderFlowPanel.tsx`):** Diagonal Buy/Sell ratios, trapped buyers/sellers, unfinished auctions, live `Auto-follow live` capture, `useChartStore.subscribe` + `rAF` tape updates, DOM `spread`/`spreadBps`, and filtered tape `Delta %`.
+  - **Market Structure (`lib/indicators/scripts.ts`):** `STRUCTURE_SCRIPT` with real `CHoCH ↑/↓`, `BOS ↑/↓`, Order Blocks, FVGs, and Liquidity Sweeps.
+
+---
+
+## 2. Connected Public & Open-Source Data Sources (No Paid API Keys Required)
+
+| Source | Server Module / Proxy Route | Data Provided |
+| :--- | :--- | :--- |
+| **TradingView Public Scanner** | `lib/server/fundamentals.ts`, `lib/server/stockHeatmap.ts`, `/api/stock-heatmap` | Unauthenticated batch POST for Forward P/E, PEG, EV/EBITDA, P/FCF, Net Debt/EBITDA, Operating/Net Margins, ROE, Revenue Growth, Analyst Price Targets (recorded in `dataSources` only when TradingView actually returned at least one non-null metric or sector), and GICS Stock Sector Heatmap (`US`, `Xetra`, `UK`). |
+| **SEC EDGAR Public API & XML Archive** | `lib/server/secForm4.ts`, `lib/server/fundamentals.ts`, `lib/server/macroAndSentimentSources.ts` | Concurrent-deduplicated `company_tickers.json` CIK resolution for arbitrary US tickers, shared Fair-Access request pacer (`secFetch`, `SEC_MIN_INTERVAL_MS = 130`, respecting bounded `429 Retry-After` and guarding `secCache` against `429` cache poisoning via `xmlVerified`), raw Form 4 XML (`fast-xml-parser`) open-market buy (`transactionCode === "P"`) parsing, and SEC XBRL `companyfacts` diluted EPS filtered to full-year 10-K periods ($\ge 300\text{d}$, latest restatement `filed` split-consistent) strictly price-aligned within ~45 days of Yahoo monthly closes (`fetchTrueHistoricalMedianPe`, returning `null` with zero `currentPrice` fallback when historical closes are unavailable or stale). |
+| **Nasdaq Public Analyst API** | `lib/server/macroAndSentimentSources.ts`, `lib/server/opportunities.ts`, `/api/terminal-fundamentals` | Unauthenticated JSON analyst rating distributions (`consensusOverview` + `meanRatingType` + `ratingsSummary`) and mean/high/low price targets. |
+| **OpenInsider & Finviz (`cheerio`)** | `lib/server/publicEquitySources.ts`, `lib/server/fundamentals.ts`, `lib/server/opportunities.ts` | Structured scraping via `http://openinsider.com/screener?...` (`cheerio` header-index parser handling 17-column `/screener` tables with `Company Name` and 12-column tables), Finviz valuation snapshots, embedded `chartEvent/ratings` JSON, and `styled-table-new` / `js-table-ratings` upgrade/downgrade actions (`parseFinvizHtml`). |
+| **Yahoo Finance (`yahoo-finance2` + Proxy)** | `lib/server/yahoo.ts`, `lib/server/publicEquitySources.ts`, `/api/yahoo`, `/api/stock-base` | Dividend-adjusted daily/intraday OHLCV candles, 18 stock exchanges, `quoteSummary` (`validation: { logErrors: false }`, `validateResult: false`, raw `{ raw }` field unwrapping, returning `null` on empty shells) for analyst recommendation trends, price targets, and upgrade/downgrade history without discarding non-standard rating actions or emitting stderr schema errors. |
+| **Maritime AIS, Aviation ADS-B, Sea-State & Maritime RSS (OSINT)** | `lib/server/osint.ts`, `lib/server/osintTelemetry.ts`, `/api/osint-map`, `components/OsintMapPanel.tsx` | Regional **Baltic / Northern Europe Live AIS** vessel & tanker pins via Finland **Digitraffic Marine AIS** (`meri.digitraffic.fi`), global 8 strategic chokepoints, global **`adsb.lol`** military/commercial + 6 global energy corridors + **OpenSky Network** global fallback flights, **Open-Meteo Marine** wave/swell/current severity (`km/h -> m/s` unit conversion, offshore Port Said Suez coordinates), accurate merged `/api/osint-map` `feedStatus`/`aisSources`/`adsbSources`, and **gCaptain** Maritime Security RSS (`cheerio`). Interactive `OsintMapPanel` supports wheel zoom (`{ passive: false }`), pan, search, and zoom-compensated stroke width. |
+| **FRED CSV, Alternative.me & Treasury Feeds** | `lib/server/macroAndSentimentSources.ts`, `lib/server/feeds.ts`, `/api/feeds` | FRED CSV series (`FEDFUNDS`, `T10Y2Y`, `BAMLH0A0HYM2`, `VIXCLS`, `DCOILWTICO`), Crypto Fear & Greed Index, US Treasury par yield curve, Nasdaq earnings/dividends calendar, economic calendar, and merged crypto + equity/macro RSS feeds. |
+| **Binance Spot & Hyperliquid L1** | `lib/server/exchange.ts`, `lib/server/hyperliquid.ts`, `/api/market`, `/api/hyperliquid` | Real-time trades, L2 orderbook depth, 24h tickers, and historical klines for crypto spot, perps, and builder-DEX equities/commodities (including HIP-3 live orderflow mapping). |
+| **Open Quant & Statistical Libraries** | `lib/quant/signals.ts`, `THIRD_PARTY_NOTICES.md` | `trading-signals` (`RSI`, `ADX`, `ATR`, `BollingerBands`, `MACD`), `technicalindicators` (`MFI`, `WilliamsR`, 9 candlestick reversal patterns), `simple-statistics` (`Sortino`, `VaR 95%`, annualized vol, linear slope), and `cheerio`. |
+
+---
+
+## 3. Orderflow & Footprint Architecture (Technical Spec)
+
+### A. Core Signals, Math & Calibration Constants
+- **Grid & Dynamic Signal Step (`lib/orderflow/math.ts`, `lib/orderflow/signalLayers.ts`):**
+  - `priceStep(price)` scales automatically by decade: `Math.max(Number.MIN_VALUE, Number(\`1e${Math.floor(Math.log10(price)) - 6}\`))` (`1e-8` fallback for non-positive/non-finite prices).
+  - `computeSignalStep(bars)` uses the median `(high - low)` of the last 24 valid bars divided by `8`, floored at `priceStep(refPrice)` (or `Math.max(minTick, refPrice * 0.0005)` when ranges are absent), rounded to `toPrecision(4)`.
+- **Bar Absorption, Exhaustion & Trapped Participants (`lib/orderflow/footprintSignals.ts`):**
+  - `detectFootprintBarSignals(bar, candle?)` filters to active non-filtered levels (`levels.length >= 3`, `avgVol > 0`):
+    - **Absorption (`ABS ↑` / `ABS ↓`):** Inspects top 2 levels (`[top, prevHigh]`) or bottom 2 levels (`[bottom, nextLow]`) where `total >= avgVol * 1.45`, `min(buy, sell) / total >= 0.34`, both `buyVolume > 0` and `sellVolume > 0`, plus directional close validation when `candle` is supplied (`candle.close <= candle.open || candle.close < top.price` for high; `candle.close >= candle.open || candle.close > (bottom.upperPrice ?? bottom.price)` for low). `strength = Math.min(1, Number((total / (avgVol * 2.5)).toFixed(2)))`.
+    - **Exhaustion (`EXH ↑` / `EXH ↓`):** Triggers on sharp tapering at the outer print: high when `prevHigh.buyVolume >= avgVol * 0.6`, `top.buyVolume <= prevHigh.buyVolume * 0.25`, `top.sellVolume <= avgVol * 0.8` (symmetric for low via `nextLow.sellVolume` and `bottom.sellVolume`). `strength` uses `Math.max(1e-12, adjacentSideVol)` clamped `[0, 1]` so sub-unit fractional crypto sizes remain accurate.
+  - `detectTrappedParticipants(bar, candle?)` aggregates positive net delta strictly above `Math.max(open, close)` on bearish closes (`trappedBuyers`, `trappedBuyLevels`) and negative net delta strictly below `Math.min(open, close)` on bullish closes (`trappedSellers`, `trappedSellLevels`).
+- **Automated Price vs. Delta/CVD Divergence (`lib/orderflow/deltaDivergence.ts`):**
+  - `detectDeltaDivergences(bars, deltaBars, pivotRadius = 2, maxDistanceBars = 24)` aligns delta bars by exact `bar.time` (`bars.length >= pivotRadius * 2 + 3`), skips non-finite OHLC/delta entries, and evaluates swing highs/lows with **left non-strict / right strict** tie-breaking (`j < i ? cmp.high > bar.high : cmp.high >= bar.high`; `<` / `<=` for lows) so flat double tops/bottoms select their rightmost pivot.
+  - Emits `"Bear Delta Div"` (Higher High in price + Lower High in `Math.max(dBar.high, dBar.close)`) and `"Bull Delta Div"` (Lower Low in price + Higher Low in `Math.min(dBar.low, dBar.close)`).
+- **Equities OHLCV Orderflow Proxy (`lib/orderflow/ohlcvOrderflowProxy.ts`, `lib/orderflow/equityOrderflow.ts`):**
+  - `estimateOhlcvDeltaBars(bars)` computes cumulative CLV delta `(2 * close - high - low) / range` clamped `[-1, 1]` (zero-range fallback `±0.5` from prior close or candle body polarity) for candle-only stocks or `"1M"`/`"T"` intervals.
+  - `detectOhlcvProxySignals(bars, avgWindow = 20)` detects `ABS* ↑/↓` (`volRatio >= 1.75`, upper/lower wick ratio `>= 0.42`, `bodyRatio <= 0.45`) and `EXH* ↑/↓` (`prev.volume >= avgVol * 1.25`, `bar.volume <= prev.volume * 0.55`, new high/low closing past bar midpoint).
+  - `resolveOrderflowTarget(symbol, hlAssets, { iexEnabled })` maps direct venues (`binance`, `kraken`, `hyperliquid`, `alpaca`) or Yahoo equities matching Hyperliquid builder-DEX perps / Alpaca IEX to `"footprint"`, otherwise opens `"candles"` with `["volume-nodes", "orderflow-signals", "delta-divergence", "vpvr"]` and English status notices.
+
+### B. Vela Signal Plugins, Overlays & Rendering Pipeline (`signalLayers.ts`, `velaPlugins.ts`, `footprintOverlay*.ts`)
+- **`registerOrderflowSignalPlugins({ studyTrades, subscribeTicks, replayTrades })` (`lib/orderflow/signalLayers.ts`):**
+  - **`af-volume-nodes`:** Uses `FixedProfileCache` (`rows` default `32`, range `10..120`), draws dashed HVN (`#38bdf8`) and LVN (`#f59e0b`) lines + right-edge `PlacedRect` collision-avoidance `pill()` badges.
+  - **`af-orderflow-signals` & `af-delta-divergence`:** Created via `createTradeStudy()` with `90ms` live tick debounce (`scheduleChannelPush`), Replay boundary fencing (`nativeReplayBoundary(ctx)` + `replayTrades` + `t.time < replayCutoff`), and `sameChannelContext()` verification against cell `replay` / `replayThrough`.
+  - Cache keys include `open`/`high`/`low`/`close`/`volume`, trade count, first/last trade IDs & timestamps, `step`, and `replayCutoff`.
+  - `af-delta-divergence` builds `CvdAccumulator(cell.timeframe, { ...defaultCvd(), anchor: "All data" }, cvdSymbol)` when `!isTickInterval && unit !== "M"`, falling back to `estimateOhlcvDeltaBars`; filters to `visibleTimeRange()` (`160` cap for `af-orderflow-signals`, `40` cap for `af-delta-divergence`) with `PlacedRect` vertical de-overlapping (`stepIdx` 1..4).
+- **Footprint Bar/Visible Overlays & Native Chart (`footprintOverlay.ts`, `footprintOverlayRenderer.ts`, `velaPlugins.ts`):**
+  - `footprintOverlayDescriptor` matches live ticks using `tickSymbol === ctxSymbol || tickSymbol === stripVenue(ctxSymbol)`, and `velaPlugins.ts` `subscribeTicks` observes/forwards ticks on `tick.symbol === symbol || tick.symbol === stripVenue(symbol)`.
+  - `paintFootprintOverlay` passes `candles.get(bar.time)` into `paintFootprintBar`, caches `footprintDisplayBar` transforms in `cache.display` (overlay) and `displayCaches` (native `"footprint"` chart), and `velaPlugins.ts` caches `FootprintSurface` objects (`cachedSurface`) across cursor-only `repaintOnCursor` frames.
+- **Canvas Legibility & Magnifier (`footprintText.ts`, `footprintStructure.ts`, `footprintMagnifier.ts`):**
+  - `planFootprintText` calculates `Math.min` height across unfiltered rows (safe under log-scale non-uniform row heights; skips below `14px`, clamps auto size `7..12px`).
+  - `paintFootprintStructure` renders inline `ABS`/`EXH` cell outlines and right-aligned contrast pill badges (`rgba(255,255,255,0.9)` light / `rgba(15,23,42,0.88)` dark) only when `width >= 34 && height >= 10`, with `11px` vertical collision offsets.
+  - `paintFootprintMagnifier` computes `rowRange = Math.min(64, Math.max(16, Math.ceil(bodyHeight / Math.max(6, enlargedRow))))` and appends `:SS` (`HH:MM:SS`) to slot timestamps when multiple slots fall in the same UTC minute.
+
+### C. Component & Hook Contracts (`footprintReadout.ts`, `useChartReadout.ts`, `footprintInspection.ts`, `FootprintInspector.tsx`, `OrderFlowPanel.tsx`, `depthMetrics.ts`)
+- **`subscribeFootprintSurfaces` & `useChartReadout`:** `publishFootprintSurface` / `clearFootprintSurface` queue a microtask (`queueMicrotask`) that notifies subscribers whenever the `surfaces` map changes by reference; `useChartReadout` subscribes alongside `useChartStore` and `useWorkspaceStore` so DataWindow / Footprint readout reacts to live ticks without polling.
+- **Footprint Inspection (`footprintInspectionRowMetrics`, `footprintInspectionSummary`, `FootprintInspector.tsx`):**
+  - Frozen `FootprintInspection` schema and `footprintInspectionCsv` header layout are strictly preserved.
+  - `footprintInspectionRowMetrics(snapshot)` aligns rows onto `executionPriceGrid(snapshot.settings.step)` to compute exact diagonal `buyRatio` (`row.ask / below.bid`) and `sellRatio` (`row.bid / above.ask`).
+  - `footprintInspectionSummary(snapshot, candle?)` computes `deltaPercent`, imbalance counts, `signals`, `trapped`, `unfinishedHigh`, and `unfinishedLow`.
+  - `FootprintInspector.tsx` surfaces a **`Diag ratio`** column (`↑ X.X×` / `↓ X.X×` / `∞`), summary line (Delta %, B/S imbalances, Signals, Unfinished levels, Trapped summary), and a live-only **`Auto-follow live`** checkbox driven by `subscribeFootprintSurfaces` with a `120ms` capture debounce (hidden & disabled during Replay).
+- **OrderFlow Panel (`OrderFlowPanel.tsx`, `depthMetrics.ts`):**
+  - Replaces interval polling with `useChartStore.subscribe` + `requestAnimationFrame` on live trades (`!replay`).
+  - Displays `metrics.spread` and `metrics.spreadBps` (`Spread X (Y.Y bps)` via `decimal` arithmetic in `depthMetrics.ts`) and filtered tape **`Delta %`** (`delta / (buyVolume + sellVolume) * 100`).
+
+---
+
+## 4. Structured Iteration / Changelog Ledger
+
+*(Every landed fix/feature is verified directly against modified source files; global test/build counts are only updated after `@qa-verifier` completes the full post-edit verification gate.)*
+
+### Pass 2026-11-15 — Orderflow & Footprint Institutional Audit & Upgrade (`@footprint-pro` `#26`, `#28`; verified by `@qa-verifier` `#34`) — `[Verified PASS]`
+1. **Sub-Cent Signal Tick Collapse & Fractional Exhaustion Strength Clamping**
+   - *Root Cause:* `computeSignalStep` used `priceTick(..., 3)` floored at `0.0001`, collapsing sub-cent crypto/FX buckets; `detectFootprintBarSignals` divided exhaustion volume by `Math.max(1, adjVol)`, inflating exhaustion strength for fractional crypto volumes `< 1`.
+   - *Files & Symbols:* `lib/orderflow/signalLayers.ts` (`computeSignalStep`), `lib/orderflow/footprintSignals.ts` (`detectFootprintBarSignals`).
+   - *Behavior Now:* `computeSignalStep` floors at dynamic `priceStep(refPrice)` from `lib/orderflow/math.ts`; exhaustion `strength` divides by `Math.max(1e-12, adjacentSideVolume)` and clamps to `[0, 1]`.
+2. **Replay Future-Tick Leakage & Stale Intrabar Wick Cache in Signal Layers**
+   - *Root Cause:* `createTradeStudy` read live `studyTrades(ctx.symbol)` even in Replay mode, and `af-orderflow-signals` / `af-delta-divergence` cache keys omitted `open`/`high`/`low`/`close`/`volume` & replay cutoff, missing intrabar wick updates without `close` changes.
+   - *Files & Symbols:* `lib/orderflow/signalLayers.ts` (`createTradeStudy`, `sameChannelContext`, `registerOrderflowSignalPlugins`), `lib/orderflow/velaPlugins.ts` (`replayTrades`, `registerOrderflowPlugins`).
+   - *Behavior Now:* `createTradeStudy` wires `replayTrades` + `nativeReplayBoundary(ctx)`, filters `t.time < replayCutoff`, validates `sameChannelContext`, and keys caches on full OHLCV fields, trade boundary metadata, `step`, and `replayCutoff`.
+3. **CVD Divergence Month-Reset False Positives & Proxy Zero-Range Edge Cases**
+   - *Root Cause:* `af-delta-divergence` initialized `CvdAccumulator` with `anchor: "Month"`, creating artificial CVD drops on UTC month rollovers, and hardcoded `stripVenue(cell.symbol)` even when retained trades used venue-prefixed symbols; `detectDeltaDivergences` / `estimateOhlcvDeltaBars` lacked flat-pivot tie-breaking and non-finite / zero-range guards.
+   - *Files & Symbols:* `lib/orderflow/signalLayers.ts` (`af-delta-divergence`), `lib/orderflow/deltaDivergence.ts` (`detectDeltaDivergences`), `lib/orderflow/ohlcvOrderflowProxy.ts` (`estimateOhlcvDeltaBars`).
+   - *Behavior Now:* Uses `"All data"` anchor, dynamically matches `sourceTrades` symbol, excludes `"1M"` / tick intervals from live CVD so proxy takes over cleanly, enforces left non-strict / right strict pivots (`maxDistanceBars = 24`), and guards zero-range / non-finite OHLC bars.
+4. **Footprint Overlay Venue-Prefix Tick Drop & Missing Candle Context**
+   - *Root Cause:* `footprintOverlayDescriptor` checked strict `tick.symbol === context.symbol` while `velaPlugins.ts` dispatched `stripVenue(symbol)` ticks (`BINANCE:BTCUSDT` dropped `BTCUSDT` live ticks); `paintFootprintOverlay` passed `undefined` for `candle` to `paintFootprintBar`, disabling candle-close confirmation for overlay `ABS`/`EXH` signals.
+   - *Files & Symbols:* `lib/orderflow/footprintOverlay.ts` (`footprintOverlayDescriptor`), `lib/orderflow/footprintOverlayRenderer.ts` (`paintFootprintOverlay`), `lib/orderflow/velaPlugins.ts` (`registerOrderflowPlugins`).
+   - *Behavior Now:* Overlay live/seed filtering matches `ctxSymbol` or `stripVenue(ctxSymbol)`; `paintFootprintOverlay` passes `candles.get(bar.time)` to `paintFootprintBar`.
+5. **Canvas Text Scaling, Signal Pill Collisions, Magnifier Labels & Repaint Caching**
+   - *Root Cause:* `planFootprintText` used a single row's height instead of minimum height across unfiltered rows (unsafe on log scales); `paintFootprintBar`/`signalLayers` lacked badge collision avoidance and contrast backdrops (`pill` also called `ctx.measureText` without a function guard); `paintFootprintMagnifier` hard-bounded price labels (`-16..16`) and duplicated `HH:MM` labels on sub-minute slots; cursor moves rebuilt `bars` & `FootprintSurface` objects.
+   - *Files & Symbols:* `lib/orderflow/footprintText.ts` (`planFootprintText`), `lib/orderflow/footprintStructure.ts` (`paintFootprintStructure`), `lib/orderflow/signalLayers.ts` (`PlacedRect`, `pill`), `lib/orderflow/footprintMagnifier.ts` (`paintFootprintMagnifier`), `lib/orderflow/footprintOverlayRenderer.ts` (`createFootprintOverlayCache`, `paintFootprintOverlay`), `lib/orderflow/velaPlugins.ts` (`displayCaches`, `cachedSurface`).
+   - *Behavior Now:* Log-scale minimum row height check, `width >= 34 && height >= 10` inline badge gate + `11px` / `PlacedRect` de-overlapping, `typeof ctx.measureText === "function"` guard in `pill()`, dynamic `rowRange` up to `64` + `:SS` sub-minute magnifier labels, and frame-level display/surface object reuse across cursor repaints.
+6. **Live Readout Sync, Footprint Inspector Drilldown & OrderFlow Panel UX**
+   - *Root Cause:* `useChartReadout` didn't subscribe to `footprintReadout` surface updates; `FootprintInspector` lacked diagonal ratios, trapped/unfinished/signal telemetry, and live auto-follow (and an initial `snapshot` effect dep self-chained every 120ms before `@qa-verifier` `#27` caught it); `OrderFlowPanel` polled live trades every 150ms and omitted DOM spread / filtered tape `Delta %`.
+   - *Files & Symbols:* `lib/orderflow/footprintReadout.ts` (`subscribeFootprintSurfaces`), `hooks/useChartReadout.ts` (`readoutStore`), `lib/orderflow/footprintInspection.ts` (`footprintInspectionRowMetrics`, `footprintInspectionSummary`), `components/FootprintInspector.tsx`, `components/OrderFlowPanel.tsx`, `lib/orderflow/equityOrderflow.ts` (`resolveOrderflowTarget`).
+   - *Behavior Now:* Microtask-diffed surface subscriptions, frozen-schema-safe inspector analytics + `subscribeFootprintSurfaces`-driven Replay-gated `Auto-follow live` (zero idle polling loop), `useChartStore.subscribe` + `rAF` tape updates, DOM `spread`/`spreadBps`, filtered tape `Delta %`, and English equity proxy notices.
+
+### Pass 2026-11-15 — Reverse-Proxy Security, Server Caches, Stability & UI Bug-Hunt (`@bug-hunter` `#29`; verified by `@qa-verifier` `#34`) — `[Verified PASS]`
+1. **Reverse-Proxy Cookies/Redirects, `/manifest.webmanifest` & Alpaca Same-Origin Check**
+   - *Root Cause:* Behind TLS-terminating reverse proxies (Azure Envoy/Netlify), `request.nextUrl.protocol` is `http:` (`0.0.0.0:3000`), breaking `cookie.secure`, leaking internal hosts on redirects, and causing `app/api/alpaca/route.ts` 403s; unauthenticated `/manifest.webmanifest` / PWA icon requests hit 303 `/login` HTML redirects.
+   - *Files & Symbols:* `proxy.ts` (`PUBLIC_PWA_PATHS`, `isHttpsRequest`, `externalUrl`, `sameOrigin`), `lib/server/security.ts` (`isSameOriginRequest`), `app/api/alpaca/route.ts` (`POST`).
+   - *Behavior Now:* `isHttpsRequest` checks `x-forwarded-proto` alongside `nextUrl.protocol`; `externalUrl` preserves the browser `Host` header; `PUBLIC_PWA_PATHS` (`/manifest.webmanifest`, `/icons/{icon-192,icon-512,icon-maskable-512,apple-touch-icon}.png`) serves `GET`/`HEAD` cleanly once site access is configured (`/icon.svg`, `/`, `/_next/*`, `/api/*` remain gated); `isSameOriginRequest` validates `Origin` against `Host` across both `proxy.ts` and `/api/alpaca`.
+2. **Cold-Start Key Races, Atomic `JsonStore` Writes & RSS Entity Bounds**
+   - *Root Cause:* Concurrent cold-start calls to `accessKey()` or `vapidKeys()` could race key generation; `JsonStore.persist()` reused a single `.tmp` suffix without unlink cleanup on error; `decodeEntities()` could throw `RangeError` in `String.fromCodePoint` on out-of-range numeric RSS entities.
+   - *Files & Symbols:* `lib/server/security.ts` (`accessKey`), `lib/server/push.ts` (`vapidKeys`, `resetVapidCache`), `lib/server/storage.ts` (`JsonStore.persist`), `lib/server/feeds.ts` (`safeCodePoint`, `decodeEntities`).
+   - *Behavior Now:* Deduplicated in-flight `pendingKey`/`pendingKeys` + `flag: "wx"` + `EEXIST` re-read; unique `${file}.${pid}.${randomUUID()}.tmp` with `unlink` cleanup; `safeCodePoint` validates integer range `0..0x10ffff`.
+3. **Bounded LRU Caches, Negative-Cache Poisoning, Timeout Leak & Consensus Merge**
+   - *Root Cause:* Several server `Map` caches grew unbounded; `fetchYahooFinanceInsights()` leaked its 6.5s timeout handle on success; transient failures poisoned `tvCache`, `macroPulseCache`, and `osintCache` (and `nasdaqAnalystCache` cached dual failures for 1h); falsy `0` buy/hold/sell counts mixed Yahoo and Nasdaq numbers; `/api/terminal-markets` lacked `try/catch` and `/api/osint-map` fallback omitted consistent fields.
+   - *Files & Symbols:* `lib/server/cache.ts` (`setBoundedCache`), `lib/server/publicEquitySources.ts` (`openInsiderCache`, `finvizCache`, `yahooInsightsCache`, `fetchYahooFinanceInsights`), `lib/server/fundamentals.ts` (`tvCache`, `secCache`, `mergeAnalystConsensus`), `lib/server/macroAndSentimentSources.ts` (`nasdaqAnalystCache`, `historicalPeCache`, `macroPulseCache`), `lib/server/osint.ts` (`osintCache`), `lib/server/opportunities.ts` (`scanCache`), `app/api/terminal-fundamentals/route.ts`, `app/api/terminal-markets/route.ts`, `app/api/osint-map/route.ts`.
+   - *Behavior Now:* Bounded `setBoundedCache` limits (250 equity/SEC/Nasdaq/PE, 60 TV, 30 scan); `clearTimeout` in `finally`; transient-failure guards skip cache writes (5m backoff on Nasdaq dual errors); `mergeAnalystConsensus` preserves genuine zero counts cleanly; `/api/terminal-markets` returns 503 JSON and `/api/osint-map` returns normalized fallback telemetry arrays.
+4. **318px Panel Overflow, Stale Prop Sync, Tick Re-renders & Async Race/JSON Guards**
+   - *Root Cause:* `.screener-toolbar` / `.terminal-telemetry-chip` overflowed `318px` sub-panes on long labels; `FundamentalsPanel` skipped fetching new `initialTicker` values when an older `snapshot` existed; `TradingWorkspace` subscribed `quote` on the global `keydown` effect, rebinding listeners on every live tick; panels & clients lacked `AbortController` cleanup, `onPointerCancel`, or `.json().catch(() => ({}))` HTTP error guards.
+   - *Files & Symbols:* `app/features.css` (`.screener-view`, `.screener-toolbar`, `.terminal-telemetry-chip`), `components/FundamentalsPanel.tsx` (`lastInitialTickerRef`), `components/TradingWorkspace.tsx` (`Workspace` `keydown` effect), `components/OsintMapPanel.tsx` (`abortRef`, `onPointerCancel`), `components/HeatmapPanel.tsx`, `components/CalendarPanel.tsx`, `components/NewsPanel.tsx`, `components/TerminalMarkets.tsx`, `lib/market/yahooClient.ts`, `lib/market/alpacaClient.ts`.
+   - *Behavior Now:* Flexbox `min-width: 0; max-width: 100%` + ellipsis selects + wrapping telemetry chips eliminate 318px overflow; `FundamentalsPanel` reloads when `initialTicker` changes; `TradingWorkspace` mounts `keydown` once (`[]`) and guards `/` against modifier keys; panels abort stale fetches and parse error payloads safely.
+5. **Performance, De-Nesting & Mobile Responsiveness Optimization Pass**
+   - *Root Cause:* Zustand `persist` ran synchronous `JSON.stringify` on every high-frequency quote/trade tick even when persisted fields were unchanged; `MarketService.accept()` / `quote()` issued redundant `feedStatus` transitions and uncoalesced `useChartStore.set` writes; `AffenTerminalWindow` 1Hz clock ticks re-rendered the entire terminal workspace; `Watchlist` `ListMenu` subscribed to `quotes`; `MarketOverview` double-scanned `trades`; `ChartCanvas` ran unmemoized `barChange`; `ResearchTerminal` kept hidden `StockBaseScanner` mounted and defaulted embedded drawers to nested `split-2` with inner scroll traps and 110px crushed mobile drawers in `globals.css`.
+   - *Files & Symbols:* `lib/debouncedStorage.ts` (`createShallowPersistStorage`), `stores/useChartStore.ts`, `stores/useWorkspaceStore.ts`, `lib/market/service.ts` (`feedStatus !== "live"` guards, merged `quote()` `state.set`, single `nextTrades` slice, coalesced `pendingPatch` in `accept()`), `components/AffenTerminalWindow.tsx` (`AffenUtcClock`), `components/ResearchTerminal.tsx` (`defaultLayout`, `is-embedded`, `is-single-pane`, conditional `StockBaseScanner`), `components/ChartCanvas.tsx` (memoized `barChange`), `components/BottomPanel.tsx` (single-pass `MarketOverview` volume stats), `components/Watchlist.tsx` (on-demand `quotes` export read), `app/features.css`, `app/workspace-chrome.css`.
+   - *Behavior Now:* Zero `JSON.stringify` overhead on non-persisted live quote/trade updates; isolated `AffenUtcClock` renders without stirring the terminal tree; embedded bottom drawer defaults to flat `single` mode with hidden tile headers; single-row swipeable module tabs and mobile bottom drawer height `min(var(--panel-height, 280px), 48dvh)` (`min-height: 200px`).
+6. **Regression Test Suites (`tests/**`, 255 test files / 2,651 tests total)**
+   - `tests/orderflow-regression.test.ts` (Node, 10 tests): Fractional exhaustion strength, `detectTrappedParticipants`, flat-plateau `detectDeltaDivergences`, zero-range `estimateOhlcvDeltaBars`, `stripVenue` overlay tick matching, overlay candle context pass-through, `signalLayers` intrabar wick invalidation + `measureText` guard + Replay `replayThrough` clipping + sub-cent `computeSignalStep`, log-scale `planFootprintText`, sub-minute `paintFootprintMagnifier`, `subscribeFootprintSurfaces` microtask coalescing, and `footprintInspectionRowMetrics`/`Summary`.
+   - `tests/orderflow-ui.test.tsx` (JSDOM, 2 tests): `FootprintInspector` modal rows, diagonal ratios (`↑ ∞`), validation, non-looping `autoFollow` live subscription over 3s, and `OrderFlowPanel` tape & `Footprint`/`TPO profile` toggles.
+   - `tests/app-quality-regression.test.ts` (Node, 8 tests): `proxy.ts` `x-forwarded-proto` HTTPS `Secure` cookies + `Host` redirects + `PUBLIC_PWA_PATHS` vs gated `/icon.svg` (303) / `/api/*` (401), `/api/alpaca` `isSameOriginRequest`, `accessKey()`/`JsonStore` concurrency, `setBoundedCache` LRU eviction, `mergeAnalystConsensus` zero-count preservation, `decodeEntities` code-point bounds, `tvCache` 5xx non-poisoning, `/api/terminal-markets` (503) + `/api/osint-map` fallback arrays, and `createShallowPersistStorage` zero-`JSON.stringify` hot-tick verification.
+   - `tests/app-quality-ui.test.tsx` (JSDOM, 5 tests): `FundamentalsPanel` `initialTicker` change reload, `OsintMapPanel` unmount abort + 502 handling, `TradingWorkspace` `Ctrl+/` & `Meta+/` keyboard guard, embedded `ResearchTerminal` flat single-pane default + `AffenUtcClock` 1Hz isolation, and real `useChartStore` zero-`JSON.stringify` quote/trade updates.
+   - `tests/research-terminal-layout.test.tsx` (13 tests) & `tests/research-terminal-command-bar.test.tsx` (20 tests): Updated embedded defaults (`layout-single`, `is-embedded`, `is-single-pane`) and explicit `defaultLayout="split-2"` multi-pane tests.
+
+---
+
+## 5. Architecture & File Ownership Quick-Map
+
+| Area | Key Paths | Responsibility |
+| :--- | :--- | :--- |
+| **Auth, Proxy & PWA** | `proxy.ts`, `app/manifest.ts`, `lib/server/siteAccess.ts`, `lib/server/siteLoginPage.ts`, `lib/server/security.ts` | Password-gated session auth (`SITE_COOKIE`), `x-forwarded-proto` HTTPS cookie handling, `PUBLIC_PWA_PATHS` (`/manifest.webmanifest` + PNG icons), shared `isSameOriginRequest`, login rate limiting |
+| **App Shell & Terminal** | `app/layout.tsx`, `app/page.tsx`, `app/terminal/page.tsx`, `app/globals.css`, `app/features.css`, `components/TradingWorkspace.tsx`, `components/AffenTerminalWindow.tsx`, `components/ResearchTerminal.tsx`, `components/BottomPanel.tsx`, `lib/terminal/*` | Standalone `/terminal` shell, multi-pane workspace (`single`/`split-2`/`split-3`), command parser, paper order staging, dark charcoal Bloomberg styling |
+| **Analytical Sub-Panels** | `components/OpportunitiesHub.tsx`, `FundamentalsPanel.tsx`, `StockBaseScanner.tsx`, `TerminalMarkets.tsx`, `TerminalCompare.tsx`, `CalendarPanel.tsx`, `NewsPanel.tsx`, `HeatmapPanel.tsx`, `OsintMapPanel.tsx` | Setups, fundamentals/DCF/ratios, Stock-Base, global markets, compare/CAPM, macro calendar, news, sector heatmap, global AIS/ADS-B OSINT map |
+| **Server Routes & Data** | `app/api/*/route.ts`, `lib/server/*` (incl. `cache.ts`), `instrumentation.ts`, `instrumentation-node.ts` | Yahoo, SEC EDGAR Form 4 & XBRL, TradingView scanner, Nasdaq, OpenInsider, Finviz, Digitraffic AIS, `adsb.lol`, OpenSky, Open-Meteo, FRED, Binance, Hyperliquid, `JsonStore`, bounded LRU caches, alert runner |
+| **Screener & Quant** | `lib/screener/*`, `lib/quant/signals.ts`, `lib/ta/*`, `lib/patterns/*` | Setup scoring (`structural-bottom`, `value-garp`, `high-conviction`), Stock-Base, technical & statistical signals |
+| **Orderflow, Footprint & DOM** | `lib/orderflow/*`, `components/OrderFlowPanel.tsx`, `FootprintInspector.tsx`, `BookView.tsx`, `TapeClusterTable.tsx`, `ChartCanvas.tsx`, `hooks/useVelaChart.ts`, `useChartReadout.ts`, `useBinanceBook.ts`, `useKrakenBook.ts`, `useDom*.ts` | Footprint bars/overlays, TPO, CVD, Volume Profiles (SVP/VPVR/Rolling), Depth Heatmap, DOM & Time & Sales, HVN/LVN, Absorption/Exhaustion, Delta Divergence |
+| **State & Workers** | `stores/use*.ts`, `workers/*.worker.ts`, `types/*.ts` | Zustand workspace/chart/paper/alert stores, Web Workers for profiles & Pine/strategy evaluation |
+| **Packaging & Verification** | `next.config.ts`, `scripts/package-azure.ps1`, `scripts/package-netlify.ps1`, `scripts/push-acr-image.mjs`, `scripts/verify-terminal-e2e-browser.mjs`, `tests/**` | Standalone Node/Docker packaging, Netlify upload zip, ACR push, Vitest + Headless Chrome E2E |
+
+---
+
+## 6. Build, Verification & Deployment Protocols (Azure & Netlify)
+
+### Local Codex Runtime Environment (Windows)
+When running commands in PowerShell on this machine, prepend the bundled Codex Node/pnpm/Git runtime to `PATH`:
+```powershell
+$r = Join-Path $env:USERPROFILE '.cache\codex-runtimes\codex-primary-runtime\dependencies'
+$env:PATH = "$r\node\bin;$r\bin\fallback;$r\native\git\cmd;$r\native\git\mingw64\bin;$env:PATH"
+```
+
+### Final Gate Verification Results (Latest Pass)
+```powershell
+pnpm run typecheck                                                           # Passed (exit 0, 0 TS errors)
+pnpm test                                                                    # Passed: 255 files, 2,651 tests (0 failures, 0 skipped, 23.23s)
+pnpm run build                                                               # Passed: Next.js 16.4.3 (webpack, 11.2s), TS (17.1s), 6/6 static pages (2.3s), output: "standalone"
+node scripts/verify-terminal-e2e-browser.mjs                                 # Passed: HEADLESS CHROME E2E PASS (/, /terminal, /terminal?verify=reload)
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/package-netlify.ps1
+```
+- **Dual-Track Test Suite (`TEST_INFRA.md`, `TEST_READY.md`):** Vitest v3.2.7 executes **248 Node regression files (2,579 tests)** alongside **7 JSDOM (`// @vitest-environment jsdom`) UI suites (72 tests)**:
+  - `tests/research-terminal-command-bar.test.tsx` (20 tests), `tests/affen-terminal-window.test.tsx` (14 tests), `tests/research-terminal-layout.test.tsx` (13 tests), `tests/terminal-capm-panel.test.tsx` (11 tests), `tests/terminal-panels.test.tsx` (7 tests), `tests/app-quality-ui.test.tsx` (5 tests), `tests/orderflow-ui.test.tsx` (2 tests).
+- **Headless Chrome Native Overlay & Multi-Viewport E2E:**
+  - `scripts/verify-terminal-e2e-browser.mjs` verified canvas rendering (`960x540`) across `af-volume-nodes` (`3034` diff px), `af-orderflow-signals` (`451` diff px), `af-delta-divergence` (`476` diff px), and `STRUCTURE_SCRIPT` (`78072` diff px, `allVisibleDiffPixels: 82303`), OSINT map filtering/zoom, and `/terminal` scope/link persistence across reloads (`HEADLESS CHROME E2E PASS`, 58 buttons, 0 console/runtime errors).
+  - Baseline live Next.js + Headless Chrome CDP audit (`1920x1080`, `1280x800`, `1000x768`) also verified unauthenticated `/manifest.webmanifest` (`200 OK`), `/login` authentication, and `OrderFlowPanel` canvases (`45` canvases); Azure ZIP baseline `artifacts/affentrader-azure.zip` (`v1`) remains available until `package-azure.ps1` is re-run for `v2`.
+
+### Git & Multi-Device Sync (`main` branch)
+- Local Git repository is initialized on branch `main` with strict secret exclusions in `.gitignore` (`.env*` except `.env.example`, `.netlify-private.env`, `.netlify-server-key.txt`, `access-key.txt`, `.data/`, `node_modules/`, `.next/`, `artifacts/`).
+- Standard workflow across devices and for **ChatGPT / Codex** sessions:
+  ```powershell
+  # On a secondary device (first clone) or Codex Web:
+  git clone <PRIVATE_GITHUB_REPO_URL>
+  cd affentrader
+  pnpm install
+
+  # Pull latest commits before working:
+  git pull --ff-only origin main
+
+  # Push local commits to private GitHub remote:
+  git push -u origin main
+  ```
+- Create a fresh `.env.local` on each device if running locally (`AFFENTRADER_SITE_PASSWORD_HASH` & `AFFENTRADER_SITE_SESSION_SECRET`), since `.env*` is never committed to Git.
+
+### Live Azure Deployment (`germanywestcentral`, Container Apps Node 22)
+- **Live HTTPS URL:** `https://affenterminal.livelydesert-dd29fc84.germanywestcentral.azurecontainerapps.io`
+- **Architecture Decision (`Azure for Students`, `853ad7d3-54fe-432f-8d84-86b509670ced`):**
+  - Registered providers: `Microsoft.Web`, `Microsoft.Quota`, `Microsoft.App`, `Microsoft.Storage`, `Microsoft.ContainerRegistry`, `Microsoft.OperationalInsights` (all `Registered`).
+  - Subscription policy `sys.regionrestriction` allows `austriaeast`, `polandcentral`, `germanywestcentral`, `francecentral`, `denmarkeast`.
+  - In `germanywestcentral` (plus `francecentral`, `austriaeast`, `denmarkeast`), all App Service VM SKUs including **`B1` and `F1`** have quota `0` (`SubscriptionIsOverQuotaForSku`), and Azure Portal confirmed `Azure for Students` is ineligible for quota increases without upgrading to Pay-As-You-Go.
+  - AffenTerminal is deployed directly in **`germanywestcentral`** on **Azure Container Apps** (`WorkloadProfiles` / `Consumption`, `minReplicas: 1`, `maxReplicas: 1`, ~5 USD/Monat ACR Basic + consumption runtime), providing continuous Node 22 execution for `instrumentation-node.ts` + alert runner alongside persistent Azure Files storage.
+- **Provisioned Azure Resources (`affentrader-rg`, `germanywestcentral`):**
+  - **Container App:** **`affenterminal`** (Revision `affenterminal--1pv179a`, `0.5` vCPU / `1.0Gi`, external HTTPS ingress `targetPort: 3000`, `allowInsecure: false`, `minReplicas: 1`, `maxReplicas: 1`)
+  - **Container Apps Environment:** **`affentrader-env`** (`WorkloadProfiles`, linked Log Analytics `workspace-affentraderrgqBqY`, linked Azure File Storage **`affendata`**)
+  - **Persistent Storage:** Storage Account **`affentraderst853a`** (`StorageV2`, `Standard_LRS`) + Azure File Share **`affentraderdata`** (`1` GiB) mounted read/write at **`/home/data`**
+  - **Container Registry & Image:** **`affentraderacr853a.azurecr.io/affenterminal:v1`** (`Basic` SKU Registry `affentraderacr853a`; base image `docker.io/library/node:22-bookworm-slim` imported via `az acr import`, app layer pushed via `scripts/push-acr-image.mjs` because `az acr build` is blocked by `TasksOperationsNotAllowed` on `Azure for Students`)
+- **Runtime Configuration & Live Verification:**
+  - Container env: `NODE_ENV=production`, `PORT=3000`, `HOSTNAME=0.0.0.0`, `AFFENTRADER_DATA=/home/data`, plus `AFFENTRADER_SITE_PASSWORD_HASH` & `AFFENTRADER_SITE_SESSION_SECRET` synced from `.env.local` via Container App secrets (`secretRef`). `AFFENTRADER_STORAGE` and `NETLIFY` are **unset**, so Node `JsonStore` and `instrumentation-node.ts` (`startAlertRunner`) remain active.
+  - **Verified Live Checks (initial `v1` deploy):**
+    - Container console logs confirm `Next.js 16.4.3`, `Ready in 0ms`, and `[affentrader] Server access key is available in /home/data/access-key.txt`; Azure File Share `affentraderdata` lists `access-key.txt` (`49` bytes).
+    - `GET /` -> `303` (`/login?next=%2F`), `GET /terminal` -> `303` (`/login?next=%2Fterminal`), `GET /login` -> `200 OK` (`Privater Workspace`, no 503 setup error), `POST /login` (invalid-password probe) -> `401`, `GET /sw.js` -> `200`, `GET /api/alerts` (unauth) -> `401`.
+- **Packaging & Redeploy Workflow:**
+  - `next.config.ts` (`output: "standalone"` + `outputFileTracingExcludes`) and `scripts/package-azure.ps1` reconstruct a **symlink-free** `node_modules` tree from `.next/standalone/node_modules/.pnpm`, copy `.next/static` & `public`, and exclude `.data`, `.env*`, `.netlify*`, `artifacts`, `access-key.txt`, and `@img/sharp-win32*` (supporting both `artifacts/affentrader-azure.zip` and `-ContextDir` mode with `scripts/azure.Dockerfile`).
+  - Redeploying after code changes:
+    1. `pnpm run build`
+    2. `powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/package-azure.ps1 -ContextDir "$env:TEMP\affentrader-aca-ctx"`
+    3. Push a unique image tag via `node scripts/push-acr-image.mjs`. Immediately before updating the app, create the revision suffix with `r` + `[DateTime]::UtcNow.ToString('yyyyMMddHHmmss')` + `-` + the first eight characters of the source fingerprint. Pass it to `az containerapp update --name affenterminal --resource-group affentrader-rg --image <image> --revision-suffix <suffix>`. The workspace and login derive the visible update date from this suffix.
+    4. After the revision is ready, verify that the `/login` response includes `Letztes Update` and a `datetime` matching the UTC timestamp in the newly deployed revision suffix.
+  - *(App Service `B1` ZIP package `artifacts/affentrader-azure.zip` + `scripts/azure.Dockerfile` remain compatible if the subscription is ever upgraded to Pay-As-You-Go and `B1` quota becomes `>= 1`.)*
+
+### Netlify Deployment Details (Compatibility Preserved)
+- `netlify.toml` configures Node 22, pnpm 11.25.0, `command = "pnpm run build"`, and `publish = ".next"`.
+- `scripts/package-netlify.ps1` generates the deploy upload zip at `artifacts/affentrader-netlify.zip` (excluding `.env*`, `.data`, `.netlify*`, `node_modules`, `.next`, and `artifacts`, and including `CODEX_HANDOFF.md`).
+- **Netlify CLI status:** Not installed on this local machine; upload via Netlify Drop / Project Deploys (see `docs/netlify-upload.md`) or install `netlify-cli`.
+
+---
+
+## 7. Known Limitations & Next Priorities for ChatGPT / Codex
+
+1. **Redeploy Latest Verified Build to Azure Container Apps (`affenterminal`):** Rebuild, stage `-ContextDir`, push a new ACR image tag (`v2`) via `scripts/package-azure.ps1` + `scripts/push-acr-image.mjs`, update the `affenterminal` Container App (`https://affenterminal.livelydesert-dd29fc84.germanywestcentral.azurecontainerapps.io`), and verify `/login` + `/manifest.webmanifest` live.
+2. **Multi-Target OCO Scaling Legs from Opportunity Key-Levels:** Optionally split `"Bracket-Order vorbereiten"` in `components/OpportunitiesHub.tsx` into a 50/50 two-leg `exitLevels` scale-out across `target1` and `target2`.
+3. **Optional Authenticated High-Rate Equities Tape & Global AIS Upgrade:** Extend `resolveOrderflowTarget()` (`lib/orderflow/equityOrderflow.ts`) with a user-configurable Alpaca/Polygon free-tier key modal for tick-by-tick NYSE/NASDAQ Bid×Ask Footprints alongside the default keyless OHLCV proxy, and optionally plug in a global AIS provider beyond Finland Digitraffic.

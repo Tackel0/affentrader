@@ -1,0 +1,8 @@
+import {build} from "esbuild";
+import {createServer} from "node:http";
+const bundle=await build({entryPoints:["tests/browser/footprint-value-area.ts"],bundle:true,format:"esm",platform:"browser",write:false});
+const html=`<!doctype html><html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Footprint value area and POC</title>
+<style>body{margin:0;background:white;color:#131722;font:13px Arial}header{padding:12px}h1{font-size:18px}button{padding:8px;margin:0 6px 6px 0}output{display:block;font-size:12px;line-height:1.5}#chart{height:515px}</style>
+<header><h1>Footprint Value Area & POC · SIMULATED completed-prefix fixture</h1><p>70% value area in blue; POC row and midpoint rays in purple. The first ray ends at 12:02; the second remains unrevisited.</p>
+<button id="single" disabled>Reveal first candle only</button><button id="prefix" disabled>Reveal first two candles</button><button id="all" disabled>Reveal all four candles</button><button id="settings" disabled>Footprint settings</button><output id="status">Initializing</output><output id="revisits"></output></header><div id="chart"></div><script type="module" src="/fixture.js"></script></html>`;
+createServer((req,res)=>{if(req.url==="/"){res.writeHead(200,{"content-type":"text/html","cache-control":"no-store"});res.end(html);}else if(req.url==="/fixture.js"){res.writeHead(200,{"content-type":"application/javascript","cache-control":"no-store"});res.end(bundle.outputFiles[0].contents);}else{res.writeHead(404);res.end();}}).listen(4321,"127.0.0.1",()=>process.stdout.write("Footprint VA fixture: http://127.0.0.1:4321\n"));

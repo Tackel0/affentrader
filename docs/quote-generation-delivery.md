@@ -1,0 +1,11 @@
+# Quote delivery after synchronous feed replacement
+
+Two actual MarketService regression tests reproduced stale quote notification before the fix. A Zustand store subscriber synchronously replaced the feed while the old quote was being committed. Both the quote-only watchlist batch and the ordinary chart-trade path subsequently notified quote consumers with price 104 from the retired generation. Existing callback isolation did not cover replacement during the store write itself.
+
+The service now captures the generation at quote/batch entry, abandons a batch whose generation changed during work, and checks that generation again after synchronous store publication before notifying consumers. The individual quote path also checks after a source reset. This prevents retired observations from reaching downstream quote consumers, including alert evaluators, in these reproduced cases. It does not undo a quote that a consumer already received before replacement.
+
+Both new tests failed against the unchanged implementation and passed after the fix. They verify no old quote notification and successful replacement delivery at price 202; the chart case also verifies that only the replacement tick reaches tick consumers. Focused service/quote suites passed 60 tests. The full suite passed **1,717 tests across 151 files**; production build including TypeScript passed.
+
+The updated production server was restarted on port 3000 and the existing browser reloaded. BTC 5m Footprint, classified CVD, live trade timestamps, Watchlist and computed technicals returned. Captured browser warnings/errors were empty. `artifacts/quote-generation-production.txt` and `.png` record this smoke check; they do not replace the deterministic feed-replacement regressions.
+
+Evidence: `artifacts/quote-generation-before.log`, `quote-generation-focused.log`, `quote-generation-tests.log` and `quote-generation-build.log`. This is deterministic lifecycle evidence using the actual service and test transports, not a claim of an exchange-generated feed replacement. It does not establish the cause of every earlier selective candle/trade interruption. Complete data availability, historical depth, original-arrival Replay, account-verified equity sources and overall TradingView/Vela parity remain open.

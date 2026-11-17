@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "affentrader-dev",
+      "runtimeExecutable": "C:\\Users\\Niklas\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\node\\bin\\node.exe",
+      "runtimeArgs": ["node_modules/next/dist/bin/next", "dev", "--webpack", "-p", "3100"],
+      "port": 3100
+    }
+  ]
+}

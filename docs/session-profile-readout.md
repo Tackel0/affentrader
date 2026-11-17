@@ -1,0 +1,22 @@
+# Session Volume Profile data window
+
+Each visible Session Volume Profile now exposes its collected session values in the primary chart's Data window. The native selected candle's raw timestamp selects a session by its inclusive start and exclusive end. The readout shows the entire collected session snapshot, including observations after that candle. It explicitly describes this scope; it is not candle volume, a historical point-in-time calculation or an alert/backtest signal series.
+
+Fields include UTC session and observation bounds, collected execution count, Ask/buy and Bid/sell quantities, total quantity, signed delta and delta percentage, exact POC row bounds and midpoint, exact value-area bounds, actual collected value-area quantity/share and row count. The actual share can differ from the requested percentage because the existing adjacent-row algorithm does not split price rows. Small quantities stay nonzero and canonical decimal price boundaries are not rounded into zero-width ranges.
+
+The renderer publishes the actual profile payload to a cell-scoped registry. A layer token prevents obsolete cleanup from deleting a replacement layer's state. Native handle IDs identify studies independently of titles. Market, timeframe and source epoch must match the current Data-window host. Only visible handles are included. Hidden/removed studies disappear from the readout; Replay exposes an unavailability notice without live quantities. Missing sessions are distinct from zero volume. Initial worker calculation and errors have notices; a completed snapshot retained during a newer calculation is labelled updating.
+
+The native profile descriptor now carries its source context and resets its collection/model when the host's market-source epoch changes, including a same-provider generation change. The application supplies the actual market epoch. This prevents previously collected executions from being relabelled as observations from a new source generation.
+
+Multiple SVPs are now supported on one chart: the picker no longer blocks a second SVP, and the descriptor enables Vela's native `multiInstance` capability. Each instance retains independent inputs, collection, worker requests and renderer channel. Volume, VRVP and CVD retain their existing picker rules. Several large SVPs still share the bounded worker and can increase CPU/memory usage; this change does not remove collection/queue limits.
+
+## Verification
+
+- **1,462 tests across 126 files passed**. The final production build and TypeScript passed.
+- Eight new cases cover actual quantities/whole-session semantics, exact session boundaries, stable IDs and independent grids, cell/market/interval/epoch/Replay fences, pending/error payloads, tiny quantities/narrow POC bounds, native source-epoch reset/context and actual Data-window binding/recovery/polling teardown. Existing session-model, worker, collection and readout tests remain green.
+- The production Hyperliquid BTC/5m workspace displayed live profile fields. A single DOM snapshot recorded buys **11.80957**, sells **5.19836**, total **17.00793** and delta **6.61121**; arithmetic checks passed. These are partial observations from that run, not complete session volumes.
+- Hide removed the profile section; Show restored it. Selecting the oldest loaded candle returned an explicit missing-session message. Replay returned no profile quantity rows. After Exit, selecting the latest candle restored the live snapshot. A row-size edit to 100 updated POC bounds and row count.
+- The final build mounted two native profiles (row size 100 and automatic 40 rows) with different POC ranges. Hiding one left the other profile's independent Data-window section visible. Both temporary studies were removed afterward.
+- At **375×900**, profile quantities, UTC timestamps and canonical ranges wrapped within the sidebar. Measured profile width and scroll width were both **256 px**, with no horizontal overflow in the numeric definitions. The viewport override was reset; the original EMA/Volume chart and Watchlist sidebar were restored.
+
+Evidence is saved under `artifacts/session-profile-readout-*`: final test/build logs, DOM reports, live arithmetic JSON, desktop/mobile screenshots, mobile bounds and browser console output. The implementation adds an inspection surface; it does not add an exchange archive, recorded classified Replay, licensed Nasdaq data or complete TradingView/Vela parity. The separate intermittent older-candle investigation remains open.

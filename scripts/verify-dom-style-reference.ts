@@ -1,0 +1,21 @@
+import assert from "node:assert/strict";
+import {readFile,writeFile} from "node:fs/promises";
+import {createHash} from "node:crypto";
+import {runInNewContext} from "node:vm";
+import {domStyle,DOM_ZOOMS,domVisibleRows} from "../lib/orderflow/domStyle";
+const source=await readFile("artifacts/vela-dom-reference/0kh_muujoeolo.js","utf8"),hash=createHash("sha256").update(source).digest("hex");
+assert.equal(hash,"42f2ea4bd3efd7d848ef453f8648616c6fd3469feeaddc70f9ed51c763278c6a");
+const start=source.indexOf("let e,t;l=eP.zoom,e=e=>"),end=source.indexOf(",eh[37]=eP.zoom",start),block=source.slice(start,end);
+const rowStart=source.indexOf("eV=e=>Math.round(20*e/100)"),row=source.slice(rowStart,source.indexOf(",eA=",rowStart));
+assert.ok(start>0&&end>start&&row.startsWith("eV="));assert.ok(source.includes("a-3*t*et"));
+const ref=runInNewContext(`let ${row};zoom=>{let l,_;const eP={zoom};${block};return _;}`,{}, {timeout:1000}) as (zoom:number)=>Record<string,string>;
+const countStart=source.indexOf("eJ=Math.max(5,Math.floor(eh/eX))"),count=source.slice(countStart,source.indexOf(",e0=",countStart));assert.ok(countStart>0);
+const refCount=runInNewContext(`(eh,eX)=>{let ${count};return eJ;}`,{}, {timeout:1000}) as (height:number,row:number)=>number;
+const cases=[];
+for(const zoom of DOM_ZOOMS){const expected=ref(zoom),actual=domStyle(zoom);
+  for(const [key,name] of [["row","--ob-row"],["head","--ob-head"],["text","--ob-text"],["headText","--ob-head-text"],["chip","--ob-chip"],["chipText","--ob-chip-text"]] as const)assert.equal(`${actual[key]}px`,expected[name]);
+  for(const height of [40,100,250,426,600,1000])assert.equal(domVisibleRows(height,actual),refCount(height-actual.head,actual.row));
+  cases.push({zoom,metrics:expected,passed:true});
+}
+const report={checkedAt:new Date().toISOString(),sourceHash:hash,zoomCases:cases,metricComparisons:cases.length*6,viewportComparisons:cases.length*6,differences:0,scope:"Actual reviewed public Vela row/header/text/chip and viewport count arithmetic versus production; source wheel stride three verified separately in UI. No complete raster/theme/interaction parity claim."};
+await writeFile("artifacts/dom-style-reference.json",JSON.stringify(report,null,2));console.log(JSON.stringify({metricComparisons:report.metricComparisons,differences:0}));

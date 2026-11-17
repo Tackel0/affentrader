@@ -1,0 +1,27 @@
+# Footprint Stat table
+
+Each of the five Footprint instances now has a native **Stat table** group with ten independent metric switches: total volume, buy volume, sell volume, buy %, sell %, delta, delta %, trade count, bid count and ask count. The master switch remains off by default. The default selected rows remain volume, delta and delta %. Independent position, text size (6–24 px), neutral text color and alpha-capable background settings are stored with each instance.
+
+Reference inspected on 2026-11-04: https://docs.luxalgo.com/platform/charts/order-flow/footprint
+
+## Calculation and layout
+
+`footprintStatistics.ts` derives raw buy/sell totals, percentages and underlying print counts from the collected rows. Changing average-trade-size cell geometry, display mode or price grid does not turn the table into averages or change observed totals. Percentages with a zero denominator remain unavailable. Count overflow or a positive-volume execution without a valid explicit count makes the affected side unavailable. The combined count requires both sides to be known; the unaffected side can still be shown. Counts are not inferred from aggregate-message count.
+
+The table follows the public reference renderer's compact organization. Buy and Buy % share one line when the percentage is selected; Sell and Sell % do likewise. Selecting only a side percentage still includes its raw side volume on that line. Thus ten enabled metrics occupy eight physical rows. Percentages use integer display formatting; the data window retains more precise numeric values. Buy/ask values use the buy color, sell/bid values use the sell color, and delta uses its sign or neutral ink.
+
+Above and Below anchor to the footprint's observed row-price extent, not a fixed chart-footer position. Both price-axis directions work. Font size adapts slightly to lane width, and labels are omitted as a group when the full label/value layout does not fit. Values remain centered. Rounded backgrounds and theme-adapted defaults follow the reference configuration. The host clips tables at the price-pane boundary. Tables can remain visible in lanes at least 22 px wide when cells have already become too narrow to draw; exact reference opacity/cross-fading remains open.
+
+Existing `statisticsVisible` values retain their master state and migrate to the default three-row configuration. Native capture, individual cells, saved layouts and strict workspace backups preserve all metric and style choices, including disabled instances. The data window also exposes buy %, sell % and the underlying combined count using the same model.
+
+## Verification
+
+- Twelve cases in `tests/footprint-statistics.test.ts` cover all ten numeric metrics, aggregate underlying counts, unknown versus zero, count overflow, zero denominators and huge finite quantities, default/merged rows, all 1,024 switch combinations, legacy/per-instance preference validation, four normal/inverted Above/Below cases, values-only lanes, stat-only zoom and master/all-off controls. The existing cell/layout/backup round-trip now carries distinct enabled and disabled instance table settings.
+- `scripts/verify-footprint-statistics-source.ts` independently sums retained raw Binance/Kraken/Hyperliquid tuples and compares all ten metrics across three price grids and raw/average cell geometry: **840 comparisons**, using 2,010 observed executions in 14 minute buckets. Source capture: 2026-11-04T18:39:55Z. This is retained public data, not a fresh collection or full venue history. Evidence: `artifacts/footprint-statistics-source.json`.
+- `tests/browser/footprint-statistics.ts` and `scripts/verify-footprint-statistics-browser.mjs` provide an explicitly simulated three-candle comparison: positive, negative/unknown-count and balanced cases. Both placements were visually checked, mean cell sizes leave raw stats unchanged, and a two-candle revealed prefix removes the third table. Screenshots: `artifacts/footprint-statistics-below.png`, `footprint-statistics-above.png`, `footprint-statistics-average.png`, `footprint-statistics-prefix.png`.
+- Full suite: **2,176 tests in 200 files pass** (`artifacts/footprint-statistics-tests.log`). Standalone TypeScript and production build pass (`artifacts/footprint-statistics-build.log`).
+- The full production app was checked on an isolated loopback origin with ephemeral test authentication. Footprint 2 retained all ten enabled metrics, Above and text size 12 after reload. Footprint 1 independently retained the disabled master, Below, size 8 and default row selection. Native desktop and 414px navigation passed; the visible settings grid had equal scroll/client widths (308 px), and the final app console contained no errors. Screenshots: `artifacts/footprint-statistics-settings.png`, `footprint-statistics-mobile.png`. The real site credential was not read or changed. Temporary test servers were stopped, and the local production server was refreshed with its password gate intact.
+
+## Remaining fidelity work
+
+Direct Vela pixel/numeric-format comparison, complete palette equivalence, zoom opacity, full-capacity browser work, populated multi-chart and recorded browser Replay acceptance remain open. The ten metric controls do not establish complete Vela Orderflow parity. Venue-specific observed counts do not establish complete historical execution coverage. In particular, partial known-side counts are not presented as complete combined totals merely to imitate a reference renderer's partial sum.

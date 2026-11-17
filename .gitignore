@@ -1,0 +1,15 @@
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+.env*
+!.env.example
+artifacts/
+
+.data/
+.generated/
+.netlify/
+.netlify-private.env
+.netlify-server-key.txt
+access-key.txt
+

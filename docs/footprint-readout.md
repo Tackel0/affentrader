@@ -1,0 +1,21 @@
+# Footprint candle values in the Data window
+
+The chart's Data window now displays collected Ask/buy volume, Bid/sell volume, total volume, signed delta, delta percentage, POC row bounds and price-row count for its selected Footprint candle. Off the plot, it follows the native renderer's latest-bar fallback. These fields are separate from the exchange OHLCV volume and explicitly identify partial collected executions, simulation and evicted history.
+
+The Vela 0.9 adapter adds the selected bar's raw millisecond timestamp to the existing native readout. It uses the same bounded native index as OHLCV and study values. It never parses the displayed date/time, so timezone formatting and repeated wall-clock times cannot move the order-flow selection to a different candle. POC bounds retain their distinct canonical Number representations rather than rounding a narrow row into an apparently zero-width interval.
+
+The actual Footprint painter publishes its calculated surface through a cell-owned registry before the detailed-cell zoom threshold. Data-window values therefore remain available at narrow zoom. Market, interval, source epoch and selected time must match. Non-Footprint styles, Replay, missing collection, failed paint and canvas disposal expose no old numeric values. Token-checked cleanup prevents an obsolete layer's disposal from clearing its successor. The existing data-window store polls settled native values at 250 ms; this is not an every-tick notification API.
+
+A candle without retained classified executions displays a missing-history message, not zero volume. Replay displays its no-recorded-executions explanation and no live Footprint fields. The primary-chart Data window retains its existing scope; satellite cells do not replace the primary chart's readout. Collection remains bounded, in memory and partial as described in [Footprint history](footprint-history.md).
+
+## Verification
+
+- **1,420 tests across 121 files passed**; final production build including TypeScript passed. Logs: `artifacts/footprint-readout-{tests,build,targeted}.log`.
+- Six new contracts cover exact classified quantities, POC intervals, tiny values, narrow distinct boundaries, missing candles, simulation/eviction labels, cell/market/interval/epoch/Replay ownership and cleanup. The native test executes selected-bar readouts extracted from all five pinned bundles, including identical displayed wall-clock strings and out-of-range crosshair fallback.
+- An additional actual `bindDataWindow` lifecycle test selects collected/missing timestamps, refreshes settled surfaces, changes source epoch, enters Replay and switches chart style, checking the resulting values/status.
+- Actual production Hyperliquid BTC/5m: the Data window displayed changing classified quantities and a distinct POC interval for the latest 15:20 candle. Native keyboard Left selected 15:15 and replaced all numeric Footprint fields with the missing-execution message; Right restored the 15:20 fields. Screenshot: `artifacts/footprint-readout-values.jpg`; values/missing snapshots: `footprint-readout-{values,missing}.txt`.
+- Actual Replay changed the selected OHLCV timestamp and displayed no recorded classified executions, without live fields: `footprint-readout-replay.txt`. Values are live snapshots, not fixed expected feed quantities. Captured warnings/errors: `footprint-readout-browser-errors.json`. Candles/recent view, closed sidebar and inactive Replay were restored; no orders or alerts were created and no viewport override was applied.
+
+Cleanup also exposed a separate transition: an immediate Exit / sidebar-close / chart-type / Reset sequence left Replay active on the first attempt. The subsequent [Replay control visibility investigation](replay-commands.md) reproduced the behavior and identified the mobile sidebar intercepting the Exit button's hit point. It was not evidence that the initial click reached the command handler. The readout's Replay fencing behaved correctly in both states.
+
+Complete recorded order-flow Replay, persistent trade archives, full venue history, Nasdaq entitlements, exact UI parity and the separate native candle investigation remain open. See the subsequent Replay control investigation for the overlay correction and its evidence limits.

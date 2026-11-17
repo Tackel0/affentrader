@@ -1,0 +1,115 @@
+import { NextRequest, NextResponse } from "next/server";
+import { isSameOriginRequest } from "@/lib/server/security";
+import { createSiteSession, matchesSitePassword, safeReturnPath, SESSION_SECONDS, SITE_COOKIE, siteAccessConfig, takeLoginAttempt, validSiteSession } from "@/lib/server/siteAccess";
+import { siteLoginPage } from "@/lib/server/siteLoginPage";
+
+const privateHeaders = { "Cache-Control": "private, no-store, max-age=0", "X-Robots-Tag": "noindex, nofollow", "Referrer-Policy": "same-origin", "X-Content-Type-Options": "nosniff" };
+
+// Browsers fetch manifests with credentials omitted per HTML spec, and push SWs reference icons before auth.
+const PUBLIC_PWA_PATHS = new Set([
+  "/manifest.webmanifest",
+  "/icons/icon-192.png",
+  "/icons/icon-512.png",
+  "/icons/icon-maskable-512.png",
+  "/icons/apple-touch-icon.png",
+]);
+
+function isHttpsRequest(request: NextRequest): boolean {
+  if (request.nextUrl.protocol === "https:") return true;
+  const forwarded = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
+  return forwarded === "https";
+}
+
+function externalUrl(request: NextRequest, target: string): URL {
+  const host = request.headers.get("host")?.trim();
+  if (host && !/[\s/\\@?#]/.test(host)) {
+    try {
+      return new URL(target, `${isHttpsRequest(request) ? "https" : "http"}://${host}`);
+    } catch {
+      /* fallback to request.url */
+    }
+  }
+  return new URL(target, request.url);
+}
+
+function login(next: string, error = "", status = 200): NextResponse {
+  return new NextResponse(siteLoginPage(next, error), { status, headers: {
+    ...privateHeaders, "Content-Type": "text/html; charset=utf-8",
+    "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+  } });
+}
+
+function sameOrigin(request: NextRequest): boolean {
+  return isSameOriginRequest(request, { allowMissingOrigin: false, fallbackHost: request.nextUrl.host });
+}
+
+export async function proxy(request: NextRequest) {
+  // This data-free worker must remain reachable to retire pre-gate offline caches.
+  if (request.nextUrl.pathname === "/sw.js" && ["GET", "HEAD"].includes(request.method)) {
+    const response = NextResponse.next();
+    response.headers.set("Cache-Control", "no-store");
+    return response;
+  }
+  const settings = siteAccessConfig();
+  if (!settings) return new NextResponse("Der Website-Zugang ist noch nicht konfiguriert.", { status: 503, headers: privateHeaders });
+  const path = request.nextUrl.pathname;
+  if (PUBLIC_PWA_PATHS.has(path) && ["GET", "HEAD"].includes(request.method)) {
+    const response = NextResponse.next();
+    response.headers.set("X-Content-Type-Options", "nosniff");
+    response.headers.set("Cache-Control", path === "/manifest.webmanifest" ? "no-store" : "public, max-age=3600");
+    return response;
+  }
+  const authenticated = validSiteSession(request.cookies.get(SITE_COOKIE)?.value, settings);
+  const secure = isHttpsRequest(request);
+  if (path === "/logout") {
+    if (request.method !== "POST") return new NextResponse("POST required", { status: 405, headers: { ...privateHeaders, Allow: "POST" } });
+    if (!sameOrigin(request)) return new NextResponse("Forbidden", { status: 403, headers: privateHeaders });
+    const response = NextResponse.redirect(externalUrl(request, "/login"), 303);
+    response.cookies.set(SITE_COOKIE, "", { httpOnly: true, sameSite: "strict", secure, path: "/", maxAge: 0 });
+    for (const [key, value] of Object.entries(privateHeaders)) response.headers.set(key, value);
+    return response;
+  }
+  if (path === "/login") {
+    const next = safeReturnPath(request.nextUrl.searchParams.get("next"));
+    if (request.method === "GET" || request.method === "HEAD") {
+      return authenticated ? NextResponse.redirect(externalUrl(request, next), 303) : login(next);
+    }
+    if (request.method !== "POST") return new NextResponse("Method not allowed", { status: 405, headers: { ...privateHeaders, Allow: "GET, HEAD, POST" } });
+    if (!sameOrigin(request)) return login(next, "Diese Anfrage wurde abgelehnt. Bitte öffne die Anmeldung erneut.", 403);
+    if (!takeLoginAttempt()) {
+      const response = login(next, "Zu viele Anmeldeversuche. Bitte warte eine Minute.", 429);
+      response.headers.set("Retry-After", "60");
+      return response;
+    }
+    if (!request.headers.get("content-type")?.startsWith("application/x-www-form-urlencoded")) return login(next, "Ungültige Anmeldung.", 400);
+    const reader = request.body?.getReader();
+    if (!reader) return login(next, "Bitte gib das Passwort ein.", 400);
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    try {
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        size += chunk.value.byteLength;
+        if (size > 4096) { await reader.cancel(); return login(next, "Die Eingabe ist zu lang.", 413); }
+        chunks.push(chunk.value);
+      }
+    } catch { return login(next, "Die Anmeldung konnte nicht gelesen werden.", 400); }
+    const form = new URLSearchParams(Buffer.concat(chunks).toString("utf8"));
+    const destination = safeReturnPath(form.get("next"));
+    if (!await matchesSitePassword(form.get("password") ?? "", settings)) return login(destination, "Das Passwort ist nicht richtig.", 401);
+    const response = NextResponse.redirect(externalUrl(request, destination), 303);
+    response.cookies.set(SITE_COOKIE, createSiteSession(settings), { httpOnly: true, sameSite: "strict", secure, path: "/", maxAge: SESSION_SECONDS });
+    for (const [key, value] of Object.entries(privateHeaders)) response.headers.set(key, value);
+    return response;
+  }
+  if (!authenticated) {
+    if (path.startsWith("/api/") || !["GET", "HEAD"].includes(request.method)) return NextResponse.json({ error: "Website login required." }, { status: 401, headers: privateHeaders });
+    const url = externalUrl(request, "/login");
+    url.searchParams.set("next", safeReturnPath(path + request.nextUrl.search));
+    return NextResponse.redirect(url, { status: 303, headers: privateHeaders });
+  }
+  const response = NextResponse.next();
+  for (const [key, value] of Object.entries(privateHeaders)) response.headers.set(key, value);
+  return response;
+}

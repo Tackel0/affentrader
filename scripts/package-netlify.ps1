@@ -1,0 +1,110 @@
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
+$projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+$output = Join-Path $projectRoot 'artifacts/affentrader-netlify.zip'
+$folders = @('app', 'components', 'hooks', 'lib', 'stores', 'types', 'workers', 'public', 'tests', 'netlify')
+$rootFiles = @('package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'next.config.ts', 'next-env.d.ts', 'tsconfig.json', 'postcss.config.mjs', 'vitest.config.ts', 'proxy.ts', 'instrumentation.ts', 'instrumentation-node.ts', '.gitignore', 'AGENTS.md', 'README.md', 'CODEX_HANDOFF.md', 'THIRD_PARTY_NOTICES.md', 'netlify.toml', 'Netlify-Zugang-einrichten.cmd')
+$scripts = @('build-strategy-runtime.mjs', 'build-pine-alert-runtime.mjs', 'pinets-magnifier-patch.mjs', 'pinets-alert-patch.mjs', 'setup-netlify-access.mjs', 'package-netlify.ps1', 'verify-footprint-reveal-browser.mjs', 'verify-footprint-grid-browser.mjs', 'verify-footprint-grid-source.ts', 'verify-footprint-diagonals-browser.mjs', 'verify-footprint-diagonals-source.ts')
+$files = @($rootFiles | ForEach-Object { Get-Item -LiteralPath (Join-Path $projectRoot $_) })
+foreach ($folder in $folders) { $files += Get-ChildItem -LiteralPath (Join-Path $projectRoot $folder) -File -Recurse }
+$files += $scripts | ForEach-Object { Get-Item -LiteralPath (Join-Path $PSScriptRoot $_) }
+$files += Get-ChildItem -LiteralPath $PSScriptRoot -Filter 'patch-vela-*.mjs' -File
+$files += Get-Item -LiteralPath (Join-Path $projectRoot 'docs/netlify-upload.md')
+$files += Get-Item -LiteralPath (Join-Path $projectRoot 'docs/footprint-reveal.md')
+$files += Get-Item -LiteralPath (Join-Path $projectRoot 'docs/footprint-grid-reference.md')
+$files += Get-Item -LiteralPath (Join-Path $projectRoot 'docs/footprint-diagonals.md')
+$files += Get-Item -LiteralPath (Join-Path $projectRoot 'docs/footprint-highlight.md')
+$files += Get-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-footprint-highlight-browser.mjs')
+$files += Get-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-footprint-highlight-reference.ts')
+$files += Get-Item -LiteralPath (Join-Path $projectRoot 'docs/footprint-palette.md')
+$files += Get-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-footprint-palette-browser.mjs')
+$files += Get-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-footprint-palette-reference.ts')
+$files += Get-Item -LiteralPath (Join-Path $projectRoot 'docs/footprint-text.md')
+$files += Get-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-footprint-text-browser.mjs')
+$files += Get-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-footprint-text-reference.ts')
+$files += Get-Item -LiteralPath (Join-Path $projectRoot 'docs/footprint-background.md')
+$files += Get-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-footprint-background-browser.mjs')
+$files += Get-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-footprint-background-reference.ts')
+$files += Get-Item -LiteralPath (Join-Path $projectRoot 'docs/footprint-statistics-style.md')
+$files += Get-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-footprint-statistics-style-browser.mjs')
+$files += Get-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-footprint-statistics-style-reference.ts')
+$files += Get-Item -LiteralPath (Join-Path $projectRoot 'docs/footprint-structure.md')
+$files += Get-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-footprint-structure-browser.mjs')
+$files += Get-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-footprint-structure-reference.ts')
+$files += Get-Item -LiteralPath (Join-Path $projectRoot 'docs/footprint-theme.md')
+$files += Get-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-footprint-theme-reference.ts')
+$files += Get-Item -LiteralPath (Join-Path $projectRoot 'docs/footprint-color-intent.md')
+$files += Get-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-footprint-color-intent-browser.mjs')
+$files += Get-Item -LiteralPath (Join-Path $projectRoot 'docs/footprint-renderer.md')
+$files += Get-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-footprint-renderer-browser.mjs')
+$files += Get-Item -LiteralPath (Join-Path $projectRoot 'docs/footprint-tooltip.md')
+$files += Get-Item -LiteralPath (Join-Path $projectRoot 'docs/footprint-reading-tools.md')
+$files += Get-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-footprint-tooltip-reference.ts')
+$files += Get-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-footprint-hover-browser.mjs')
+$files += Get-Item -LiteralPath (Join-Path $projectRoot 'docs/footprint-magnifier.md')
+$files += Get-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-footprint-magnifier-browser.mjs')
+$files += Get-Item -LiteralPath (Join-Path $projectRoot 'docs/footprint-unfinished-auctions.md')
+$files += Get-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-unfinished-auctions-reference.ts')
+$files += Get-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-unfinished-auctions-source.ts')
+$files += Get-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-unfinished-auctions-browser.mjs')
+$files += Get-Item -LiteralPath (Join-Path $projectRoot 'docs/footprint-poc-reference.md')
+$files += Get-Item -LiteralPath (Join-Path $projectRoot 'docs/footprint-value-area.md')
+$files += Get-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-footprint-poc-reference.ts')
+$files += Get-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-footprint-value-area-source.ts')
+$files += Get-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-footprint-value-area-browser.mjs')
+$files += Get-Item -LiteralPath (Join-Path $projectRoot 'docs/footprint-stacked-zones.md')
+$files += Get-Item -LiteralPath (Join-Path $projectRoot 'docs/footprint-stacked-zones-reference.md')
+$files += Get-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-footprint-stacked-zones-reference.ts')
+$files += Get-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-footprint-stacked-zones-source.ts')
+$files += Get-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-footprint-stacked-zones-browser.mjs')
+$files += Get-Item -LiteralPath (Join-Path $projectRoot 'docs/vela-orderflow-parity.md')
+$files += Get-Item -LiteralPath (Join-Path $projectRoot 'docs/kraken-recorded-replay.md')
+$files += Get-Item -LiteralPath (Join-Path $projectRoot 'docs/trade-archive.md')
+$files += Get-Item -LiteralPath (Join-Path $projectRoot 'docs/orderflow-replay.md')
+$files += Get-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-kraken-recorded-replay.ps1')
+$files += Get-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-kraken-recovery-live.ps1')
+$files += Get-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-kraken-recovery-live.ts')
+$files += Get-Item -LiteralPath (Join-Path $projectRoot 'docs/kraken-candle-recovery.md')
+$files += Get-Item -LiteralPath (Join-Path $projectRoot 'docs/workspace-replay.md')
+$files += Get-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-workspace-replay.ps1')
+# Allowlisted inputs only: never enumerate or open local credentials/data folders.
+$files += Get-Item -LiteralPath (Join-Path $projectRoot 'docs/dom-traded-volume.md')
+$files += Get-Item -LiteralPath (Join-Path $projectRoot 'docs/dom-navigation.md')
+$files += Get-Item -LiteralPath (Join-Path $projectRoot 'docs/dom-price-grid.md')
+$files += Get-Item -LiteralPath (Join-Path $projectRoot 'docs/dom-click-orders.md')
+$files += Get-Item -LiteralPath (Join-Path $projectRoot 'docs/dom-columns.md')
+$files += Get-Item -LiteralPath (Join-Path $projectRoot 'docs/dom-preferences.md')
+$files += Get-Item -LiteralPath (Join-Path $projectRoot 'docs/dom-large-orders.md')
+$files += Get-Item -LiteralPath (Join-Path $projectRoot 'docs/dom-style.md')
+$files += Get-Item -LiteralPath (Join-Path $projectRoot 'docs/book-view.md')
+$files += Get-Item -LiteralPath (Join-Path $projectRoot 'docs/stock-base-terminal.md')
+$files += Get-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-book-reference.ts')
+$files += Get-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-dom-style-reference.ts')
+$files += Get-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-dom-large-orders-reference.ts')
+$files += Get-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-dom-grid-live.ts')
+$files += Get-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-dom-trades-source.ts')
+$files += Get-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-dom-trades-browser.mjs')
+$files += Get-Item -LiteralPath (Join-Path $projectRoot 'docs/trade-count.md')
+$files += Get-Item -LiteralPath (Join-Path $projectRoot 'docs/trade-count-replay.md')
+$files += Get-Item -LiteralPath (Join-Path $projectRoot 'docs/trade-count-format.md')
+$files += Get-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-trade-count-format-browser.mjs')
+$files += Get-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-trade-count-replay.ps1')
+[IO.Directory]::CreateDirectory((Join-Path $projectRoot 'artifacts')) | Out-Null
+$stream = [IO.File]::Open($output, [IO.FileMode]::Create)
+$archive = [IO.Compression.ZipArchive]::new($stream, [IO.Compression.ZipArchiveMode]::Create)
+$rootPrefix = $projectRoot.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+try {
+  foreach ($file in ($files | Sort-Object FullName -Unique)) {
+    if ($file.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Symlink refused in upload package.' }
+    if (-not $file.FullName.StartsWith($rootPrefix, [StringComparison]::OrdinalIgnoreCase)) { throw "File outside project root refused: $($file.FullName)" }
+    $relative = $file.FullName.Substring($rootPrefix.Length).Replace('\', '/')
+    if ($relative -match '(^|/)(\.env[^/]*|\.data|\.netlify[^/]*|node_modules|artifacts|\.generated|\.next)(/|$)' -or $relative -match '(^|/)access-key\.txt$') { throw "Private/generated path refused: $relative" }
+    [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $file.FullName, $relative, [IO.Compression.CompressionLevel]::Optimal) | Out-Null
+  }
+} finally { $archive.Dispose(); $stream.Dispose() }
+$check = [IO.Compression.ZipFile]::OpenRead($output)
+try {
+  $entries = @($check.Entries.FullName)
+  foreach ($required in @('package.json', 'netlify.toml', 'pnpm-lock.yaml', 'CODEX_HANDOFF.md', 'scripts/build-strategy-runtime.mjs', 'netlify/functions/alerts.ts', 'docs/netlify-upload.md')) { if ($required -notin $entries) { throw "Missing: $required" } }
+  [PSCustomObject]@{ Package = $output; Files = $entries.Count; Bytes = (Get-Item -LiteralPath $output).Length; SHA256 = (Get-FileHash -LiteralPath $output -Algorithm SHA256).Hash }
+} finally { $check.Dispose() }
