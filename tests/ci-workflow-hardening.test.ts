@@ -36,6 +36,7 @@ describe("CI/CD workflow & container hardening", () => {
     expect(yml).toContain("needs: [verify, e2e_browser, mobile_viewport_audit]");
     expect(yml).toContain("github.event_name != 'pull_request'");
     expect(yml).toContain(".next/cache");
+    expect(yml).toContain("include-hidden-files: true");
     expect(yml).toContain("node scripts/verify-terminal-e2e-browser.mjs");
     expect(yml).toContain("node scripts/verify-mobile-viewports.mjs --standalone-dir");
 
