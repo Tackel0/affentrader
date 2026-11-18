@@ -158,3 +158,63 @@ it("counts overlapping Kraken REST and WebSocket trades only once in a tick cand
     vi.unstubAllGlobals();
   }
 });
+
+it("batches multi-symbol Kraken ticker snapshots into a single store quote update and isolates unrelated provider sockets on quote-only edits", () => {
+  const sockets: FakeSocket[] = [];
+  class FakeSocket {
+    static readonly OPEN = 1;
+    readyState = 1;
+    onopen?: () => void;
+    onclose?: () => void;
+    onmessage?: (event: { data: string }) => void;
+    closed = false;
+    constructor(readonly url: string) { sockets.push(this); }
+    send() {}
+    close() { this.closed = true; this.onclose?.(); }
+  }
+  vi.stubGlobal("WebSocket", FakeSocket);
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false }));
+  const service = new MarketService();
+  const originalQuotes = useChartStore.getState().quotes;
+  try {
+    service.start(["BTCUSDT"], "auto", ["KRK:BTC/USD", "KRK:ETH/USD"]);
+    const binanceSocket = sockets.find(s => s.url.includes("binance"))!;
+    const krakenSocket = sockets.find(s => s.url.includes("kraken"))!;
+    expect(binanceSocket).toBeDefined();
+    expect(krakenSocket).toBeDefined();
+
+    let storeUpdates = 0;
+    const unsub = useChartStore.subscribe((state, prev) => {
+      if (state.quotes !== prev.quotes) storeUpdates++;
+    });
+
+    // Deliver a 2-symbol Kraken ticker snapshot frame -> must coalesce into 1 store update
+    krakenSocket.onmessage!({
+      data: JSON.stringify({
+        channel: "ticker",
+        type: "snapshot",
+        data: [
+          { symbol: "BTC/USD", last: 91000, timestamp: "2026-11-03T15:00:02.000Z", high: 92000, low: 89000, volume: 100, change: 500 },
+          { symbol: "ETH/USD", last: 3100, timestamp: "2026-11-03T15:00:02.000Z", high: 3200, low: 3000, volume: 200, change: 50 },
+        ],
+      }),
+    });
+    unsub();
+
+    expect(storeUpdates).toBe(1);
+    expect(useChartStore.getState().quotes["KRK:BTC/USD"]?.price).toBe(91000);
+    expect(useChartStore.getState().quotes["KRK:ETH/USD"]?.price).toBe(3100);
+
+    // Adding a Yahoo quote-only symbol must NOT close or reconnect Binance or Kraken sockets
+    service.start(["BTCUSDT"], "auto", ["KRK:BTC/USD", "KRK:ETH/USD", "YF:AAPL"]);
+    expect(binanceSocket.closed).toBe(false);
+    expect(krakenSocket.closed).toBe(false);
+    expect(sockets.filter(s => s.url.includes("binance"))).toHaveLength(1);
+    expect(sockets.filter(s => s.url.includes("kraken"))).toHaveLength(1);
+  } finally {
+    service.stop();
+    useChartStore.getState().set({ quotes: originalQuotes });
+    vi.unstubAllGlobals();
+  }
+});
+

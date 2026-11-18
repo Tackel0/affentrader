@@ -38,6 +38,7 @@ export function subscribeKrakenTrades(
   bookPairs: readonly string[] = symbols,
   receiveTicker?: (ticker: KrakenTicker) => void,
   onTradeSubscribed?: (symbol: string, time: number) => void,
+  batchTickers?: (work: () => void) => void,
 ): () => void {
   const pairs = new Set(symbols);
   const tradePairs = receiveTicker ? bookPairs : [...pairs];
@@ -74,17 +75,22 @@ export function subscribeKrakenTrades(
     }
     const snapshotOrUpdate = message.type === "snapshot" || message.type === "update";
     if (message.channel === "ticker" && snapshotOrUpdate && receiveTicker && Array.isArray(message.data)) {
-      for (const raw of message.data) {
-        const row = wireObject(raw);
-        if (!active || !row || typeof row.symbol !== "string" || !pairs.has(row.symbol)) continue;
-        const { last, high, low, volume, change, timestamp } = row;
-        const time = typeof timestamp === "string" ? Date.parse(timestamp) : NaN;
-        if (typeof last !== "number" || typeof high !== "number" || typeof low !== "number" ||
-          typeof volume !== "number" || typeof change !== "number" || ![last, high, low, volume, change, time].every(Number.isFinite) ||
-          time <= 0 || last <= 0 || low <= 0 || high < low || volume < 0 || !Number.isFinite(last - change) || last - change <= 0) continue;
-        lastTraffic = now;
-        receiveTicker({ symbol: `KRK:${row.symbol}`, last, change, high, low, volume, time });
-      }
+      const dataRows = message.data;
+      const processRows = () => {
+        for (const raw of dataRows) {
+          const row = wireObject(raw);
+          if (!active || !row || typeof row.symbol !== "string" || !pairs.has(row.symbol)) continue;
+          const { last, high, low, volume, change, timestamp } = row;
+          const time = typeof timestamp === "string" ? Date.parse(timestamp) : NaN;
+          if (typeof last !== "number" || typeof high !== "number" || typeof low !== "number" ||
+            typeof volume !== "number" || typeof change !== "number" || ![last, high, low, volume, change, time].every(Number.isFinite) ||
+            time <= 0 || last <= 0 || low <= 0 || high < low || volume < 0 || !Number.isFinite(last - change) || last - change <= 0) continue;
+          lastTraffic = now;
+          receiveTicker({ symbol: `KRK:${row.symbol}`, last, change, high, low, volume, time });
+        }
+      };
+      if (batchTickers) batchTickers(processRows);
+      else processRows();
       return;
     }
     if (message.channel === "book" && receiveBook && (message.type === "snapshot" || message.type === "update")) {

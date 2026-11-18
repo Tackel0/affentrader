@@ -270,9 +270,22 @@ export class MarketService {
     const nextPriority = [...new Set(quotePriority)].filter(symbol => nextQuotes.includes(symbol)).slice(0, 150).sort();
     if (this.running && this.mode === mode && this.iexEpoch === useAlpacaStore.getState().epoch && JSON.stringify(this.symbols) === JSON.stringify(nextSymbols)) {
       if (JSON.stringify(this.quoteSymbols) !== JSON.stringify(nextQuotes) || JSON.stringify(this.quotePriority) !== JSON.stringify(nextPriority)) {
+        const prevQuotes = this.quoteSymbols;
+        const prevPriority = this.quotePriority;
         this.quoteSymbols = nextQuotes;
         this.quotePriority = nextPriority;
-        if (mode === "auto") this.refreshQuoteSubscriptions();
+        if (mode === "auto") {
+          const sameFor = (p: ReturnType<typeof providerOf>) =>
+            JSON.stringify(prevQuotes.filter(s => providerOf(s) === p)) === JSON.stringify(nextQuotes.filter(s => providerOf(s) === p)) &&
+            JSON.stringify(prevPriority.filter(s => providerOf(s) === p)) === JSON.stringify(nextPriority.filter(s => providerOf(s) === p));
+          this.refreshQuoteSubscriptions({
+            binance: !sameFor("binance"),
+            yahoo: !sameFor("yahoo"),
+            hyperliquid: !sameFor("hyperliquid"),
+            kraken: !sameFor("kraken"),
+            alpaca: !sameFor("alpaca"),
+          });
+        }
       }
       return;
     }
@@ -463,28 +476,50 @@ export class MarketService {
     this.socket = null;
   }
   /** Quote-only edits preserve chart history, trades, drawings and alert state. */
-  private refreshQuoteSubscriptions() {
-    if (this.hlSocket) this.suspendHyperliquidCandles();
-    for (const socket of [this.socket, this.hlSocket]) if (socket) {
-      socket.onclose = null;
-      socket.onmessage = null;
-      socket.onerror = null;
-      socket.close();
+  private refreshQuoteSubscriptions(changed: {
+    binance?: boolean;
+    yahoo?: boolean;
+    hyperliquid?: boolean;
+    kraken?: boolean;
+    alpaca?: boolean;
+  } = { binance: true, yahoo: true, hyperliquid: true, kraken: true, alpaca: true }) {
+    if (changed.binance) {
+      if (this.socket) {
+        this.socket.onclose = null;
+        this.socket.onmessage = null;
+        this.socket.onerror = null;
+        this.socket.close();
+      }
+      this.socket = null;
+      if (this.retry) clearTimeout(this.retry);
+      this.connect(this.generation);
+      void this.fetchQuotes(this.generation);
     }
-    this.socket = null;
-    this.hlSocket = null;
-    if (this.retry) clearTimeout(this.retry);
-    if (this.hlRetry) clearTimeout(this.hlRetry);
-    if (this.hlPing) clearInterval(this.hlPing);
-    if (this.hlQuoteTimer) clearInterval(this.hlQuoteTimer);
-    if (this.yahooTimer) clearInterval(this.yahooTimer);
-    this.connect(this.generation);
-    void this.fetchQuotes(this.generation);
-    this.startYahoo(this.generation);
-    this.startHyperliquid(this.generation);
-    this.startKraken(this.generation);
-    if (this.iexStream) this.iexStream.setSymbols(this.iexSymbols());
-    else this.startIex(this.generation);
+    if (changed.hyperliquid) {
+      if (this.hlSocket) {
+        this.suspendHyperliquidCandles();
+        this.hlSocket.onclose = null;
+        this.hlSocket.onmessage = null;
+        this.hlSocket.onerror = null;
+        this.hlSocket.close();
+      }
+      this.hlSocket = null;
+      if (this.hlRetry) clearTimeout(this.hlRetry);
+      if (this.hlPing) clearInterval(this.hlPing);
+      if (this.hlQuoteTimer) clearInterval(this.hlQuoteTimer);
+      this.startHyperliquid(this.generation);
+    }
+    if (changed.yahoo) {
+      if (this.yahooTimer) clearInterval(this.yahooTimer);
+      this.startYahoo(this.generation);
+    }
+    if (changed.kraken) {
+      this.startKraken(this.generation);
+    }
+    if (changed.alpaca) {
+      if (this.iexStream) this.iexStream.setSymbols(this.iexSymbols());
+      else this.startIex(this.generation);
+    }
   }
   private iexSymbols() {
     const active = useChartStore.getState().symbol;
@@ -673,7 +708,7 @@ export class MarketService {
         gap.retryAt = 0;
         if (this.krakenRecovery.size < 2 && !gap.unavailable) void this.recoverKraken(key).catch(() => {});
       }
-    });
+    }, work => this.batchQuotes(work));
   }
 
   private suspendKrakenCandles() {
@@ -1345,20 +1380,26 @@ export class MarketService {
       try {
         const quotes = await yahooQuotes(symbols.map(tickerOf));
         if (epoch !== this.generation) return;
+        this.batchQuotes(() => {
+          for (const symbol of symbols) {
+            const q = quotes[tickerOf(symbol)];
+            if (!q || !(q.price > 0)) continue;
+            const previous = (this.quoteBatch ?? useChartStore.getState().quotes)[symbol];
+            this.live.set(symbol, Date.now());
+            this.quote(
+              symbol,
+              q.price,
+              q.previousClose > 0 ? q.previousClose : q.price,
+              Math.max(q.high, q.price),
+              Math.min(q.low, q.price),
+              previous?.volume ?? 0,
+              false,
+            );
+          }
+        });
         for (const symbol of symbols) {
           const q = quotes[tickerOf(symbol)];
           if (!q || !(q.price > 0)) continue;
-          const previous = useChartStore.getState().quotes[symbol];
-          this.live.set(symbol, Date.now());
-          this.quote(
-            symbol,
-            q.price,
-            q.previousClose > 0 ? q.previousClose : q.price,
-            Math.max(q.high, q.price),
-            Math.min(q.low, q.price),
-            previous?.volume ?? 0,
-            false,
-          );
           const stamp = `${q.price}:${q.time}`;
           if (this.symbols.includes(symbol) && this.yahooSeen.get(symbol) !== stamp) {
             this.yahooSeen.set(symbol, stamp);
@@ -1512,21 +1553,26 @@ export class MarketService {
       if (!response.ok) return;
       const data = await response.json();
       if (epoch !== this.generation) return;
-      for (const q of data)
-        if (
-          this.symbols.includes(q.symbol) ||
-          this.quoteSymbols.includes(q.symbol)
-        )
-          this.quote(
-            q.symbol,
-            +q.lastPrice,
-            +q.openPrice,
-            +q.highPrice,
-            +q.lowPrice,
-            +q.volume,
-            false,
-            basicMetrics(q.symbol, nonnegative(q.volume), nonnegative(q.quoteVolume), +q.highPrice, +q.lowPrice, "24h"),
-          );
+      if (!Array.isArray(data)) return;
+      this.batchQuotes(() => {
+        for (const q of data) {
+          if (epoch !== this.generation) break;
+          if (
+            this.symbols.includes(q.symbol) ||
+            this.quoteSymbols.includes(q.symbol)
+          )
+            this.quote(
+              q.symbol,
+              +q.lastPrice,
+              +q.openPrice,
+              +q.highPrice,
+              +q.lowPrice,
+              +q.volume,
+              false,
+              basicMetrics(q.symbol, nonnegative(q.volume), nonnegative(q.quoteVolume), +q.highPrice, +q.lowPrice, "24h"),
+            );
+        }
+      });
     } catch {
       return;
     }

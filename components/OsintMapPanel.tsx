@@ -42,6 +42,15 @@ type SelectedEntity =
 const MAP_W = 880;
 const MAP_H = 420;
 
+let cachedCountriesGeo: ReturnType<typeof feature> | null = null;
+function getCountriesGeo() {
+  if (cachedCountriesGeo) return cachedCountriesGeo;
+  const topology = worldCountries as unknown as Parameters<typeof feature>[0];
+  const countriesObj = topology.objects?.countries;
+  cachedCountriesGeo = countriesObj ? feature(topology, countriesObj) : null;
+  return cachedCountriesGeo;
+}
+
 export function OsintMapPanel({ onSelectSymbol }: Props) {
   const [data, setData] = useState<ExtendedOsintPayload | null>(null);
   const [loading, setLoading] = useState(true);
@@ -123,9 +132,7 @@ export function OsintMapPanel({ onSelectSymbol }: Props) {
       .scale(preset.scale)
       .translate([MAP_W / 2, MAP_H / 2]);
     const pathGen = geoPath(proj);
-    const topology = worldCountries as unknown as Parameters<typeof feature>[0];
-    const countriesObj = topology.objects?.countries;
-    const countriesGeo = countriesObj ? feature(topology, countriesObj) : null;
+    const countriesGeo = getCountriesGeo();
     const land = countriesGeo ? pathGen(countriesGeo) ?? "" : "";
     const grat = pathGen(geoGraticule10()) ?? "";
     return { landPath: land, graticulePath: grat, projection: proj };
