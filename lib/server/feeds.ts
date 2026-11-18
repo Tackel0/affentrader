@@ -103,14 +103,27 @@ export function symbolsIn(text: string): string[] {
   return [...found];
 }
 
+function safeHttpUrl(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "";
+    if (parsed.username || parsed.password) return "";
+    return trimmed;
+  } catch {
+    return "";
+  }
+}
+
 export function parseRss(xml: string, source: string, max = 40): NewsItem[] {
   const items: NewsItem[] = [];
   for (const match of xml.matchAll(/<item[\s>][\s\S]*?<\/item>/gi)) {
     const block = match[0];
     const title = stripHtml(tag(block, "title"));
-    const link = stripHtml(tag(block, "link")) || stripHtml(tag(block, "guid"));
+    const link = safeHttpUrl(stripHtml(tag(block, "link"))) || safeHttpUrl(stripHtml(tag(block, "guid")));
     const published = Date.parse(stripHtml(tag(block, "pubDate")) || stripHtml(tag(block, "dc:date")));
-    if (!title || !/^https?:\/\//.test(link) || !Number.isFinite(published)) continue;
+    if (!title || !link || !Number.isFinite(published)) continue;
     const summary = stripHtml(tag(block, "description") || tag(block, "content:encoded")).slice(0, 280);
     items.push({
       id: `${source}:${link}`,

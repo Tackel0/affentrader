@@ -41,6 +41,7 @@ import { ScreenerPanel } from "./ScreenerPanel";
 import { NewsPanel } from "./NewsPanel";
 import { CalendarPanel } from "./CalendarPanel";
 import { ResearchTerminal } from "./ResearchTerminal";
+import { ModuleErrorBoundary } from "./ModuleErrorBoundary";
 import type { BottomTab } from "@/types/trading";
 /** Tabs that share the resizable full-height tool layout. */
 const TOOL_TABS: BottomTab[] = ["trading", "dom", "portfolio", "screener", "terminal", "news", "calendar", "heatmap"];
@@ -106,31 +107,33 @@ export function BottomPanel() {
       </WorkspacePanelTabs>
       {open ? (
         <div id={contentId} ref={content} className="bottom-panel-content">
-          {tab === "overview" ? (
-            <MarketOverview />
-          ) : tab === "pine" ? (
-            <PineEditor />
-          ) : tab === "strategy" ? (
-            <StrategyTester />
-          ) : tab === "trading" ? (
-            <TradingPanel />
-          ) : tab === "dom" ? (
-            <DomPanel />
-          ) : tab === "portfolio" ? (
-            <PortfolioPanel />
-          ) : tab === "screener" ? (
-            <ScreenerPanel />
-          ) : tab === "terminal" ? (
-            <ResearchTerminal />
-          ) : tab === "news" ? (
-            <NewsPanel />
-          ) : tab === "calendar" ? (
-            <CalendarPanel />
-          ) : tab === "heatmap" ? (
-            <HeatmapPanel />
-          ) : (
-            <OrderFlowPanel />
-          )}
+          <ModuleErrorBoundary moduleName={`Bottom panel (${tab})`} resetKey={tab} compact>
+            {tab === "overview" ? (
+              <MarketOverview />
+            ) : tab === "pine" ? (
+              <PineEditor />
+            ) : tab === "strategy" ? (
+              <StrategyTester />
+            ) : tab === "trading" ? (
+              <TradingPanel />
+            ) : tab === "dom" ? (
+              <DomPanel />
+            ) : tab === "portfolio" ? (
+              <PortfolioPanel />
+            ) : tab === "screener" ? (
+              <ScreenerPanel />
+            ) : tab === "terminal" ? (
+              <ResearchTerminal />
+            ) : tab === "news" ? (
+              <NewsPanel />
+            ) : tab === "calendar" ? (
+              <CalendarPanel />
+            ) : tab === "heatmap" ? (
+              <HeatmapPanel />
+            ) : (
+              <OrderFlowPanel />
+            )}
+          </ModuleErrorBoundary>
         </div>
       ) : null}
     </section>

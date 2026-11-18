@@ -82,6 +82,9 @@ export async function pushSync(
   key: string,
   input: { data: unknown; baseRevision: number; device: string },
 ): Promise<{ revision: number; updatedAt: number }> {
+  if (typeof input.baseRevision !== "number" || !Number.isInteger(input.baseRevision) || input.baseRevision < 0) {
+    throw new SyncError(400, "Invalid baseRevision.");
+  }
   checkPayload(input.data);
   const store = storeFor(key);
   const current = await store.read();
@@ -99,7 +102,13 @@ export async function pushSync(
     data: input.data,
   };
   await store.update(latest => {
-    if ((latest?.revision ?? 0) !== input.baseRevision) throw new SyncError(409, "Another device synced a newer version first.", latest ?? undefined);
+    if ((latest?.revision ?? 0) !== input.baseRevision) {
+      throw new SyncError(
+        409,
+        "Another device synced a newer version first.",
+        latest ? { revision: latest.revision, updatedAt: latest.updatedAt, device: latest.device } : undefined,
+      );
+    }
     return next;
   });
   return { revision: next.revision, updatedAt: next.updatedAt };

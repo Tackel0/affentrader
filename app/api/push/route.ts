@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { HttpError, isAuthorized, readJson } from "@/lib/server/security";
+import { logError } from "@/lib/server/logger";
 import {
   addSubscription,
   removeSubscription,
@@ -12,7 +13,12 @@ export const dynamic = "force-dynamic";
 
 /** The public VAPID key browsers need to subscribe (public by design). */
 export async function GET() {
-  return NextResponse.json({ publicKey: (await vapidKeys()).publicKey });
+  try {
+    return NextResponse.json({ publicKey: (await vapidKeys()).publicKey });
+  } catch (error) {
+    logError("api.push.get", error);
+    return NextResponse.json({ error: "Push service error." }, { status: 500 });
+  }
 }
 
 async function guard(request: NextRequest) {
@@ -37,6 +43,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     if (error instanceof HttpError)
       return NextResponse.json({ error: error.message }, { status: error.status });
+    logError("api.push.post", error);
     return NextResponse.json({ error: "Push service error." }, { status: 500 });
   }
 }
@@ -45,7 +52,13 @@ export async function DELETE(request: NextRequest) {
   const denied = await guard(request);
   if (denied) return denied;
   const endpoint = request.nextUrl.searchParams.get("endpoint");
-  if (!endpoint) return NextResponse.json({ error: "Missing endpoint." }, { status: 400 });
-  await removeSubscription(endpoint);
-  return NextResponse.json({ removed: true });
+  if (!endpoint || !/^https:\/\//.test(endpoint) || endpoint.length >= 1000)
+    return NextResponse.json({ error: "Missing or invalid endpoint." }, { status: 400 });
+  try {
+    await removeSubscription(endpoint);
+    return NextResponse.json({ removed: true });
+  } catch (error) {
+    logError("api.push.delete", error);
+    return NextResponse.json({ error: "Push service error." }, { status: 500 });
+  }
 }

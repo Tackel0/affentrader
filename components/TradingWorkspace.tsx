@@ -43,6 +43,7 @@ import { AlertDialog, AlertsPanel } from "./Alerts";
 import { IndicatorPicker, IndicatorSettings } from "./Indicators";
 import { SymbolSearch } from "./SymbolSearch";
 import { BottomPanel } from "./BottomPanel";
+import { ModuleErrorBoundary } from "./ModuleErrorBoundary";
 import { downloadFile } from "@/lib/files";
 export default function TradingWorkspace({ deployment }: { deployment?: ReactNode }) {
   const [mounted, setMounted] = useState(false);
@@ -191,10 +192,14 @@ function Workspace({ deployment }: { deployment?: ReactNode }) {
       <div className="workspace-main">
         <DrawingRail />
         <div className="center-workspace">
-          <ChartGrid />
+          <ModuleErrorBoundary moduleName="Chart Grid">
+            <ChartGrid />
+          </ModuleErrorBoundary>
           <ReplayBar />
           <RangeToolbar/>
-          <BottomPanel />
+          <ModuleErrorBoundary moduleName="Bottom Panel" compact>
+            <BottomPanel />
+          </ModuleErrorBoundary>
         </div>
         {sidebarOpen ? (
           <aside
@@ -218,13 +223,25 @@ function Workspace({ deployment }: { deployment?: ReactNode }) {
               tabIndex={0}
               className="sidebar-resizer"
             />
-            {sidebar === "watchlist" ? (
-              <Watchlist />
-            ) : sidebar === "alerts" ? (
-              <AlertsPanel />
-            ) : (
-              <ObjectSidebar />
-            )}
+            <ModuleErrorBoundary
+              moduleName={
+                sidebar === "watchlist"
+                  ? "Watchlist"
+                  : sidebar === "alerts"
+                    ? "Alerts"
+                    : "Object Tree"
+              }
+              resetKey={sidebar}
+              compact
+            >
+              {sidebar === "watchlist" ? (
+                <Watchlist />
+              ) : sidebar === "alerts" ? (
+                <AlertsPanel />
+              ) : (
+                <ObjectSidebar />
+              )}
+            </ModuleErrorBoundary>
           </aside>
         ) : null}
         <aside className="utility-rail">

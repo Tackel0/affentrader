@@ -130,6 +130,19 @@ export async function fetchChokepointMarineConditions(
   }
 }
 
+function safeHttpUrl(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "";
+    if (parsed.username || parsed.password) return "";
+    return parsed.href;
+  } catch {
+    return "";
+  }
+}
+
 /**
  * Parses public maritime security & energy supply RSS advisories (e.g., gCaptain / Maritime Executive).
  */
@@ -140,7 +153,7 @@ export function parseMaritimeAdvisoriesRss(xml: string, source: string, limit = 
   $("item").each((idx, el) => {
     if (items.length >= limit) return false;
     const title = $(el).find("title").first().text().trim();
-    const link = $(el).find("link").first().text().trim();
+    const link = safeHttpUrl($(el).find("link").first().text());
     const pubDate = $(el).find("pubDate").first().text().trim();
     const guid = $(el).find("guid").first().text().trim() || link || `${source}-${idx}`;
     if (!title) return;

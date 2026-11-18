@@ -12,6 +12,7 @@ import { isYahooTicker, symbolLabel } from "@/lib/symbolId";
 import { resolveOrderTargetSymbol } from "@/lib/terminal/orders";
 import { scopedName } from "@/lib/windowScope";
 import { ResearchTerminal } from "./ResearchTerminal";
+import { ModuleErrorBoundary } from "./ModuleErrorBoundary";
 
 function AffenUtcClock() {
   const [clock, setClock] = useState("");
@@ -210,15 +211,17 @@ export function AffenTerminalWindow({
       ) : null}
 
       <div className="affen-window-body">
-        <ResearchTerminal
-          externalWindow
-          initialView={initialView}
-          initialTicker={initialTicker}
-          onViewChange={setActiveView}
-          onSelectSymbol={(nextSymbol) => {
-            useChartStore.getState().set({ symbol: nextSymbol });
-          }}
-        />
+        <ModuleErrorBoundary moduleName="AffenTerminal">
+          <ResearchTerminal
+            externalWindow
+            initialView={initialView}
+            initialTicker={initialTicker}
+            onViewChange={setActiveView}
+            onSelectSymbol={(nextSymbol) => {
+              useChartStore.getState().set({ symbol: nextSymbol });
+            }}
+          />
+        </ModuleErrorBoundary>
       </div>
     </div>
   );

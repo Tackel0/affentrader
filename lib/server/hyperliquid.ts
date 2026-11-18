@@ -8,6 +8,8 @@ const INFO_URL = "https://api.hyperliquid.xyz/info";
 const DEX_NAME = /^[a-z0-9]{2,12}$/;
 const INTERVALS = HYPERLIQUID_NATIVES.map((n) => n.api);
 
+export class HyperliquidValidationError extends Error {}
+
 const cache = new Map<string, { at: number; value: unknown }>();
 function recall<T>(key: string, ttl: number): T | undefined {
   const hit = cache.get(key);
@@ -36,7 +38,7 @@ async function rangeSlot<T>(work: () => Promise<T>): Promise<T> {
 }
 /** Complete minute-aligned 24h windows. Subsequent refreshes only fetch new closed minutes. */
 export async function hyperliquidRange(coin: string, fetcher: typeof fetch = fetch, now = Date.now()): Promise<QuoteRange> {
-  if (!isHyperliquidCoin(coin)) throw new Error("Invalid coin.");
+  if (!isHyperliquidCoin(coin)) throw new HyperliquidValidationError("Invalid coin.");
   const to = Math.floor(now / MINUTE_MS) * MINUTE_MS, from = to - DAY_MS;
   const known = rangeCache.get(coin);
   if (known?.range.to === to) return known.range;
@@ -81,13 +83,13 @@ export interface CandleRequest {
 }
 
 export function validateCandleRequest(r: CandleRequest, now = Date.now()): void {
-  if (!isHyperliquidCoin(r.coin)) throw new Error("Invalid coin.");
-  if (!INTERVALS.includes(r.interval)) throw new Error("Unsupported interval.");
+  if (!isHyperliquidCoin(r.coin)) throw new HyperliquidValidationError("Invalid coin.");
+  if (!INTERVALS.includes(r.interval)) throw new HyperliquidValidationError("Unsupported interval.");
   if (!Number.isFinite(r.startTime) || !Number.isFinite(r.endTime) || r.startTime < 0 || r.endTime <= r.startTime)
-    throw new Error("Invalid time window.");
-  if (r.endTime > now + 86_400_000) throw new Error("Time window is in the future.");
+    throw new HyperliquidValidationError("Invalid time window.");
+  if (r.endTime > now + 86_400_000) throw new HyperliquidValidationError("Time window is in the future.");
   const native = HYPERLIQUID_NATIVES.find((n) => n.api === r.interval)!;
-  if (r.endTime - r.startTime > native.ms * (HYPERLIQUID_MAX_CANDLES + 1)) throw new Error("Time window is too long.");
+  if (r.endTime - r.startTime > native.ms * (HYPERLIQUID_MAX_CANDLES + 1)) throw new HyperliquidValidationError("Time window is too long.");
 }
 
 export async function hyperliquidCandles(r: CandleRequest, fetcher: typeof fetch = fetch): Promise<unknown> {

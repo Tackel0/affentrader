@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { HttpError, readJson } from "@/lib/server/security";
+import { logError } from "@/lib/server/logger";
 import {
   SyncError,
   deleteSync,
@@ -21,6 +22,7 @@ function failure(error: unknown) {
     return NextResponse.json({ error: error.message, current: error.current }, { status: error.status });
   if (error instanceof HttpError)
     return NextResponse.json({ error: error.message }, { status: error.status });
+  logError("api.sync.error", error);
   return NextResponse.json({ error: "Sync service error." }, { status: 500 });
 }
 
@@ -46,10 +48,17 @@ export async function PUT(request: NextRequest) {
       baseRevision?: unknown;
       device?: unknown;
     };
+    const baseRevision = body.baseRevision === undefined ? 0 : body.baseRevision;
+    if (typeof baseRevision !== "number" || !Number.isInteger(baseRevision) || baseRevision < 0) {
+      throw new HttpError(400, "Invalid baseRevision.");
+    }
+    if (body.device !== undefined && typeof body.device !== "string") {
+      throw new HttpError(400, "Invalid device.");
+    }
     const result = await pushSync(key, {
       data: body.data,
-      baseRevision: Number(body.baseRevision ?? 0),
-      device: String(body.device ?? "device"),
+      baseRevision,
+      device: body.device ?? "device",
     });
     return NextResponse.json(result);
   } catch (error) {

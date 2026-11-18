@@ -184,7 +184,7 @@ export async function updateScript(
   let invite: string | undefined;
   let result!: ScriptRecord;
   await library.update((file) => {
-    const record = file.scripts[id];
+    const record = Object.hasOwn(file.scripts, id) ? file.scripts[id] : undefined;
     if (!record) throw new LibraryError(404, "Script not found.");
     if (input.title !== undefined) {
       const title = clean(input.title, 80);
@@ -225,8 +225,8 @@ export async function updateScript(
 export async function deleteScript(id: string): Promise<boolean> {
   let removed = false;
   await library.update((file) => {
-    removed = id in file.scripts;
-    delete file.scripts[id];
+    removed = Object.hasOwn(file.scripts, id);
+    if (removed) delete file.scripts[id];
   });
   return removed;
 }
@@ -249,7 +249,8 @@ export async function listScripts(options: ListOptions = {}): Promise<ScriptSumm
       [r.title, r.description, r.author, ...r.tags].some((text) => text.toLowerCase().includes(query)),
     );
   rows.sort((a, b) => (options.sort === "popular" ? b.likes.length - a.likes.length || b.updatedAt - a.updatedAt : b.updatedAt - a.updatedAt));
-  return rows.slice(0, Math.min(100, Math.max(1, options.limit ?? 50))).map(summary);
+  const safeLimit = Number.isFinite(options.limit) ? Math.floor(options.limit!) : 50;
+  return rows.slice(0, Math.min(100, Math.max(1, safeLimit))).map(summary);
 }
 
 /** Every script (public and invite-only); used by the publisher with the server key. */
@@ -262,7 +263,8 @@ export async function getScript(
   id: string,
   access: { invite?: string; token?: string; owner?: boolean } = {},
 ): Promise<ScriptDetail> {
-  const record = (await library.read()).scripts[id];
+  const scripts = (await library.read()).scripts;
+  const record = Object.hasOwn(scripts, id) ? scripts[id] : undefined;
   // Same message for missing and forbidden so invite-only ids cannot be probed.
   if (!record || !(access.owner || canRead(record, access.invite))) throw new LibraryError(404, "Script not found.");
   return detail(record, access.token);
@@ -288,7 +290,7 @@ export async function setLike(
 ): Promise<{ likes: number; liked: boolean }> {
   let likes = 0;
   await library.update((file) => {
-    const record = file.scripts[id];
+    const record = Object.hasOwn(file.scripts, id) ? file.scripts[id] : undefined;
     if (!record || !canRead(record, invite)) throw new LibraryError(404, "Script not found.");
     const key = hash(token);
     const has = record.likes.includes(key);

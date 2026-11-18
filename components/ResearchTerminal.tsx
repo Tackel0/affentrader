@@ -34,6 +34,7 @@ import { TerminalMarkets } from "./TerminalMarkets";
 import { TerminalCompare } from "./TerminalCompare";
 import { HeatmapPanel } from "./HeatmapPanel";
 import { OsintMapPanel } from "./OsintMapPanel";
+import { ModuleErrorBoundary } from "./ModuleErrorBoundary";
 
 type Capm = NonNullable<ReturnType<typeof terminalCapm>> & {
   ticker: string;
@@ -904,8 +905,12 @@ export function ResearchTerminal({
         if (paneId === "p3") {
           return (
             <>
-              <TerminalMarkets openChart={openChart} />
-              <NewsPanel />
+              <ModuleErrorBoundary moduleName="Markets" resetKey={`${paneId}:markets:primary`} compact>
+                <TerminalMarkets openChart={openChart} />
+              </ModuleErrorBoundary>
+              <ModuleErrorBoundary moduleName="News" resetKey={`${paneId}:markets:news`} compact>
+                <NewsPanel />
+              </ModuleErrorBoundary>
             </>
           );
         }
@@ -1177,8 +1182,16 @@ export function ResearchTerminal({
             />
 
             <div className="pane-content">
-              <div hidden={view !== "opps"}>{renderPaneBody("opps", "p1")}</div>
-              {view !== "opps" && renderPaneBody(view, "p1")}
+              <div hidden={view !== "opps"}>
+                <ModuleErrorBoundary moduleName="Opportunities" resetKey="p1:opps">
+                  {renderPaneBody("opps", "p1")}
+                </ModuleErrorBoundary>
+              </div>
+              {view !== "opps" && (
+                <ModuleErrorBoundary moduleName={getPaneTitle(view)} resetKey={`p1:${view}`}>
+                  {renderPaneBody(view, "p1")}
+                </ModuleErrorBoundary>
+              )}
             </div>
           </div>
         )}
@@ -1202,7 +1215,11 @@ export function ResearchTerminal({
               onFocus={() => setActivePane("p2")}
             />
 
-            <div className="pane-content">{renderPaneBody(resolvedPane2View, "p2")}</div>
+            <div className="pane-content">
+              <ModuleErrorBoundary moduleName={getPaneTitle(resolvedPane2View)} resetKey={`p2:${resolvedPane2View}`}>
+                {renderPaneBody(resolvedPane2View, "p2")}
+              </ModuleErrorBoundary>
+            </div>
           </aside>
         )}
 
@@ -1225,7 +1242,11 @@ export function ResearchTerminal({
               onFocus={() => setActivePane("p3")}
             />
 
-            <div className="pane-content">{renderPaneBody(pane3View, "p3")}</div>
+            <div className="pane-content">
+              <ModuleErrorBoundary moduleName={getPaneTitle(pane3View)} resetKey={`p3:${pane3View}`}>
+                {renderPaneBody(pane3View, "p3")}
+              </ModuleErrorBoundary>
+            </div>
           </aside>
         )}
       </div>

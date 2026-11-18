@@ -1,4 +1,5 @@
 import { isYahooTicker } from "@/lib/symbolId";
+import { logError } from "@/lib/server/logger";
 import { yahooChart } from "@/lib/server/yahoo";
 import { adjustForDividends } from "@/lib/market/yahoo";
 import { completedStockDays } from "@/lib/screener/stockBase";
@@ -72,7 +73,8 @@ export async function GET(request: Request) {
       currencies.some(currency => rates.has(currency) && !rates.get(currency)!.get(bar.session)),
     ).length;
     return Response.json({ tickers, basis, currencies, asOf: latest.session, observations: shared.length, latestSessions, unmatchedInstrumentDates, missingFxSessions, rows, retestRow, series });
-  } catch {
+  } catch (error) {
+    logError("api.terminalCompare.error", error, { tickers, basis });
     return Response.json({ error: "Yahoo Finance history is unavailable for this comparison." }, { status: 503 });
   }
 }

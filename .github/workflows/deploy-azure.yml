@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - main
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       skip_tests:
@@ -14,29 +17,28 @@ on:
 
 concurrency:
   group: azure-deploy-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
-  id-token: write
 
 jobs:
-  verify_and_deploy:
-    name: Verify & Deploy AffenTerminal
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
+  verify:
+    name: Typecheck, Test, Build & Stage
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v5
         with:
           version: 11
 
       - name: Setup Node.js 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "22"
           cache: "pnpm"
@@ -51,11 +53,128 @@ jobs:
         if: ${{ inputs.skip_tests != true }}
         run: pnpm test
 
+      - name: Cache Next.js build artifacts
+        uses: actions/cache@v5
+        with:
+          path: .next/cache
+          key: ${{ runner.os }}-nextjs-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('app/**', 'components/**', 'lib/**', 'hooks/**', 'stores/**', 'next.config.ts') }}
+          restore-keys: |
+            ${{ runner.os }}-nextjs-${{ hashFiles('pnpm-lock.yaml') }}-
+            ${{ runner.os }}-nextjs-
+
       - name: Build Next.js standalone bundle
         run: pnpm run build || pnpm run build
 
       - name: Stage symlink-free Azure Container Apps context
         run: node scripts/stage-azure-standalone.mjs --context-dir "${{ runner.temp }}/affentrader-aca-ctx"
+
+      - name: Upload staged Azure Container Apps context
+        uses: actions/upload-artifact@v7
+        with:
+          name: aca-context
+          path: ${{ runner.temp }}/affentrader-aca-ctx
+          retention-days: 1
+          if-no-files-found: error
+
+  e2e_browser:
+    name: Headless Chrome Terminal E2E
+    runs-on: ubuntu-24.04
+    needs: [verify]
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+        with:
+          version: 11
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Ensure Chrome or Chromium is available
+        run: |
+          if ! command -v google-chrome >/dev/null 2>&1 && ! command -v chromium >/dev/null 2>&1 && ! command -v chromium-browser >/dev/null 2>&1; then
+            sudo apt-get update && (sudo apt-get install -y --no-install-recommends chromium-browser || sudo apt-get install -y --no-install-recommends chromium)
+          fi
+
+      - name: Run headless Chrome Terminal E2E
+        run: |
+          CHROME_BIN="$(command -v google-chrome || command -v chromium || command -v chromium-browser || true)"
+          if [ -z "$CHROME_BIN" ]; then
+            echo "::error::No Chrome/Chromium binary available for E2E browser audit."
+            exit 1
+          fi
+          CHROME_PATH="$CHROME_BIN" node scripts/verify-terminal-e2e-browser.mjs
+
+  mobile_viewport_audit:
+    name: Mobile & Desktop Viewport Audit
+    runs-on: ubuntu-24.04
+    needs: [verify]
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Download staged Azure Container Apps context
+        uses: actions/download-artifact@v8
+        with:
+          name: aca-context
+          path: ${{ runner.temp }}/affentrader-aca-ctx
+
+      - name: Ensure Chrome or Chromium is available
+        run: |
+          if ! command -v google-chrome >/dev/null 2>&1 && ! command -v chromium >/dev/null 2>&1 && ! command -v chromium-browser >/dev/null 2>&1; then
+            sudo apt-get update && (sudo apt-get install -y --no-install-recommends chromium-browser || sudo apt-get install -y --no-install-recommends chromium)
+          fi
+
+      - name: Run multi-viewport Chrome audit against standalone server
+        run: |
+          CHROME_BIN="$(command -v google-chrome || command -v chromium || command -v chromium-browser || true)"
+          if [ -z "$CHROME_BIN" ]; then
+            echo "::error::No Chrome/Chromium binary available for viewport audit."
+            exit 1
+          fi
+          CHROME_PATH="$CHROME_BIN" node scripts/verify-mobile-viewports.mjs --standalone-dir "${{ runner.temp }}/affentrader-aca-ctx"
+
+  deploy:
+    name: Deploy to Azure Container Apps & Smoke Verify
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: ubuntu-24.04
+    needs: [verify, e2e_browser, mobile_viewport_audit]
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Download staged Azure Container Apps context
+        uses: actions/download-artifact@v8
+        with:
+          name: aca-context
+          path: ${{ runner.temp }}/affentrader-aca-ctx
 
       - name: Detect Azure authentication configuration
         id: auth_mode
@@ -79,7 +198,7 @@ jobs:
           cat <<'EOF' >> "$GITHUB_STEP_SUMMARY"
           ### Azure Container Apps deployment skipped (credentials not yet configured)
 
-          Verification (`typecheck`, `test`, `build`, `stage-azure-standalone.mjs`) succeeded cleanly.
+          Verification (`typecheck`, `test`, `build`, `stage-azure-standalone.mjs`, `e2e_browser`, `mobile_viewport_audit`) succeeded cleanly.
           To enable automatic deployments to **affenterminal** (`affentrader-rg`), add **either**:
           - **`AZURE_CREDENTIALS`** repository secret (Service Principal JSON), **or**
           - **`AZURE_CLIENT_ID`**, **`AZURE_TENANT_ID`**, **`AZURE_SUBSCRIPTION_ID`** repository secrets for OpenID Connect (OIDC).
@@ -92,7 +211,7 @@ jobs:
 
       - name: Azure Login (OIDC)
         if: steps.auth_mode.outputs.mode == 'oidc'
-        uses: azure/login@v2
+        uses: azure/login@v3
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
@@ -100,11 +219,11 @@ jobs:
 
       - name: Azure Login (Service Principal JSON)
         if: steps.auth_mode.outputs.mode == 'creds'
-        uses: azure/login@v2
+        uses: azure/login@v3
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Push ACR image, update Container App & verify live revision
+      - name: Push ACR image, update Container App, verify live & rollback on failure
         if: steps.auth_mode.outputs.mode != 'none'
         env:
           SECRET_ACR_USER: ${{ secrets.ACR_USERNAME }}
@@ -133,6 +252,14 @@ jobs:
           echo "::add-mask::$ACR_USER"
           echo "::add-mask::$ACR_PASS"
 
+          az config set extension.use_dynamic_install=yes_without_prompt >/dev/null
+          az extension add --name containerapp --upgrade --only-show-errors || true
+
+          # Pre-deploy state capture for deterministic automatic rollback on smoke-test failure
+          REV_MODE=$(az containerapp show -n "$APP_NAME" -g "$RESOURCE_GROUP" --query "properties.configuration.activeRevisionsMode" -o tsv 2>/dev/null | tr -d '\r\n' || echo "Single")
+          PREV_REVISION=$(az containerapp show -n "$APP_NAME" -g "$RESOURCE_GROUP" --query "properties.latestReadyRevisionName" -o tsv 2>/dev/null | tr -d '\r\n' || echo "")
+          PREV_IMAGE=$(az containerapp show -n "$APP_NAME" -g "$RESOURCE_GROUP" --query "properties.template.containers[0].image" -o tsv 2>/dev/null | tr -d '\r\n' || echo "")
+
           UTC_COMPACT=$(date -u +%Y%m%d%H%M%S)
           SHORT_SHA8=$(git rev-parse HEAD | cut -c1-8)
           TAG="v${UTC_COMPACT:0:8}-${UTC_COMPACT:8:6}-${SHORT_SHA8}"
@@ -147,9 +274,6 @@ jobs:
           TARGET_TAG="$TAG" \
           node scripts/push-acr-image.mjs
 
-          az config set extension.use_dynamic_install=yes_without_prompt >/dev/null
-          az extension add --name containerapp --upgrade --only-show-errors || true
-
           az containerapp update \
             --name "$APP_NAME" \
             --resource-group "$RESOURCE_GROUP" \
@@ -159,23 +283,71 @@ jobs:
 
           OK=0
           for attempt in $(seq 1 24); do
+            HEALTH_CODE=$(curl -sS --max-time 15 -o /tmp/live-health.json -w "%{http_code}" "${LIVE_BASE}/api/health" || echo "000")
             LOGIN_CODE=$(curl -sS --max-time 15 -o /tmp/live-login.html -w "%{http_code}" "${LIVE_BASE}/login" || echo "000")
             MANIFEST_CODE=$(curl -sS --max-time 15 -o /dev/null -w "%{http_code}" "${LIVE_BASE}/manifest.webmanifest" || echo "000")
             ICON_CODE=$(curl -sS --max-time 15 -o /dev/null -w "%{http_code}" "${LIVE_BASE}/icons/icon-192.png" || echo "000")
             SW_CODE=$(curl -sS --max-time 15 -o /dev/null -w "%{http_code}" "${LIVE_BASE}/sw.js" || echo "000")
-            if [ "$LOGIN_CODE" = "200" ] && [ "$MANIFEST_CODE" = "200" ] && [ "$ICON_CODE" = "200" ] && [ "$SW_CODE" = "200" ] \
+            if [ "$HEALTH_CODE" = "200" ] && grep -q '"ok":true' /tmp/live-health.json \
+              && [ "$LOGIN_CODE" = "200" ] && [ "$MANIFEST_CODE" = "200" ] && [ "$ICON_CODE" = "200" ] && [ "$SW_CODE" = "200" ] \
               && grep -q "datetime=\"${EXPECTED_ISO}\"" /tmp/live-login.html \
               && grep -q "viewport-fit=cover" /tmp/live-login.html; then
               OK=1
               break
             fi
-            echo "Attempt ${attempt}/24: login=${LOGIN_CODE} manifest=${MANIFEST_CODE} icon=${ICON_CODE} sw=${SW_CODE} (waiting for ${EXPECTED_ISO})"
+            echo "Attempt ${attempt}/24: health=${HEALTH_CODE} login=${LOGIN_CODE} manifest=${MANIFEST_CODE} icon=${ICON_CODE} sw=${SW_CODE} (waiting for ${EXPECTED_ISO})"
             sleep 5
           done
-          rm -f /tmp/live-login.html
+          rm -f /tmp/live-login.html /tmp/live-health.json
 
           if [ "$OK" -ne 1 ]; then
-            echo "::error::Live verification failed to observe revision ${SUFFIX} (${EXPECTED_ISO}) at ${LIVE_BASE}/login"
+            echo "::error::Live verification failed to observe healthy revision ${SUFFIX} (${EXPECTED_ISO}) at ${LIVE_BASE}. Initiating automatic rollback."
+            RB_STATUS="skipped (no previous revision/image captured)"
+            if [ "$REV_MODE" = "Multiple" ] && [ -n "$PREV_REVISION" ]; then
+              az containerapp ingress traffic set \
+                --name "$APP_NAME" \
+                --resource-group "$RESOURCE_GROUP" \
+                --revision-weight "${PREV_REVISION}=100" \
+                --output none || true
+              az containerapp revision deactivate \
+                --name "$APP_NAME" \
+                --resource-group "$RESOURCE_GROUP" \
+                --revision "${APP_NAME}--${SUFFIX}" \
+                --output none || true
+              RB_STATUS="traffic restored to ${PREV_REVISION}"
+            elif [ -n "$PREV_IMAGE" ]; then
+              RB_UTC=$(date -u +%Y%m%d%H%M%S)
+              RB_SUFFIX="r${RB_UTC}-${SHORT_SHA8}"
+              az containerapp update \
+                --name "$APP_NAME" \
+                --resource-group "$RESOURCE_GROUP" \
+                --image "$PREV_IMAGE" \
+                --revision-suffix "$RB_SUFFIX" \
+                --output none || true
+              RB_STATUS="re-deployed previous image ${PREV_IMAGE} as ${RB_SUFFIX}"
+            fi
+
+            RB_RECOVERED=0
+            for rb_attempt in $(seq 1 12); do
+              RB_HEALTH=$(curl -sS --max-time 15 -o /tmp/rb-health.json -w "%{http_code}" "${LIVE_BASE}/api/health" || echo "000")
+              RB_LOGIN=$(curl -sS --max-time 15 -o /dev/null -w "%{http_code}" "${LIVE_BASE}/login" || echo "000")
+              if [ "$RB_HEALTH" = "200" ] && grep -q '"ok":true' /tmp/rb-health.json && [ "$RB_LOGIN" = "200" ]; then
+                RB_RECOVERED=1
+                break
+              fi
+              echo "Rollback health poll ${rb_attempt}/12: health=${RB_HEALTH} login=${RB_LOGIN}"
+              sleep 5
+            done
+            rm -f /tmp/rb-health.json
+
+            {
+              printf '### Azure Container Apps Deployment Failed — Automatic Rollback Triggered\n\n'
+              printf -- '- **Failed Image:** `%s/%s:%s`\n' "$ACR_LOGIN_SERVER" "$APP_NAME" "$TAG"
+              printf -- '- **Failed Revision Suffix:** `%s`\n' "$SUFFIX"
+              printf -- '- **Revision Mode:** `%s`\n' "$REV_MODE"
+              printf -- '- **Rollback Action:** %s\n' "$RB_STATUS"
+              printf -- '- **Rollback Health Recovery:** %s\n' "$([ "$RB_RECOVERED" -eq 1 ] && echo 'Recovered (200 /api/health + /login)' || echo 'Unconfirmed within 60s')"
+            } >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
 
@@ -185,5 +357,5 @@ jobs:
             printf -- '- **Image:** `%s/%s:%s`\n' "$ACR_LOGIN_SERVER" "$APP_NAME" "$TAG"
             printf -- '- **Revision Suffix:** `%s`\n' "$SUFFIX"
             printf -- '- **Verified Timestamp:** `%s`\n' "$EXPECTED_ISO"
-            printf -- '- **Checks:** `/login` (200 + `viewport-fit=cover`), `/manifest.webmanifest` (200), `/icons/icon-192.png` (200), `/sw.js` (200)\n'
+            printf -- '- **Checks:** `/api/health` (200 + `ok:true`), `/login` (200 + `viewport-fit=cover`), `/manifest.webmanifest` (200), `/icons/icon-192.png` (200), `/sw.js` (200)\n'
           } >> "$GITHUB_STEP_SUMMARY"

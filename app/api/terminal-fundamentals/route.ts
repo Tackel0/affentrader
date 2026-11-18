@@ -1,5 +1,6 @@
 import { isYahooTicker } from "@/lib/symbolId";
 import { exchangeOfTicker } from "@/lib/markets";
+import { logError } from "@/lib/server/logger";
 import { yahooChart } from "@/lib/server/yahoo";
 import {
   SEC_CIK_MAP,
@@ -30,7 +31,11 @@ export async function GET(request: Request) {
     return Response.json({ error: "Enter a valid Yahoo stock ticker." }, { status: 400 });
   }
   const exchange = exchangeOfTicker(ticker);
-  const marketId = params.get("market") ?? exchange.id;
+  const rawMarket = params.get("market");
+  if (rawMarket !== null && rawMarket !== "" && !["us", "xetra", "lse"].includes(rawMarket)) {
+    return Response.json({ error: "Unsupported market." }, { status: 400 });
+  }
+  const marketId = rawMarket || exchange.id;
   try {
     const now = Math.floor(Date.now() / 60_000) * 60;
     const deadline = AbortSignal.timeout(15_000);
@@ -107,7 +112,8 @@ export async function GET(request: Request) {
       fundamentals: snapshot,
       quant,
     });
-  } catch {
+  } catch (error) {
+    logError("api.terminalFundamentals.error", error, { ticker, marketId });
     return Response.json({ error: "Fundamental data is temporarily unavailable." }, { status: 503 });
   }
 }

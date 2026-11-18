@@ -48,6 +48,7 @@
   .study-legend .chip-actions {display:none;}
   .chart-heading .study-legend .indicator-chip .chip-more {display:inline-flex;opacity:1;width:36px;height:36px;min-width:36px;min-height:36px;flex-shrink:0;}
   .study-legend .indicator-chips .indicator-chip {min-height:36px;}
+  .study-legend .indicator-chip .chip-name {min-width:36px;min-height:36px;display:inline-flex;align-items:center;}
   .study-legend .legend-fold {min-width:36px;min-height:36px;}
   .multi-chart .study-legend {display:none;}
 }
@@ -1717,3 +1718,29 @@ body {
 .filtered-tape-table th:first-child,.filtered-tape-table td:first-child{text-align:left}
 .tape-pagination{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:10px;margin-top:8px}
 @media(max-width:1000px){.detailed-orderflow{grid-template-columns:minmax(0,1fr)}.detailed-orderflow .orderbook,.detailed-orderflow .trade-tape{border-right:0;padding-right:0}.detailed-orderflow .orderflow-actions{display:block}}
+@media (max-width: 768px), (pointer: coarse) {
+  .bottom-panel-tabs .icon-button,
+  .toast > .icon-button,
+  .cell-controls .icon-button,
+  .alert-card-footer .icon-button {
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    min-height: 36px;
+  }
+  .chart-market-title > button,
+  .chart-trading-controls .chart-side,
+  .chart-preset-select,
+  .tape-pagination .button,
+  .orderflow-actions .button {
+    min-height: 36px;
+    min-width: 36px;
+  }
+  .tape-controls input:not([type="checkbox"]),
+  .tape-controls select,
+  .depth-summary select,
+  .book-controls select {
+    min-height: 36px;
+  }
+}
+

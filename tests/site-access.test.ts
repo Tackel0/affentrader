@@ -40,7 +40,7 @@ describe("private site access", () => {
   });
   it("blocks pages, static assets, RSC requests and API requests without a cookie", async () => {
     configure();
-    for (const path of ["/", "/_next/static/chunk.js", "/?_rsc=1", "/icon.svg"]) {
+    for (const path of ["/", "/_next/static/chunk.js", "/?_rsc=1"]) {
       const response = await proxy(request(path));
       expect(response.status).toBe(303);
       expect(response.headers.get("location")).toContain("/login?");
@@ -48,6 +48,9 @@ describe("private site access", () => {
     }
     expect((await proxy(request("/api/alerts"))).status).toBe(401);
     expect((await proxy(request("/sw.js"))).headers.get("x-middleware-next")).toBe("1");
+    const icon = await proxy(request("/icon.svg"));
+    expect(icon.headers.get("x-middleware-next")).toBe("1");
+    expect(icon.headers.get("content-security-policy")).toContain("sandbox");
   });
   it("renders an isolated escaped login form with no client-side password", async () => {
     configure();

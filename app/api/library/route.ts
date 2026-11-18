@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { HttpError, isAuthorized, readJson } from "@/lib/server/security";
+import { logError } from "@/lib/server/logger";
 import {
   LibraryError,
   deleteScript,
@@ -19,6 +20,7 @@ export const dynamic = "force-dynamic";
 function failure(error: unknown) {
   if (error instanceof LibraryError || error instanceof HttpError)
     return NextResponse.json({ error: error.message }, { status: error.status });
+  logError("api.library.error", error);
   return NextResponse.json({ error: "Script library error." }, { status: 500 });
 }
 
@@ -47,17 +49,20 @@ export async function GET(request: NextRequest) {
     }
     const id = q.get("id");
     const invite = q.get("invite") ?? undefined;
+    if (invite && invite.length > 256) throw new LibraryError(400, "Invalid invite code.");
     if (id) {
+      if (id.length > 128) throw new LibraryError(400, "Invalid script id.");
       const owner = (await isAuthorized(request)) && q.get("owner") === "1";
       return NextResponse.json({ script: await getScript(id, { invite, token, owner }) });
     }
     if (invite) return NextResponse.json({ script: await openInvite(invite, token) });
+    const parsedLimit = Number(q.get("limit") ?? 50);
     return NextResponse.json({
       scripts: await listScripts({
         query: q.get("q") ?? "",
         kind: q.get("kind") ?? "",
         sort: q.get("sort") ?? "",
-        limit: Number(q.get("limit") ?? 50),
+        limit: Number.isFinite(parsedLimit) ? parsedLimit : 50,
       }),
     });
   } catch (error) {
@@ -76,7 +81,10 @@ export async function POST(request: NextRequest) {
     };
     if (body.action === "like") {
       const token = tokenOf(request);
-      if (!token || typeof body.id !== "string") throw new LibraryError(400, "Missing reader token or script id.");
+      if (!token || typeof body.id !== "string" || !body.id || body.id.length > 128)
+        throw new LibraryError(400, "Missing reader token or script id.");
+      if (body.invite !== undefined && (typeof body.invite !== "string" || body.invite.length > 256))
+        throw new LibraryError(400, "Invalid invite code.");
       return NextResponse.json(await setLike(body.id, token, body.liked !== false, body.invite));
     }
     await requireOwner(request);
@@ -91,7 +99,8 @@ export async function PUT(request: NextRequest) {
   try {
     await requireOwner(request);
     const body = (await readJson(request, 400_000)) as ScriptInput & { id?: string };
-    if (typeof body.id !== "string") throw new LibraryError(400, "Missing script id.");
+    if (typeof body.id !== "string" || !body.id || body.id.length > 128)
+      throw new LibraryError(400, "Missing script id.");
     return NextResponse.json(await updateScript(body.id, body));
   } catch (error) {
     return failure(error);
@@ -102,6 +111,7 @@ export async function DELETE(request: NextRequest) {
   try {
     await requireOwner(request);
     const id = request.nextUrl.searchParams.get("id") ?? "";
+    if (!id || id.length > 128) throw new LibraryError(400, "Missing script id.");
     return NextResponse.json({ removed: await deleteScript(id) });
   } catch (error) {
     return failure(error);

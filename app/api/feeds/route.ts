@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { logError } from "@/lib/server/logger";
 import {
   fetchDividends,
   fetchEarnings,
@@ -16,21 +17,43 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(request: NextRequest) {
   const q = request.nextUrl.searchParams;
+  const kind = q.get("kind");
   try {
-    switch (q.get("kind")) {
+    switch (kind) {
       case "news": {
         const rawScope = q.get("scope");
-        const scope = rawScope === "crypto" || rawScope === "equities" ? rawScope : "all";
+        if (rawScope !== null && rawScope !== "" && !["all", "crypto", "equities"].includes(rawScope)) {
+          return NextResponse.json({ error: "Unsupported news scope." }, { status: 400 });
+        }
+        const scope = (rawScope === "crypto" || rawScope === "equities" ? rawScope : "all") as
+          | "all"
+          | "crypto"
+          | "equities";
         return NextResponse.json(await fetchMarketNews(scope));
       }
-      case "economic":
+      case "economic": {
+        const rawWeek = q.get("week");
+        if (rawWeek !== null && rawWeek !== "" && rawWeek !== "this" && rawWeek !== "next") {
+          return NextResponse.json({ error: "Unsupported calendar week." }, { status: 400 });
+        }
         return NextResponse.json({
-          events: await fetchEconomicCalendar(q.get("week") === "next" ? "next" : "this"),
+          events: await fetchEconomicCalendar(rawWeek === "next" ? "next" : "this"),
         });
-      case "earnings":
-        return NextResponse.json({ events: await fetchEarnings(q.get("date") ?? "") });
-      case "dividends":
-        return NextResponse.json({ events: await fetchDividends(q.get("date") ?? "") });
+      }
+      case "earnings": {
+        const date = q.get("date") ?? "";
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+          return NextResponse.json({ error: "Date must be YYYY-MM-DD." }, { status: 400 });
+        }
+        return NextResponse.json({ events: await fetchEarnings(date) });
+      }
+      case "dividends": {
+        const date = q.get("date") ?? "";
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+          return NextResponse.json({ error: "Date must be YYYY-MM-DD." }, { status: 400 });
+        }
+        return NextResponse.json({ events: await fetchDividends(date) });
+      }
       case "yields":
         return NextResponse.json({ curves: await fetchYields() });
       case "macro":
@@ -39,7 +62,11 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: "Unknown feed." }, { status: 400 });
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Feed unavailable.";
-    return NextResponse.json({ error: message }, { status: /YYYY/.test(message) ? 400 : 503 });
+    const message = error instanceof Error ? error.message : "";
+    if (/YYYY/.test(message)) {
+      return NextResponse.json({ error: "Date must be YYYY-MM-DD." }, { status: 400 });
+    }
+    logError("api.feeds.error", error, { kind });
+    return NextResponse.json({ error: "Feed unavailable." }, { status: 503 });
   }
 }

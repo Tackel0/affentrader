@@ -2405,11 +2405,13 @@
     overflow: hidden;
   }
   .affen-window-header {
+    flex-wrap: wrap;
     height: auto;
     max-height: none;
     min-height: 40px;
     padding: 4px 8px;
     gap: 6px;
+    overflow-x: visible;
   }
   .affen-window-header .button,
   .affen-window-header .icon-button {
@@ -2561,10 +2563,36 @@
   .modal-card .button,
   .button.small {
     min-height: 36px;
+    min-width: 36px;
+  }
+  .affen-sync-block .link-chip {
+    min-width: 36px;
+    min-height: 36px;
+    height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .segmented button {
+    min-height: 36px;
+    min-width: 36px;
+  }
+  .chip {
+    min-height: 36px;
+    min-width: 36px;
+  }
+  .heatmap-bar button,
+  .heatmap-bar select {
+    min-height: 36px;
+    min-width: 36px;
+  }
+  .heatmap-bar .icon-button {
+    width: 36px;
+    height: 36px;
   }
   .tree-row .caret,
   .watchlist-section > button {
-    min-width: 28px;
+    min-width: 36px;
     min-height: 36px;
     display: inline-flex;
     align-items: center;
@@ -2575,12 +2603,17 @@
     gap: 8px;
   }
   .flag-menu button {
-    width: 28px;
-    height: 28px;
+    width: 36px;
+    height: 36px;
+  }
+  .flag-filter {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
   }
   .flag-filter button {
-    width: 16px;
-    height: 16px;
+    min-width: 36px;
+    min-height: 36px;
   }
 }
 @media (max-width: 768px) {

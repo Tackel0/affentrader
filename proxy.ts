@@ -1,13 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isSameOriginRequest } from "@/lib/server/security";
+import { apiRateBucketKey, isSameOriginRequest, takeApiAttempt } from "@/lib/server/security";
 import { createSiteSession, matchesSitePassword, safeReturnPath, SESSION_SECONDS, SITE_COOKIE, siteAccessConfig, takeLoginAttempt, validSiteSession } from "@/lib/server/siteAccess";
 import { siteLoginPage } from "@/lib/server/siteLoginPage";
 
-const privateHeaders = { "Cache-Control": "private, no-store, max-age=0", "X-Robots-Tag": "noindex, nofollow", "Referrer-Policy": "same-origin", "X-Content-Type-Options": "nosniff" };
+const privateHeaders = {
+  "Cache-Control": "private, no-store, max-age=0",
+  "X-Robots-Tag": "noindex, nofollow",
+  "Referrer-Policy": "same-origin",
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+};
+
+const PERMISSIONS_POLICY = "camera=(), microphone=(), geolocation=(), payment=(), usb=()";
+const API_CSP = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'";
+const HEAVY_GET_API_PATHS = new Set(["/api/terminal-opportunities", "/api/stock-base", "/api/screener"]);
 
 // Browsers fetch manifests with credentials omitted per HTML spec, and push SWs reference icons before auth.
 const PUBLIC_PWA_PATHS = new Set([
   "/manifest.webmanifest",
+  "/icon.svg",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
   "/icons/icon-maskable-512.png",
@@ -32,9 +43,31 @@ function externalUrl(request: NextRequest, target: string): URL {
   return new URL(target, request.url);
 }
 
+function appCsp(https: boolean): string {
+  const directives = [
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "font-src 'self' data:",
+    "connect-src 'self' https://data-api.binance.vision wss://data-stream.binance.vision https://api.kraken.com wss://ws.kraken.com wss://api.hyperliquid.xyz wss://stream.data.alpaca.markets",
+    "worker-src 'self' blob:",
+    "child-src 'self' blob:",
+    "manifest-src 'self'",
+    "media-src 'self'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+  ];
+  if (https) directives.push("upgrade-insecure-requests");
+  return directives.join("; ");
+}
+
 function login(next: string, error = "", status = 200): NextResponse {
   return new NextResponse(siteLoginPage(next, error), { status, headers: {
     ...privateHeaders, "Content-Type": "text/html; charset=utf-8",
+    "Permissions-Policy": PERMISSIONS_POLICY,
     "Content-Security-Policy": "default-src 'none'; img-src 'self'; manifest-src 'self'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
   } });
 }
@@ -44,23 +77,42 @@ function sameOrigin(request: NextRequest): boolean {
 }
 
 export async function proxy(request: NextRequest) {
+  const rawPath = request.nextUrl.pathname;
+  const path = rawPath.length > 1 ? rawPath.replace(/\/+$/, "") || "/" : rawPath;
   // This data-free worker must remain reachable to retire pre-gate offline caches.
-  if (request.nextUrl.pathname === "/sw.js" && ["GET", "HEAD"].includes(request.method)) {
+  if (path === "/sw.js" && ["GET", "HEAD"].includes(request.method)) {
     const response = NextResponse.next();
     response.headers.set("Cache-Control", "no-store");
     response.headers.set("X-Content-Type-Options", "nosniff");
+    response.headers.set(
+      "Content-Security-Policy",
+      "default-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'",
+    );
+    return response;
+  }
+  if (path === "/api/health" && ["GET", "HEAD"].includes(request.method)) {
+    const response = NextResponse.next();
+    response.headers.set("Cache-Control", "no-store");
+    response.headers.set("X-Content-Type-Options", "nosniff");
+    response.headers.set("X-Frame-Options", "DENY");
     return response;
   }
   const settings = siteAccessConfig();
   if (!settings) return new NextResponse("Der Website-Zugang ist noch nicht konfiguriert.", { status: 503, headers: privateHeaders });
-  const path = request.nextUrl.pathname;
   if (PUBLIC_PWA_PATHS.has(path) && ["GET", "HEAD"].includes(request.method)) {
     const response = NextResponse.next();
     response.headers.set("X-Content-Type-Options", "nosniff");
     response.headers.set("Cache-Control", path === "/manifest.webmanifest" ? "no-store" : "public, max-age=3600");
+    if (path === "/icon.svg") {
+      response.headers.set(
+        "Content-Security-Policy",
+        "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; sandbox",
+      );
+    }
     return response;
   }
-  const authenticated = validSiteSession(request.cookies.get(SITE_COOKIE)?.value, settings);
+  const sessionCookie = request.cookies.get(SITE_COOKIE)?.value;
+  const authenticated = validSiteSession(sessionCookie, settings);
   const secure = isHttpsRequest(request);
   if (path === "/logout") {
     if (request.method !== "POST") return new NextResponse("POST required", { status: 405, headers: { ...privateHeaders, Allow: "POST" } });
@@ -110,7 +162,29 @@ export async function proxy(request: NextRequest) {
     url.searchParams.set("next", safeReturnPath(path + request.nextUrl.search));
     return NextResponse.redirect(url, { status: 303, headers: privateHeaders });
   }
+  if (path.startsWith("/api/") && sessionCookie) {
+    const isHeavy = !["GET", "HEAD"].includes(request.method) || HEAVY_GET_API_PATHS.has(path);
+    const tier = isHeavy ? "heavy" : "read";
+    const limit = isHeavy ? 60 : 240;
+    const rate = takeApiAttempt(apiRateBucketKey(sessionCookie, tier), limit);
+    if (!rate.allowed) {
+      return NextResponse.json(
+        { error: "Too many requests. Please wait a moment." },
+        {
+          status: 429,
+          headers: {
+            ...privateHeaders,
+            "Content-Security-Policy": API_CSP,
+            "Permissions-Policy": PERMISSIONS_POLICY,
+            "Retry-After": String(rate.retryAfterSec),
+          },
+        },
+      );
+    }
+  }
   const response = NextResponse.next();
   for (const [key, value] of Object.entries(privateHeaders)) response.headers.set(key, value);
+  response.headers.set("Permissions-Policy", PERMISSIONS_POLICY);
+  response.headers.set("Content-Security-Policy", path.startsWith("/api/") ? API_CSP : appCsp(secure));
   return response;
 }

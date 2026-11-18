@@ -1,4 +1,5 @@
 import { isYahooTicker } from "@/lib/symbolId";
+import { logError } from "@/lib/server/logger";
 import { yahooChart } from "@/lib/server/yahoo";
 import { adjustForDividends } from "@/lib/market/yahoo";
 import { completedStockDays, STOCK_BASE_MARKETS } from "@/lib/screener/stockBase";
@@ -24,7 +25,8 @@ export async function GET(request: Request) {
     const stats = terminalCapm(asset.bars, benchmark.bars, rf / 100);
     if (!stats) return Response.json({ error: "At least 29 matching daily returns with nonzero variance are required." }, { status: 422 });
     return Response.json({ ticker, name: asset.data.meta.name, benchmark: market.benchmarkLabel, currency: asset.data.meta.currency, asOf: [asset.bars.at(-1)!.session, benchmark.bars.at(-1)!.session].sort()[0], riskFree: rf, ...stats });
-  } catch {
+  } catch (error) {
+    logError("api.terminalCapm.error", error, { ticker });
     return Response.json({ error: "Yahoo Finance daily history is unavailable for this analysis." }, { status: 503 });
   }
 }

@@ -1,3 +1,4 @@
+import { logError } from "@/lib/server/logger";
 import { fetchOsintMapData, type OsintFlight } from "@/lib/server/osint";
 import { fetchExtendedOsintTelemetry } from "@/lib/server/osintTelemetry";
 
@@ -50,7 +51,7 @@ export async function GET() {
       adsbSources,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "OSINT map feed unavailable.";
-    return Response.json({ error: message }, { status: 503 });
+    logError("api.osintMap.error", error);
+    return Response.json({ error: "OSINT map feed unavailable." }, { status: 503 });
   }
 }

@@ -1,3 +1,4 @@
+import { logError } from "@/lib/server/logger";
 import { terminalMarkets } from "@/lib/server/terminalMarkets";
 
 export const dynamic = "force-dynamic";
@@ -7,9 +8,7 @@ export async function GET() {
   try {
     return Response.json({ rows: await terminalMarkets() });
   } catch (error) {
-    return Response.json(
-      { error: error instanceof Error ? error.message : "Market overview is unavailable." },
-      { status: 503 },
-    );
+    logError("api.terminalMarkets.error", error);
+    return Response.json({ error: "Market overview is unavailable." }, { status: 503 });
   }
 }

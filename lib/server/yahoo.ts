@@ -50,6 +50,8 @@ async function getJson(path: string, fetcher: typeof fetch): Promise<unknown> {
   throw last instanceof Error ? last : new Error("Yahoo Finance is unavailable.");
 }
 
+export class YahooValidationError extends Error {}
+
 export interface ChartRequest {
   ticker: string;
   interval: string;
@@ -59,12 +61,12 @@ export interface ChartRequest {
 }
 
 export function validateChartRequest(r: ChartRequest, now = Date.now() / 1000): void {
-  if (!isYahooTicker(r.ticker)) throw new Error("Invalid symbol.");
-  if (!YAHOO_INTERVALS.includes(r.interval)) throw new Error("Unsupported interval.");
+  if (!isYahooTicker(r.ticker)) throw new YahooValidationError("Invalid symbol.");
+  if (!YAHOO_INTERVALS.includes(r.interval)) throw new YahooValidationError("Unsupported interval.");
   if (!Number.isFinite(r.period1) || !Number.isFinite(r.period2) || r.period1 < 0 || r.period2 <= r.period1)
-    throw new Error("Invalid time window.");
-  if (r.period2 - r.period1 > MAX_SPAN_SECONDS) throw new Error("Time window is too long.");
-  if (r.period2 > now + 2 * 86_400) throw new Error("Time window is in the future.");
+    throw new YahooValidationError("Invalid time window.");
+  if (r.period2 - r.period1 > MAX_SPAN_SECONDS) throw new YahooValidationError("Time window is too long.");
+  if (r.period2 > now + 2 * 86_400) throw new YahooValidationError("Time window is in the future.");
 }
 
 export async function yahooChart(r: ChartRequest, fetcher: typeof fetch = fetch): Promise<YahooChart> {

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { hyperliquidAssets, hyperliquidCandles, hyperliquidRange, lastWarnings } from "@/lib/server/hyperliquid";
+import { logError } from "@/lib/server/logger";
+import { hyperliquidAssets, hyperliquidCandles, hyperliquidRange, HyperliquidValidationError, lastWarnings } from "@/lib/server/hyperliquid";
 
 export const dynamic = "force-dynamic";
 
@@ -11,27 +12,38 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(request: NextRequest) {
   const q = request.nextUrl.searchParams;
+  const kind = q.get("kind");
   try {
-    switch (q.get("kind")) {
+    switch (kind) {
       case "assets":
         return NextResponse.json({ assets: await hyperliquidAssets(), warnings: lastWarnings });
-      case "candles":
+      case "candles": {
+        const rawStart = q.get("start");
+        const rawEnd = q.get("end");
+        const startTime = Number(rawStart);
+        const endTime = Number(rawEnd);
+        if (rawStart === null || rawEnd === null || rawStart === "" || rawEnd === "" || !Number.isFinite(startTime) || !Number.isFinite(endTime)) {
+          return NextResponse.json({ error: "Invalid time window." }, { status: 400 });
+        }
         return NextResponse.json({
           candles: await hyperliquidCandles({
             coin: q.get("coin") ?? "",
             interval: q.get("interval") ?? "",
-            startTime: Number(q.get("start")),
-            endTime: Number(q.get("end")),
+            startTime,
+            endTime,
           }),
         });
+      }
       case "range":
         return NextResponse.json({ range: await hyperliquidRange(q.get("coin") ?? "") });
       default:
         return NextResponse.json({ error: "Unknown request." }, { status: 400 });
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Hyperliquid is unavailable.";
-    const client = /^Invalid|^Unsupported|window/i.test(message);
-    return NextResponse.json({ error: message }, { status: client ? 400 : 503 });
+    if (error instanceof HyperliquidValidationError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+    logError("api.hyperliquid.error", error, { kind });
+    return NextResponse.json({ error: "Hyperliquid is unavailable." }, { status: 503 });
   }
 }

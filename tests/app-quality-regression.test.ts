@@ -147,10 +147,11 @@ describe("Reverse-proxy security, server stability & data resilience regressions
     expect(fallbackRedirect.headers.get("location")).toMatch(/^http:\/\/localhost:3000\/login\?/);
   });
 
-  it("permits unauthenticated GET/HEAD on PUBLIC_PWA_PATHS while keeping /icon.svg, /api, and POST gated", async () => {
+  it("permits unauthenticated GET/HEAD on PUBLIC_PWA_PATHS (including sandboxed /icon.svg) while keeping pages, /api, and POST gated", async () => {
     stubSiteAccessEnv();
     for (const pwaPath of [
       "/manifest.webmanifest",
+      "/icon.svg",
       "/icons/icon-192.png",
       "/icons/icon-512.png",
       "/icons/icon-maskable-512.png",
@@ -162,15 +163,21 @@ describe("Reverse-proxy security, server stability & data resilience regressions
       expect(getRes.headers.get("cache-control")).toBe(
         pwaPath === "/manifest.webmanifest" ? "no-store" : "public, max-age=3600",
       );
+      if (pwaPath === "/icon.svg") {
+        expect(getRes.headers.get("content-security-policy")).toContain("sandbox");
+      }
 
       const headRes = await proxy(new NextRequest(`https://terminal.example.com${pwaPath}`, { method: "HEAD" }));
       expect(headRes.headers.get("x-middleware-next")).toBe("1");
     }
 
-    // /icon.svg remains gated for pre-auth redirect contract; POST on manifest is blocked; API returns 401
-    expect((await proxy(new NextRequest("https://terminal.example.com/icon.svg"))).status).toBe(303);
+    // Authenticated pages, POST on manifest/icon.svg, and API routes remain gated
+    expect((await proxy(new NextRequest("https://terminal.example.com/"))).status).toBe(303);
     expect(
       (await proxy(new NextRequest("https://terminal.example.com/manifest.webmanifest", { method: "POST" }))).status,
+    ).toBe(401);
+    expect(
+      (await proxy(new NextRequest("https://terminal.example.com/icon.svg", { method: "POST" }))).status,
     ).toBe(401);
     expect((await proxy(new NextRequest("https://terminal.example.com/api/market"))).status).toBe(401);
   });
@@ -357,11 +364,11 @@ describe("Reverse-proxy security, server stability & data resilience regressions
     expect(recovered.get("AVGO")?.forwardPe).toBe(29);
   });
 
-  it("returns 503 JSON on terminal-markets failure and structured arrays when extended osint telemetry fails", async () => {
+  it("returns sanitized 503 JSON on terminal-markets failure and structured arrays when extended osint telemetry fails", async () => {
     mockState.terminalMarketsError = true;
     const marketsRes = await terminalMarketsGet();
     expect(marketsRes.status).toBe(503);
-    expect(await marketsRes.json()).toEqual({ error: "Markets feed timed out" });
+    expect(await marketsRes.json()).toEqual({ error: "Market overview is unavailable." });
 
     mockState.extendedTelemetryError = true;
     const osintRes = await osintMapGet();

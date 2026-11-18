@@ -1,4 +1,5 @@
 import { evaluateRules, exchangeSource, processDeliveries, store } from "./alertService";
+import { logError } from "./logger";
 import { usesNetlifyStorage } from "./netlifyStorage";
 
 export interface RunnerStatus {
@@ -59,6 +60,7 @@ export function startAlertRunner(intervalMs = 15_000): RunnerStatus {
       status.lastFired = result.fired;
       status.lastErrors = result.errors.slice(0, 5);
     } catch (error) {
+      logError("alertRunner.tick.failed", error);
       status.lastErrors = [error instanceof Error ? error.message : String(error)];
     } finally {
       status.runs++;

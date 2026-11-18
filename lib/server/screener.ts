@@ -14,6 +14,8 @@ import { yahooChart, yahooSpark } from "./yahoo";
 export type ScreenerMarket = "binance" | "hyperliquid" | "hyperliquid-markets" | `stocks:${string}`;
 export const SCREENER_MARKETS: ScreenerMarket[] = ["binance", "hyperliquid", "hyperliquid-markets", ...STOCK_UNIVERSE_IDS.map((id) => `stocks:${id}` as const)];
 
+export class ScreenerValidationError extends Error {}
+
 export interface ScreenerResult {
   rows: ScreenerRow[];
   timeframe: string | null;
@@ -78,7 +80,7 @@ export async function hyperliquidUniverse(
 /** Quotes for a curated list of stocks. Yahoo's snapshot has no volume, so turnover stays empty and rows sort by their move. */
 export async function stocksUniverse(exchangeId: string, limit: number, fetcher: typeof fetch = fetch): Promise<ScreenerRow[]> {
   const universe = universeFor(exchangeId);
-  if (!universe) throw new Error("Unknown market.");
+  if (!universe) throw new ScreenerValidationError("Unknown market.");
   const tickers = universe.tickers.slice(0, limit);
   const rows: ScreenerRow[] = [];
   for (let i = 0; i < tickers.length; i += 20) {
@@ -145,9 +147,9 @@ export async function runScreener(
   const limit = Math.max(1, Math.min(MAX_UNIVERSE, Math.floor(options.limit ?? 80)));
   const timeframe = options.timeframe ?? null;
   if (timeframe && (!isValidInterval(timeframe) || timeframe.endsWith("T")))
-    throw new Error("Choose a time-based interval.");
+    throw new ScreenerValidationError("Choose a time-based interval.");
   const market = options.market ?? "binance";
-  if (!SCREENER_MARKETS.includes(market)) throw new Error("Unknown market.");
+  if (!SCREENER_MARKETS.includes(market)) throw new ScreenerValidationError("Unknown market.");
   const key = `${market}:${timeframe}:${limit}:${options.minTurnover ?? 1_000_000}`;
   const hit = cache.get(key);
   if (hit && now - hit.at < TTL) return hit.result;
