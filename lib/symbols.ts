@@ -168,21 +168,27 @@ export function getSymbol(symbol: string): MarketSymbol {
     color: "#98a2b3",
   };
 }
+const priceAtLeastHundred = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format;
+const priceAtLeastOne = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 }).format;
+const fractionalPrice = new Intl.NumberFormat("en-US", { minimumFractionDigits: 4, maximumFractionDigits: 5 }).format;
+const subMillPrice = new Intl.NumberFormat("en-US", { minimumFractionDigits: 4, maximumFractionDigits: 8 }).format;
+const compactNumber = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 2 }).format;
+const fractionalVolume = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 4 }).format;
+const subCentVolume = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 5 }).format;
+
 export function formatPrice(value: number, compact = false): string {
+  if (compact) return compactNumber(value);
   const magnitude = Math.abs(value);
-  return new Intl.NumberFormat("en-US", {
-    minimumFractionDigits: compact ? 0 : magnitude >= 1 ? 2 : 4,
-    maximumFractionDigits:
-      magnitude >= 100 ? 2 : magnitude >= 1 ? 4 : magnitude < 0.001 ? 8 : 5,
-    ...(compact ? { notation: "compact", maximumFractionDigits: 2 } : {}),
-  }).format(value);
+  if (magnitude >= 100) return priceAtLeastHundred(value);
+  if (magnitude >= 1) return priceAtLeastOne(value);
+  return magnitude < 0.001 ? subMillPrice(value) : fractionalPrice(value);
 }
+
 export function formatVolume(value: number): string {
-  return Intl.NumberFormat("en-US", {
-    notation: "compact",
-    maximumFractionDigits:
-      Math.abs(value) < 0.01 ? 5 : Math.abs(value) < 1 ? 4 : 2,
-  }).format(value);
+  const magnitude = Math.abs(value);
+  if (magnitude < 0.01) return subCentVolume(value);
+  if (magnitude < 1) return fractionalVolume(value);
+  return compactNumber(value);
 }
 
 export interface SymbolDescription {

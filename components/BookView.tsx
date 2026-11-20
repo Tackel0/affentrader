@@ -7,10 +7,10 @@ import { bookTick, groupedLadderStep } from "@/lib/orderflow/depthLadder";
 import { DOM_GROUPS, domGrouping } from "@/lib/orderflow/domPreferences";
 import { domStyle } from "@/lib/orderflow/domStyle";
 import { depthMetrics } from "@/lib/orderflow/depthMetrics";
+import { formatOrderflowAmount as number } from "@/lib/orderflow/formatAmount";
 import { PriceLevelMenu } from "./PriceLevelMenu";
 import { BOOK_ROW_LIMITS, buildBookView, bookShare, bookDepthPaths, defaultBookView, type BookViewDepth, type BookViewSettings, type BookViewRow } from "@/lib/orderflow/bookView";
 
-const number = (n: number) => n.toLocaleString("en-US", { maximumSignificantDigits: 12 });
 const price = new Intl.NumberFormat("en-US", { maximumSignificantDigits: 17 }).format;
 type BookInspection = { side: "bid" | "ask"; price: number };
 export function BookView({ book, symbol, base, quote, contextKey, live, lastTrade, onDrawLevel, onDrawArea, fixedTick, observedTop = book }: {

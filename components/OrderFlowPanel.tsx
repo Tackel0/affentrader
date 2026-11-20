@@ -28,7 +28,7 @@ import { priceGridTick } from "@/lib/market/priceGridMetadata";
 import { PriceLevelMenu } from "./PriceLevelMenu";
 import { intervalMs } from "@/lib/market/intervals";
 import { defaultTapePreferences, readTapePreferences, tapeHighlightMultipliers } from "@/lib/orderflow/tapePreferences";
-const number = (value: number) => value.toLocaleString("en-US", { maximumSignificantDigits: 12 });
+import { formatOrderflowAmount as number } from "@/lib/orderflow/formatAmount";
 const emptyRevision = () => 0;
 export function OrderFlowPanel() {
   const [preferences, setPreferences] = useState(defaultTapePreferences);

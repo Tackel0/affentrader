@@ -12,10 +12,10 @@ import {
   type FootprintRowFilter,
 } from "@/lib/orderflow/footprintInspection";
 import { rangeProfileSourceStamp } from "@/lib/orderflow/executionRangeSource";
+import { formatOrderflowAmount as volume } from "@/lib/orderflow/formatAmount";
 import { downloadFile } from "@/lib/files";
 import { useChartStore } from "@/stores/useChartStore";
 import { Modal } from "./ui";
-const volume = (value: number) => value.toLocaleString("en-US", { maximumSignificantDigits: 12 });
 const ratioLabel = (value: number | null) => value === null ? "" : !Number.isFinite(value) ? "∞" : `${value.toFixed(1)}×`;
 export function FootprintInspector({ target }: { target?: FootprintInspectionTarget }) {
   const [snapshot, setSnapshot] = useState<FootprintInspection | null>(null), [error, setError] = useState("");

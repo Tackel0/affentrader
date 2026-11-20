@@ -10,6 +10,7 @@ import { useDomNavigation } from "@/hooks/useDomNavigation";
 import { useDomPriceGrid } from "@/hooks/useDomPriceGrid";
 import { getPrimaryChart } from "@/hooks/useVelaChart";
 import { domGridChoice } from "@/lib/orderflow/domPriceGrid";
+import { formatOrderflowAmount } from "@/lib/orderflow/formatAmount";
 import { useChartStore } from "@/stores/useChartStore";
 import { activeAccount, usePaperStore } from "@/stores/usePaperStore";
 import {captureDomOrderContext,paperCommands} from "@/lib/trading/paperCommands";
@@ -119,7 +120,7 @@ export function DomPanel() {
     try { return { rows: executions?.rows(step, executionUnit, now), error: executions?.error ?? "" }; }
     catch (error) { return { rows: undefined, error: error instanceof Error ? error.message : "Execution rows unavailable." }; }
   }, [executions, step, executionUnit, now, executionRevision]);
-  const executionNumber = (value: number | undefined) => !executions || executed.error ? "—" : (value ?? 0).toLocaleString("en-US", { maximumSignificantDigits: 12 });
+  const executionNumber = (value: number | undefined) => !executions || executed.error ? "—" : formatOrderflowAmount(value ?? 0);
   const viewport = useMemo(() => {
     if (reason || !book) return {rows:[],error:""};
     try { return {rows:centeredLadder(book,step,navigation.center,navigation.upperRows,navigation.visibleRows),error:""}; }
