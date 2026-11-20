@@ -108,6 +108,26 @@
   background: var(--surface);
   text-align: right;
 }
+.deployment-update {
+  position: fixed;
+  right: max(12px, env(safe-area-inset-right));
+  bottom: calc(42px + env(safe-area-inset-bottom));
+  z-index: 190;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: calc(100% - max(12px, env(safe-area-inset-left)) - max(12px, env(safe-area-inset-right)));
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 18px #0004;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+}
+.deployment-update .button { min-height: 44px; }
+.deployment-update-dismiss { min-width: 44px; font-size: 20px; }
 @media (max-width: 768px) {
   .app-status .status-feed { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .app-status .footer-attribution { white-space: nowrap; }

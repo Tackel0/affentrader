@@ -834,6 +834,7 @@ async function run() {
       AFFENTRADER_DATA: tempDataDir,
       AFFENTRADER_SITE_PASSWORD_HASH: passwordHash,
       AFFENTRADER_SITE_SESSION_SECRET: sessionSecret,
+      CONTAINER_APP_REVISION: "affenterminal--r20261120100101-aaaaaaaa",
     };
 
     if (opts.standaloneDir) {
@@ -1309,9 +1310,52 @@ async function run() {
     // The audit owns this server and browser profile. Prove the installed service
     // worker still requires login online and can show a data-free page offline.
     let offlineNavigationChecked = false;
+    let deploymentUpdateChecked = false;
     if (serverProc && !opts.liveApis) {
-      activeLabel = "offline navigation";
       await setViewport(VIEWPORTS[0]);
+      activeLabel = "deployment update";
+      await cdp.send("Runtime.evaluate", {
+        expression: `(() => {
+          const originalFetch = window.fetch;
+          window.fetch = (input, options) => input === "/api/health"
+            ? Promise.resolve(Response.json({ ok: true, revision: "affenterminal--r20261120100102-bbbbbbbb" }))
+            : originalFetch(input, options);
+          try { window.dispatchEvent(new Event("focus")); } finally { window.fetch = originalFetch; }
+        })()`,
+      });
+      await waitForPagePredicate(
+        cdp,
+        `(() => {
+          const banner = document.querySelector(".deployment-update");
+          const buttons = [...(banner?.querySelectorAll("button") ?? [])];
+          return buttons.length === 2 && buttons.every(button => {
+            const rect = button.getBoundingClientRect();
+            return rect.height >= 44 && rect.width >= 44 && rect.left >= 0 && rect.right <= innerWidth;
+          });
+        })()`,
+        "new deployment message and mobile touch targets",
+      );
+      const reload = await cdp.send("Runtime.evaluate", {
+        expression: `(() => {
+          const button = document.querySelector(".deployment-update .primary");
+          if (!button) return null;
+          setTimeout(() => button.click(), 0);
+          return performance.timeOrigin;
+        })()`,
+        returnByValue: true,
+      });
+      const previousTimeOrigin = reload.result?.value;
+      if (typeof previousTimeOrigin !== "number") throw new Error("Unable to click deployment reload");
+      await waitForPagePredicate(
+        cdp,
+        `performance.timeOrigin !== ${previousTimeOrigin}
+          && !!document.querySelector(".research-terminal")
+          && !document.querySelector(".deployment-update")`,
+        "manual reload clears the deployment hint",
+      );
+      deploymentUpdateChecked = true;
+
+      activeLabel = "offline navigation";
       await waitForPagePredicate(cdp, "!!navigator.serviceWorker.controller", "active service worker");
       await cdp.send("Network.clearBrowserCookies");
       await cdp.send("Page.navigate", { url: `${baseUrl}/terminal?view=opps` });
@@ -1343,6 +1387,7 @@ async function run() {
           viewports: VIEWPORTS.map((v) => v.name),
           scenariosChecked: results.length,
           offlineNavigationChecked,
+          deploymentUpdateChecked,
           maxDocOverflowRatio: Math.max(...results.map((r) => r.docScrollWidth / Math.max(1, r.innerWidth))),
           totalMobileControlsAudited: results
             .filter((r) => r.viewport !== "1440x900")
