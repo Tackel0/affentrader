@@ -356,7 +356,7 @@
   .native-drawing-rail .vela-dtb-hit--arrow { width: 14px; min-height: 36px; }
 }
 .workspace-toolbar.tv-toolbar > .phone-drawing-toggle { display: inline-flex; }
-.phone-chart-switcher {
+.compact-chart-switcher {
   display: flex;
   flex: none;
   gap: 8px;
@@ -364,7 +364,7 @@
   background: var(--surface);
   border-bottom: 1px solid var(--border);
 }
-.phone-chart-switcher select {
+.compact-chart-switcher select {
   flex: 1;
   min-width: 0;
   padding: 0 8px;
@@ -373,7 +373,7 @@
   border: 1px solid var(--border);
   border-radius: 4px;
 }
-.phone-chart-switcher :is(select, button) { min-height: 36px; }
+.compact-chart-switcher :is(select, button) { min-height: 44px; }
 .workspace-main.phone-chart > .native-drawing-rail {
   position: absolute;
   inset: 0 auto 0 0;

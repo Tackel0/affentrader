@@ -92,12 +92,13 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
   const [sidebarOpen, setSidebarOpen] = useState(
     () => Boolean(initialSidebar) || !window.matchMedia(COMPACT_WORKSPACE_QUERY).matches,
   );
+  const [compactLayout, setCompactLayout] = useState(() => window.matchMedia(COMPACT_WORKSPACE_QUERY).matches);
+  const [showChartGrid, setShowChartGrid] = useState(false);
   const [phoneChart, setPhoneChart] = useState(() => window.matchMedia(PHONE_CHART_QUERY).matches);
-  const [phoneGrid, setPhoneGrid] = useState(false);
   const [drawingToolsOpen, setDrawingToolsOpen] = useState(false);
   useEffect(() => {
     const query = window.matchMedia(PHONE_CHART_QUERY);
-    const update = () => { setPhoneChart(query.matches); setPhoneGrid(false); setDrawingToolsOpen(false); };
+    const update = () => { setPhoneChart(query.matches); setDrawingToolsOpen(false); };
     update();
     query.addEventListener("change", update);
     return () => query.removeEventListener("change", update);
@@ -136,12 +137,16 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
   }, [sidebarOpen]);
   // Keep the chart visible when entering the phone/tablet layout, including resizes.
   useEffect(() => {
-    const phone = window.matchMedia(COMPACT_WORKSPACE_QUERY);
-    const adapt = () => { if (phone.matches) setSidebarOpen(false); };
+    const compact = window.matchMedia(COMPACT_WORKSPACE_QUERY);
+    const adapt = () => {
+      setCompactLayout(compact.matches);
+      setShowChartGrid(false);
+      if (compact.matches) setSidebarOpen(false);
+    };
     if (initialSidebar) setSidebarOpen(true);
     else adapt();
-    phone.addEventListener("change", adapt);
-    return () => phone.removeEventListener("change", adapt);
+    compact.addEventListener("change", adapt);
+    return () => compact.removeEventListener("change", adapt);
   }, [initialSidebar]);
   const toggleSidebar = (tab: SidebarTab = sidebar) => {
     const opening = !sidebarOpen || sidebar !== tab;
@@ -257,7 +262,10 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
         {(!phoneChart || drawingToolsOpen) && <DrawingRail id="workspace-drawing-tools" />}
         <div className="center-workspace">
           <ModuleErrorBoundary moduleName="Chart Grid">
-            <ChartGrid phoneLayout={phoneChart ? { grid: phoneGrid, toggleGrid: () => setPhoneGrid(previous => !previous) } : undefined} />
+            <ChartGrid compactLayout={compactLayout ? {
+              grid: showChartGrid,
+              toggleGrid: () => setShowChartGrid(previous => !previous),
+            } : undefined} />
           </ModuleErrorBoundary>
           <ReplayBar />
           <RangeToolbar/>

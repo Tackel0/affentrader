@@ -44,7 +44,7 @@ import { bindLinkedCrosshair, publishLinkedCrosshair } from "@/lib/chart/crossha
 import { bindLinkedViewport } from "@/lib/chart/viewportLink";
 import { bindSatelliteQuote, type SatelliteQuote } from "@/lib/chart/satelliteQuote";
 import {bindSnapshotChart,snapshotSource} from "@/lib/chart/snapshotRegistry";
-export function ChartGrid({ phoneLayout }: { phoneLayout?: { grid: boolean; toggleGrid: () => void } }) {
+export function ChartGrid({ compactLayout }: { compactLayout?: { grid: boolean; toggleGrid: () => void } }) {
   const layout = useWorkspaceStore((s) => s.layout),
     cells = useWorkspaceStore((s) => s.cells),
     activeId = useWorkspaceStore((s) => s.activeId),
@@ -66,23 +66,23 @@ export function ChartGrid({ phoneLayout }: { phoneLayout?: { grid: boolean; togg
   }, [symbol, timeframe, chartType, logarithmic, scaleMode, legendCollapsed, chartView, chartAppearance, seriesPreferences, chartTypeSettings, statusLine, indicators, activeId]);
   const config = LAYOUTS.find((l) => l.id === layout)!;
   const choices = cells.slice(0, config.count);
-  const phoneFocus = phoneLayout !== undefined && !phoneLayout.grid;
-  const singleId = phoneFocus ? activeId : maximized;
+  const focused = compactLayout !== undefined && !compactLayout.grid;
+  const singleId = focused ? activeId : maximized;
   const visible = singleId ? choices.filter(cell => cell.id === singleId) : choices;
   return (<>
-    {phoneLayout && choices.length > 1 && (
-      <div className="phone-chart-switcher">
+    {compactLayout && choices.length > 1 && (
+      <div className="compact-chart-switcher">
         <select aria-label="Active chart" value={activeId} onChange={event => useWorkspaceStore.getState().activate(event.target.value)}>
           {choices.map((cell, index) => <option key={cell.id} value={cell.id}>{index + 1}/{choices.length} · {symbolLabel(cell.id === activeId ? symbol : cell.symbol)}</option>)}
         </select>
         <button className="button small" type="button" onClick={() => {
           if (maximized) useWorkspaceStore.setState({ maximizedId: null });
-          phoneLayout.toggleGrid();
-        }}>{phoneLayout.grid ? "Single chart" : "Show grid"}</button>
+          compactLayout.toggleGrid();
+        }}>{compactLayout.grid ? "Single chart" : "Show grid"}</button>
       </div>
     )}
     <div
-      className={`chart-grid layout-${singleId ? "single" : layout} ${config.count > 1 && !phoneFocus ? "multi-chart" : ""}`}
+      className={`chart-grid layout-${singleId ? "single" : layout} ${config.count > 1 && !focused ? "multi-chart" : ""}`}
       style={{
         gridTemplateColumns: `repeat(${singleId ? 1 : config.columns},minmax(0,1fr))`,
         gridTemplateRows: `repeat(${singleId ? 1 : config.rows},minmax(0,1fr))`,
@@ -103,7 +103,7 @@ export function ChartGrid({ phoneLayout }: { phoneLayout?: { grid: boolean; togg
               compact={config.count > 4 && !singleId}
             />
           )}
-          {config.count > 1 && !phoneFocus ? (
+          {config.count > 1 && !focused ? (
             <div className="cell-controls">
               <button
                 className="cell-number"
