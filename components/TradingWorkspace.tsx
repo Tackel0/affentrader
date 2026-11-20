@@ -45,9 +45,19 @@ import { SymbolSearch } from "./SymbolSearch";
 import { BottomPanel } from "./BottomPanel";
 import { ModuleErrorBoundary } from "./ModuleErrorBoundary";
 import { downloadFile } from "@/lib/files";
-export default function TradingWorkspace({ deployment }: { deployment?: ReactNode }) {
+interface WorkspaceProps {
+  deployment?: ReactNode;
+  initialSidebar?: "watchlist" | "alerts";
+}
+
+export default function TradingWorkspace({ deployment, initialSidebar }: WorkspaceProps) {
   const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  useEffect(() => {
+    if (initialSidebar && useChartStore.getState().sidebarTab !== initialSidebar) {
+      useChartStore.getState().set({ sidebarTab: initialSidebar });
+    }
+    setMounted(true);
+  }, [initialSidebar]);
   if (!mounted)
     return (
       <div className="boot-screen">
@@ -57,9 +67,9 @@ export default function TradingWorkspace({ deployment }: { deployment?: ReactNod
         {deployment}
       </div>
     );
-  return <Workspace deployment={deployment} />;
+  return <Workspace deployment={deployment} initialSidebar={initialSidebar} />;
 }
-function Workspace({ deployment }: { deployment?: ReactNode }) {
+function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
   const recordingTrades = useTradeArchiveStore(state => state.enabled);
   const recordingFailed = useTradeArchiveStore(state => Boolean(state.status.error));
   const iexStatus = useAlpacaStore(s => s.status);
@@ -99,10 +109,11 @@ function Workspace({ deployment }: { deployment?: ReactNode }) {
   useEffect(() => {
     const phone = window.matchMedia("(max-width: 768px)");
     const adapt = () => { if (phone.matches) setSidebarOpen(false); };
-    adapt();
+    if (initialSidebar) setSidebarOpen(true);
+    else adapt();
     phone.addEventListener("change", adapt);
     return () => phone.removeEventListener("change", adapt);
-  }, []);
+  }, [initialSidebar]);
   const toggleSidebarTab = (tab: "watchlist" | "alerts" | "objects") => {
     setSidebarOpen(open => sidebar === tab ? !open : true);
     useChartStore.getState().set({ sidebarTab: tab });

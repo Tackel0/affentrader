@@ -986,6 +986,7 @@ async function run() {
       }
     });
 
+    let advertisedRevision = null;
     if (!opts.liveApis) {
       await cdp.send("Page.addScriptToEvaluateOnNewDocument", {
         source: `(() => {
@@ -1062,8 +1063,11 @@ async function run() {
           } catch {
             /* ignore */
           }
-          if (MOCKED_API_PREFIXES.has(pathname)) {
-            const body = JSON.stringify(buildMockApiPayload(reqUrl));
+          const healthOverride = pathname === "/api/health" && advertisedRevision;
+          if (healthOverride || MOCKED_API_PREFIXES.has(pathname)) {
+            const body = JSON.stringify(healthOverride
+              ? { ok: true, revision: healthOverride }
+              : buildMockApiPayload(reqUrl));
             await cdp.send("Fetch.fulfillRequest", {
               requestId,
               responseCode: 200,
@@ -1294,6 +1298,41 @@ async function run() {
       }
     }
 
+    let pwaShortcutsChecked = 0;
+    if (serverProc && !opts.liveApis) {
+      await setViewport(VIEWPORTS[0]);
+      const manifestResponse = await fetch(`${baseUrl}/manifest.webmanifest`);
+      if (!manifestResponse.ok) throw new Error("Unable to read the installed app manifest");
+      const manifest = await manifestResponse.json();
+      for (const [name, selector] of [
+        ["Watchlist", 'aside[aria-label="Watchlist sidebar"]'],
+        ["Alerts", 'aside[aria-label="Alerts sidebar"]'],
+        ["Terminal", ".research-terminal"],
+      ]) {
+        activeLabel = `PWA shortcut ${name}`;
+        const shortcut = manifest.shortcuts?.find(item => item.name === name);
+        if (typeof shortcut?.url !== "string") throw new Error(`Missing PWA shortcut for ${name}`);
+        const url = new URL(shortcut.url, baseUrl);
+        if (url.origin !== baseUrl) throw new Error(`PWA shortcut for ${name} must remain on this site`);
+        const unauthenticated = await fetch(url, { redirect: "manual" });
+        const redirect = new URL(unauthenticated.headers.get("location") ?? "/", baseUrl);
+        if (unauthenticated.status !== 303 || redirect.pathname !== "/login"
+          || redirect.searchParams.get("next") !== url.pathname + url.search) {
+          throw new Error(`The login gate did not retain the ${name} shortcut destination`);
+        }
+        await unauthenticated.body?.cancel();
+        await cdp.send("Page.navigate", { url: url.href });
+        await waitForPagePredicate(
+          cdp,
+          `location.pathname + location.search === ${JSON.stringify(url.pathname + url.search)}
+            && !!document.querySelector(${JSON.stringify(selector)})
+            && document.documentElement.scrollWidth <= innerWidth`,
+          `mobile PWA shortcut ${name}`,
+        );
+        pwaShortcutsChecked++;
+      }
+    }
+
     if (http5xx.length > 0) {
       failures.push(`HTTP 5xx responses detected (${http5xx.length}):\n${http5xx.join("\n")}`);
     }
@@ -1314,19 +1353,15 @@ async function run() {
     if (serverProc && !opts.liveApis) {
       await setViewport(VIEWPORTS[0]);
       activeLabel = "deployment update";
-      await cdp.send("Runtime.evaluate", {
-        expression: `(() => {
-          const originalFetch = window.fetch;
-          window.fetch = (input, options) => input === "/api/health"
-            ? Promise.resolve(Response.json({ ok: true, revision: "affenterminal--r20261120100102-bbbbbbbb" }))
-            : originalFetch(input, options);
-          try { window.dispatchEvent(new Event("focus")); } finally { window.fetch = originalFetch; }
-        })()`,
-      });
+      advertisedRevision = "affenterminal--r20261120100102-bbbbbbbb";
       await waitForPagePredicate(
         cdp,
         `(() => {
           const banner = document.querySelector(".deployment-update");
+          if (!banner) {
+            window.dispatchEvent(new Event("focus"));
+            return false;
+          }
           const buttons = [...(banner?.querySelectorAll("button") ?? [])];
           return buttons.length === 2 && buttons.every(button => {
             const rect = button.getBoundingClientRect();
@@ -1335,6 +1370,7 @@ async function run() {
         })()`,
         "new deployment message and mobile touch targets",
       );
+      advertisedRevision = null;
       const reload = await cdp.send("Runtime.evaluate", {
         expression: `(() => {
           const button = document.querySelector(".deployment-update .primary");
@@ -1388,6 +1424,7 @@ async function run() {
           scenariosChecked: results.length,
           offlineNavigationChecked,
           deploymentUpdateChecked,
+          pwaShortcutsChecked,
           maxDocOverflowRatio: Math.max(...results.map((r) => r.docScrollWidth / Math.max(1, r.innerWidth))),
           totalMobileControlsAudited: results
             .filter((r) => r.viewport !== "1440x900")
