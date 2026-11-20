@@ -1224,8 +1224,8 @@ async function run() {
       }
       await waitForPagePredicate(
         cdp,
-        '!!document.querySelector(".bottom-panel.expanded .bottom-panel-content")',
-        `${vp.name} BottomPanel Order flow expanded`,
+        '!!document.querySelector(".bottom-panel.expanded.orderflow-panel .detailed-orderflow")',
+        `${vp.name} BottomPanel Order flow loaded`,
       );
       await settleUi(cdp, 300);
       recordAudit(vp, "/ + BottomPanel(orderflow)", await inspectViewportDom(cdp, vp.mobile));

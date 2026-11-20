@@ -34,7 +34,6 @@ import { useStrategyStore } from "@/stores/useStrategyStore";
 import { downloadFile } from "@/lib/files";
 import { TradingPanel } from "./TradingPanel";
 import { DomPanel } from "./DomPanel";
-import { OrderFlowPanel } from "./OrderFlowPanel";
 import { PortfolioPanel } from "./PortfolioPanel";
 import { ScreenerPanel } from "./ScreenerPanel";
 import { NewsPanel } from "./NewsPanel";
@@ -44,6 +43,8 @@ import { ModuleErrorBoundary } from "./ModuleErrorBoundary";
 import type { BottomTab } from "@/types/trading";
 
 const HeatmapPanel = lazy(() => import("./HeatmapPanel").then(({ HeatmapPanel }) => ({ default: HeatmapPanel })));
+const OrderFlowPanel = lazy(() => import("./OrderFlowPanel").then(({ OrderFlowPanel }) => ({ default: OrderFlowPanel })));
+const orderFlowLoading = <p className="form-help" role="status">Loading order flow…</p>;
 
 /** Tabs that share the resizable full-height tool layout. */
 const TOOL_TABS: BottomTab[] = ["trading", "dom", "portfolio", "screener", "terminal", "news", "calendar", "heatmap"];
@@ -77,7 +78,7 @@ export function BottomPanel() {
   return (
     <section
       ref={panel}
-      className={`bottom-panel ${open ? "expanded" : ""} ${resizable ? "resizable-panel" : ""} ${tab === "pine" ? "editor-panel" : tab === "strategy" ? "strategy-panel" : TOOL_TABS.includes(tab) ? "tool-panel" : ""}`}
+      className={`bottom-panel ${open ? "expanded" : ""} ${resizable ? "resizable-panel" : ""} ${tab === "pine" ? "editor-panel" : tab === "strategy" ? "strategy-panel" : tab === "orderflow" ? "orderflow-panel" : TOOL_TABS.includes(tab) ? "tool-panel" : ""}`}
     >
       {resizable ? (
         <div
@@ -135,7 +136,9 @@ export function BottomPanel() {
                 <HeatmapPanel />
               </Suspense>
             ) : (
-              <OrderFlowPanel />
+              <Suspense fallback={orderFlowLoading}>
+                <OrderFlowPanel />
+              </Suspense>
             )}
           </ModuleErrorBoundary>
         </div>

@@ -137,7 +137,7 @@
   .bottom-panel.expanded:not(.resizable-panel) { max-height: none; }
   .center-workspace > .chart-grid { min-height: 180px; }
   .bottom-panel.expanded > .bottom-panel-content,
-  .bottom-panel.expanded:has(.detailed-orderflow) > .bottom-panel-content,
+  .bottom-panel.expanded.orderflow-panel > .bottom-panel-content,
   .bottom-panel.expanded.resizable-panel > .bottom-panel-content {
     height: clamp(200px, var(--panel-height, 42dvh), max(200px, 55dvh));
     min-height: 200px;

@@ -1699,7 +1699,7 @@ body {
 /* The inspector scrolls as a document; flex shrinking can collapse its table to zero. */
 .footprint-inspector .form-body { display: block; }
 /* Orderflow inspection needs enough height for controls and a bounded tape. */
-.bottom-panel:has(.detailed-orderflow) .bottom-panel-content{height:360px;overflow:auto}
+.bottom-panel.orderflow-panel .bottom-panel-content{height:360px;overflow:auto}
 .detailed-orderflow{height:auto;min-height:340px;grid-template-columns:minmax(0,.8fr) minmax(0,1.6fr) minmax(0,.6fr)}
 .detailed-orderflow .orderflow-actions>div{display:flex;flex-wrap:wrap;gap:6px}
 .detailed-orderflow .form-help,.detailed-orderflow small{font-size:11px;line-height:1.5;overflow-wrap:anywhere}
