@@ -101,6 +101,20 @@ function diffRgbaPixels(
   return changed;
 }
 
+function describePixelChanges(a: ReturnType<typeof captureRgba>, b: ReturnType<typeof captureRgba>): string {
+  const bounds = { left: a.width, top: a.height, right: 0, bottom: 0 };
+  for (let i = 0; i < a.data.length; i += 4) {
+    if ([0, 1, 2, 3].every(channel => Math.abs(a.data[i + channel] - b.data[i + channel]) <= 2)) continue;
+    const x = (i / 4) % a.width;
+    const y = Math.floor(i / 4 / a.width);
+    bounds.left = Math.min(bounds.left, x);
+    bounds.top = Math.min(bounds.top, y);
+    bounds.right = Math.max(bounds.right, x);
+    bounds.bottom = Math.max(bounds.bottom, y);
+  }
+  return `x=${bounds.left}..${bounds.right}, y=${bounds.top}..${bounds.bottom}`;
+}
+
 function buildSyntheticBarsAndTrades() {
   const minute = 60_000;
   const start = Date.UTC(2026, 10, 10, 12, 0, 0);
@@ -292,15 +306,31 @@ async function runNativeOverlaysE2E(): Promise<MainRouteResult["chartOverlays"]>
     return prev;
   };
 
+  async function afterScriptRun<T>(id: string, action: () => T): Promise<T> {
+    let completed = false;
+    const off = chart.on("script:run", (run) => {
+      if (run.id === id && run.complete) completed = true;
+    });
+    try {
+      const result = action();
+      await waitFor(() => completed, `${id} computed over complete history`);
+      return result;
+    } finally {
+      off();
+    }
+  }
+
   const measureOverlay = async (
     name: string,
     addFn: () => ReturnType<Vela["addNativeIndicator"]>,
     minExpectedDiff: number,
     timeoutMs = 6_000,
+    scriptId?: string,
   ) => {
-    const handle = addFn();
-    // Wait for async worker / native study to finish computing and settle visually
     const beforeAddWait = captureRgba(chart);
+    // A pixel delta can come from the loading legend. Wait for Pine's completed
+    // render before taking either visible snapshot, then keep the pixel checks.
+    const handle = scriptId ? await afterScriptRun(scriptId, addFn) : addFn();
     let settledVisible = beforeAddWait;
     const deadline = performance.now() + timeoutMs;
     while (performance.now() < deadline) {
@@ -316,7 +346,8 @@ async function runNativeOverlaysE2E(): Promise<MainRouteResult["chartOverlays"]>
       throw new Error(`${name} hide transition delta too small (${hideDelta} < ${minExpectedDiff} px)`);
     }
 
-    handle.setVisible(true);
+    if (scriptId) await afterScriptRun(scriptId, () => handle.setVisible(true));
+    else handle.setVisible(true);
     let bestDiff = 0;
     const visDeadline = performance.now() + timeoutMs;
     while (performance.now() < visDeadline) {
@@ -333,7 +364,7 @@ async function runNativeOverlaysE2E(): Promise<MainRouteResult["chartOverlays"]>
     const hiddenAfter = await waitUntilSettled(1_500);
     const restoredDiffPixels = diffRgbaPixels(hiddenBaseline, hiddenAfter);
     if (restoredDiffPixels !== 0) {
-      throw new Error(`${name} setVisible(false) left ${restoredDiffPixels} residual pixels`);
+      throw new Error(`${name} setVisible(false) left ${restoredDiffPixels} residual pixels (${describePixelChanges(hiddenBaseline, hiddenAfter)})`);
     }
     checks.push({ name, diffPixels: bestDiff, restoredDiffPixels });
     return handle;
@@ -364,6 +395,7 @@ async function runNativeOverlaysE2E(): Promise<MainRouteResult["chartOverlays"]>
       }),
     100,
     8_000,
+    "e2e-structure",
   );
 
   await waitFrames(4);
@@ -371,7 +403,7 @@ async function runNativeOverlaysE2E(): Promise<MainRouteResult["chartOverlays"]>
   vnHandle.setVisible(true);
   sigHandle.setVisible(true);
   ddHandle.setVisible(true);
-  smcHandle.setVisible(true);
+  await afterScriptRun(smcHandle.id, () => smcHandle.setVisible(true));
   await waitFrames(8);
   const allVisibleDiffPixels = diffRgbaPixels(allHiddenBaseline, captureRgba(chart));
   if (allVisibleDiffPixels < 200) {

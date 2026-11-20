@@ -302,6 +302,8 @@ class CdpClient {
 }
 
 async function run() {
+  // This gate also runs in a fresh CI job without a preceding build or test.
+  await import("./patch-vela-viewport.mjs");
   const bundle = await build({
     entryPoints: ["tests/browser/terminal-overlays-e2e.ts"],
     bundle: true,
