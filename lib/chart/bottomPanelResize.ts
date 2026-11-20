@@ -3,7 +3,7 @@ const DEFAULT_HEIGHT = 370;
 const MIN_HEIGHT = 200;
 const COMPACT_PANEL_QUERY = "(max-width: 768px)";
 
-export function bindBottomPanelResize(panel: HTMLElement, content: HTMLElement, handle: HTMLElement, chart: HTMLElement) {
+export function bindBottomPanelResize(panel: HTMLElement, content: HTMLElement, handle: HTMLElement, chart: HTMLElement, availableHeight?: () => number) {
   const compact = window.matchMedia(COMPACT_PANEL_QUERY);
   let limits = { min: 0, max: 0 };
   let drag: { pointer: number; y: number; height: number; previous: string; next: number } | null = null;
@@ -32,7 +32,7 @@ export function bindBottomPanelResize(panel: HTMLElement, content: HTMLElement, 
     const chartMin = parseFloat(getComputedStyle(chart).minHeight) || 0;
     const contentMax = parseFloat(getComputedStyle(content).maxHeight);
     // Flexbox protects the chart minimum. Any space above it can go to the panel.
-    const available = height + Math.max(0, chart.getBoundingClientRect().height - chartMin);
+    const available = availableHeight?.() ?? height + Math.max(0, chart.getBoundingClientRect().height - chartMin);
     const max = Math.max(0, Math.floor(Math.min(available, Number.isFinite(contentMax) ? contentMax : Infinity)));
     limits = { min: Math.min(MIN_HEIGHT, max), max };
     handle.setAttribute("aria-valuemin", String(limits.min));

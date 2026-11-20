@@ -118,6 +118,11 @@ Outputs filterable trade setups with a **Setup-Score (0–100)**, transparent po
 
 *(Every landed fix/feature is verified directly against modified source files; global test/build counts are only updated after `@qa-verifier` completes the full post-edit verification gate.)*
 
+### Pass 2026-11-20 — Add Mobile Sheets for Watchlist, Alerts and Object Tree
+- **Cause and change.** Narrow viewports showed the three sidebar panels as fixed top overlays with a thin width handle. The sidebar now opens along the bottom of the chart and uses the same drag and keyboard controls as the bottom dock. `TradingWorkspace` limits its height to the chart area so the workspace controls remain accessible. The desktop sidebar keeps its width adjustment.
+- **Verification.** At 390 × 844 Chromium opened Watchlist, Alerts and Object Tree through the utility rail and used touch events to reach all three stops in each one. It also verified that the sidebar closes. Fast-forward pull, typegen and typecheck, all 2,786 tests in 279 files, production build, chart E2E and all 48 viewport scenarios passed. No upgrade notice appeared.
+- **Earlier deployment verified.** GitHub Actions run 44775258196 deployed `a86bb0a1` as `affenterminal--r20261120164416-a86bb0a1`. All five live endpoints returned HTTP 200 and the login timestamp matched the revision.
+
 ### Pass 2026-11-20 — Raise Login Button Contrast
 - **Cause and change.** Mobile Lighthouse 13.6.0 scored `/login` at 91 for accessibility. The submit button was the only weighted failure, with 4.11:1 contrast against white text. `siteLoginPage` now uses a deeper blue that reaches 5.27:1.
 - **Verification.** The mobile Lighthouse score for `/login` reached 100 on the new production build. Fast-forward pull, typegen and typecheck, all 2,786 tests in 279 files, production build, Chart E2E and all 48 viewport scenarios passed. No upgrade notice appeared.

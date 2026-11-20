@@ -92,6 +92,7 @@
   height: var(--panel-height, 370px);
   min-height: 0;
 }
+.sidebar-sheet-resizer { display: none; }
 .status-deployment {
   flex-shrink: 0;
   white-space: nowrap;
@@ -135,9 +136,8 @@
   .workspace-panel-strip .panel-tab svg { width: 14px; }
   .workspace-panel-menu { width: min(240px, calc(100vw - 16px)); }
   .bottom-panel.expanded:not(.resizable-panel) { max-height: none; }
-  .bottom-panel .bottom-panel-resizer {
-    position: relative;
-    inset: auto;
+  .bottom-panel .bottom-panel-resizer,
+  .right-sidebar .sidebar-sheet-resizer {
     flex: none;
     display: grid;
     place-items: center;
@@ -145,15 +145,17 @@
     background: var(--surface);
     opacity: 1;
   }
-  .bottom-panel-resizer::before {
+  .bottom-panel .bottom-panel-resizer { position: relative; inset: auto; }
+  .sidebar-sheet-resizer { position: sticky; top: 0; z-index: 9; cursor: ns-resize; touch-action: none; }
+  :is(.bottom-panel-resizer, .sidebar-sheet-resizer)::before {
     content: "";
     width: 36px;
     height: 4px;
     border-radius: 2px;
     background: var(--muted);
   }
-  .bottom-panel-resizer:is(:focus-visible, [data-resizing])::before { background: var(--accent); }
-  .bottom-panel-resizer:focus-visible { outline-offset: -2px; }
+  :is(.bottom-panel-resizer, .sidebar-sheet-resizer):is(:focus-visible, [data-resizing])::before { background: var(--accent); }
+  :is(.bottom-panel-resizer, .sidebar-sheet-resizer):focus-visible { outline-offset: -2px; }
   .center-workspace > .chart-grid { min-height: 180px; }
   .bottom-panel.expanded > .bottom-panel-content,
   .bottom-panel.expanded.orderflow-panel > .bottom-panel-content,
@@ -164,8 +166,17 @@
     overflow: auto;
   }
   .right-sidebar:not(.collapsed) {
-    max-width: calc(100% - 88px - env(safe-area-inset-left) - env(safe-area-inset-right));
+    top: auto;
+    bottom: var(--sidebar-chart-bottom, 0px);
+    left: 44px;
+    right: 44px;
+    width: auto !important;
+    max-width: none;
+    min-height: 0;
+    max-height: 55dvh;
+    height: min(var(--panel-height, 42dvh), calc(100% - var(--sidebar-chart-bottom, 0px)));
   }
+  .right-sidebar .sidebar-resizer { display: none; }
   .drawing-rail-actions { width: 44px; }
   .drawing-rail-actions .icon-button { width: 36px; height: 36px; }
 }

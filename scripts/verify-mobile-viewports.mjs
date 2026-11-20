@@ -720,6 +720,43 @@ async function settleUi(cdp, ms = 300) {
   });
 }
 
+async function verifyTouchResize(cdp, selector, label, consoleErrors) {
+  const errorsBeforeSnap = consoleErrors.length;
+  for (const stop of ["Peek", "Half height", "Full height"]) {
+    const response = await cdp.send("Runtime.evaluate", {
+      expression: `(() => {
+        const handle = document.querySelector(${JSON.stringify(selector)});
+        const rect = handle?.getBoundingClientRect();
+        if (!rect || rect.width < 36 || rect.height < 36) return null;
+        return {
+          x: Math.round(rect.left + rect.width / 2),
+          y: Math.round(rect.top + rect.height / 2),
+          height: Number(handle.getAttribute("aria-valuenow")),
+          min: Number(handle.getAttribute("aria-valuemin")),
+          max: Number(handle.getAttribute("aria-valuemax")),
+        };
+      })()`,
+      returnByValue: true,
+    });
+    const geometry = response.result?.value;
+    if (!geometry || geometry.max - geometry.min < 100) throw new Error(`${label} resize handle is missing or there is insufficient drag range`);
+    const { x, y, height, min, max } = geometry;
+    const target = stop === "Peek" ? min + 12 : stop === "Full height" ? max - 12 : Math.round((min + max) / 2) + 12;
+    const touch = (position) => ({ x, y: position, id: 1 });
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [touch(y)] });
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [touch(y + height - target)] });
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await waitForPagePredicate(
+      cdp,
+      `document.querySelector(${JSON.stringify(selector)})?.getAttribute("aria-valuetext") === ${JSON.stringify(stop)}`,
+      `${stop} after dragging ${label}`,
+    );
+  }
+  if (consoleErrors.length !== errorsBeforeSnap) {
+    throw new Error(`${label} resize reported browser errors:\n${consoleErrors.slice(errorsBeforeSnap).join("\n")}`);
+  }
+}
+
 async function inspectViewportDom(cdp, mobile) {
   const res = await cdp.send("Runtime.evaluate", {
     expression: `(() => {
@@ -766,7 +803,7 @@ async function inspectViewportDom(cdp, mobile) {
       const smallTargets = [];
       let checkedControls = 0;
       const nodes = document.querySelectorAll(
-        'button, [role="button"], [role="tab"], .bottom-panel-resizer, select, textarea, input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]), a.button'
+        'button, [role="button"], [role="tab"], .bottom-panel-resizer, .sidebar-sheet-resizer, select, textarea, input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]), a.button'
       );
       for (const el of nodes) {
         if (isHiddenByHierarchy(el)) continue;
@@ -1126,6 +1163,7 @@ async function run() {
     const failures = [];
     const results = [];
     let compactDockSnapChecked = false;
+    let sidebarSheetsChecked = 0;
 
     const recordAudit = (viewport, scenario, audit) => {
       results.push({
@@ -1224,6 +1262,28 @@ async function run() {
       }
       await settleUi(cdp, 350);
       recordAudit(vp, "/", await inspectViewportDom(cdp, vp.mobile));
+      if (vp.width === 390 && !opts.liveApis) {
+        for (const [button, label] of [
+          ["Watchlists", "Watchlist sidebar"], ["Alerts", "Alerts sidebar"], ["Object tree", "Object tree sidebar"],
+        ]) {
+          activeLabel = `touch resize of ${label}`;
+          await cdp.send("Runtime.evaluate", {
+            expression: `document.querySelector(${JSON.stringify(`.utility-rail button[aria-label="${button}"]`)}).click()`,
+          });
+          await waitForPagePredicate(
+            cdp,
+            `document.querySelector(".right-sidebar")?.getAttribute("aria-label") === ${JSON.stringify(label)}
+              && document.querySelector(".sidebar-sheet-resizer")?.hasAttribute("aria-valuenow")`,
+            `${label} mobile resize controls`,
+          );
+          await verifyTouchResize(cdp, ".sidebar-sheet-resizer", label, consoleErrors);
+          sidebarSheetsChecked++;
+        }
+        await cdp.send("Runtime.evaluate", {
+          expression: `document.querySelector('.utility-rail button[aria-label="Object tree"]').click()`,
+        });
+        await waitForPagePredicate(cdp, '!document.querySelector(".right-sidebar")', "mobile sidebar closes");
+      }
 
       // 3b: / + open BottomPanel (Order flow)
       activeLabel = `${vp.name}:/+orderflow`;
@@ -1270,38 +1330,7 @@ async function run() {
       recordAudit(vp, "/ + BottomPanel(terminal)", await inspectViewportDom(cdp, vp.mobile));
       if (vp.width === 390 && !opts.liveApis) {
         activeLabel = "touch resize of embedded terminal";
-        const errorsBeforeSnap = consoleErrors.length;
-        for (const stop of ["Peek", "Half height", "Full height"]) {
-          const response = await cdp.send("Runtime.evaluate", {
-            expression: `(() => {
-              const handle = document.querySelector(".bottom-panel-resizer");
-              const rect = handle?.getBoundingClientRect();
-              if (!rect || rect.width < 36 || rect.height < 36) return null;
-              return {
-                x: Math.round(rect.left + rect.width / 2),
-                y: Math.round(rect.top + rect.height / 2),
-                height: Number(handle.getAttribute("aria-valuenow")),
-                min: Number(handle.getAttribute("aria-valuemin")),
-                max: Number(handle.getAttribute("aria-valuemax")),
-              };
-            })()`,
-            returnByValue: true,
-          });
-          const geometry = response.result?.value;
-          if (!geometry || geometry.max - geometry.min < 100) throw new Error("Mobile dock resize handle is missing or there is insufficient drag range");
-          const { x, y, height, min, max } = geometry;
-          const target = stop === "Peek" ? min + 12 : stop === "Full height" ? max - 12 : Math.round((min + max) / 2) + 12;
-          const touch = (position) => ({ x, y: position, id: 1 });
-          await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [touch(y)] });
-          await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [touch(y + height - target)] });
-          await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
-          await waitForPagePredicate(
-            cdp,
-            `document.querySelector(".bottom-panel-resizer")?.getAttribute("aria-valuetext") === ${JSON.stringify(stop)}`,
-            `${stop} after dragging the mobile bottom panel`,
-          );
-        }
-        if (consoleErrors.length !== errorsBeforeSnap) throw new Error(`Mobile dock resize reported browser errors:\n${consoleErrors.slice(errorsBeforeSnap).join("\n")}`);
+        await verifyTouchResize(cdp, ".bottom-panel-resizer", "mobile bottom panel", consoleErrors);
         compactDockSnapChecked = true;
       }
 
@@ -1538,6 +1567,7 @@ async function run() {
           deploymentUpdateChecked,
           pineWorkerLifecycleChecked,
           compactDockSnapChecked,
+          sidebarSheetsChecked,
           pwaShortcutsChecked,
           maxDocOverflowRatio: Math.max(...results.map((r) => r.docScrollWidth / Math.max(1, r.innerWidth))),
           totalMobileControlsAudited: results

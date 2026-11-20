@@ -10,6 +10,7 @@ import {ChartSnapshotDialog} from "./ChartSnapshotDialog";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { bindSidebarChartBounds } from "@/lib/chart/sidebarBounds";
 import { bindSidebarResize, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } from "@/lib/chart/sidebarResize";
+import { bindBottomPanelResize } from "@/lib/chart/bottomPanelResize";
 import {
   Activity,
   ChevronDown,
@@ -91,10 +92,11 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const sidebarRef = useRef<HTMLElement | null>(null);
   const sidebarHandle = useRef<HTMLDivElement | null>(null);
+  const sidebarSheetHandle = useRef<HTMLDivElement | null>(null);
   useLayoutEffect(() => {
     const sidebar = sidebarRef.current, chart = sidebar?.parentElement?.querySelector<HTMLElement>(".chart-grid");
-    const handle = sidebarHandle.current;
-    if (!sidebar || !handle) return;
+    const handle = sidebarHandle.current, sheetHandle = sidebarSheetHandle.current;
+    if (!sidebar || !handle || !sheetHandle) return;
     const offResize = bindSidebarResize(sidebar, handle, {
       read: () => useWorkspaceStore.getState().sidebarWidth,
       commit: (width) => useWorkspaceStore.getState().setSidebarWidth(width),
@@ -103,7 +105,22 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
       }),
     });
     const offBounds = chart ? bindSidebarChartBounds(sidebar, chart) : undefined;
-    return () => { offResize(); offBounds?.(); };
+    const compact = window.matchMedia("(max-width: 768px)");
+    let offHeight: (() => void) | undefined;
+    const bindSheet = () => {
+      offHeight?.();
+      offHeight = compact.matches && chart
+        ? bindBottomPanelResize(sidebar, sidebar, sheetHandle, chart, () => chart.getBoundingClientRect().height).dispose
+        : undefined;
+    };
+    bindSheet();
+    compact.addEventListener("change", bindSheet);
+    return () => {
+      compact.removeEventListener("change", bindSheet);
+      offHeight?.();
+      offResize();
+      offBounds?.();
+    };
   }, [sidebarOpen]);
   // Keep the chart visible when entering the phone/tablet layout, including resizes.
   useEffect(() => {
@@ -233,6 +250,14 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
               aria-valuemax={MAX_SIDEBAR_WIDTH}
               tabIndex={0}
               className="sidebar-resizer"
+            />
+            <div
+              ref={sidebarSheetHandle}
+              role="separator"
+              aria-label="Resize sidebar height"
+              aria-orientation="horizontal"
+              tabIndex={0}
+              className="sidebar-sheet-resizer"
             />
             <ModuleErrorBoundary
               moduleName={
