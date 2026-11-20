@@ -30,12 +30,12 @@
   --surface2: #e9ecef;
   --border: #d0d7de;
   --text: #0f172a;
-  --muted: #64748b;
-  --accent: #d97706;
-  --cyan: #0284c7;
-  --green: #16a34a;
-  --red: #dc2626;
-  --amber: #d97706;
+  --muted: #526176;
+  --accent: #904600;
+  --cyan: #07689a;
+  --green: #137337;
+  --red: #b91c1c;
+  --amber: #904600;
 }
 * {
   box-sizing: border-box;

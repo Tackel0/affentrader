@@ -210,7 +210,7 @@ export function AffenTerminalWindow({
         </div>
       ) : null}
 
-      <div className="affen-window-body">
+      <main className="affen-window-body">
         <ModuleErrorBoundary moduleName="AffenTerminal">
           <ResearchTerminal
             externalWindow
@@ -222,7 +222,7 @@ export function AffenTerminalWindow({
             }}
           />
         </ModuleErrorBoundary>
-      </div>
+      </main>
     </div>
   );
 }

@@ -1827,12 +1827,13 @@
   --surface2: #e9ecef;
   --border: #d0d7de;
   --text: #0f172a;
-  --muted: #64748b;
-  --accent: #d97706;
-  --cyan: #0284c7;
-  --green: #16a34a;
-  --red: #dc2626;
-  --amber: #d97706;
+  --muted: #526176;
+  --accent: #904600;
+  --cyan: #07689a;
+  --green: #137337;
+  --red: #b91c1c;
+  --amber: #904600;
+  --terminal-primary-text: #fff;
 }
 .research-terminal {
   container-type: inline-size;
@@ -1861,7 +1862,7 @@
 .affen-window-shell .button.primary {
   background: var(--accent, #ff9e00);
   border-color: var(--accent, #ff9e00);
-  color: #000000;
+  color: var(--terminal-primary-text, #000);
   font-weight: 700;
 }
 .research-terminal .button.primary:hover,

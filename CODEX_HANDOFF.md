@@ -118,6 +118,11 @@ Outputs filterable trade setups with a **Setup-Score (0–100)**, transparent po
 
 *(Every landed fix/feature is verified directly against modified source files; global test/build counts are only updated after `@qa-verifier` completes the full post-edit verification gate.)*
 
+### Pass 2026-11-20 — Improve Light Mode Contrast and Terminal Navigation
+- **Cause and change.** Light mode used low-contrast colors for navigation, status and market data. The palette, primary terminal button and simulation label now use foregrounds that work against the corresponding light surfaces. `AffenTerminalWindow` exposes the research view as its main landmark.
+- **Measurements and verification.** Authenticated Lighthouse accessibility snapshots at 390 × 844 went from 96 to 100 for the workspace and from 94 to 100 for the Research Terminal. The repeat reported no scored failures in either snapshot. The shared release gate passed typegen, typecheck, 2,793 tests in 281 files, production build, Chart E2E and 55 viewport scenarios. No upgrade notice appeared.
+- **Earlier deployment verified.** GitHub Actions run 44824758067 deployed `2e444120` as `affenterminal--r20261120220611-2e444120`. All five live endpoints returned HTTP 200 and the login timestamp matched the revision.
+
 ### Pass 2026-11-20 — Refresh the Live Orderflow Tape Every 100 Milliseconds
 - **Cause and change.** The visible Time & Sales panel rebuilt and rescored a tape with up to 5,000 executions at browser frame cadence. `OrderFlowPanel` still shows retained trades immediately on open and then refreshes from the newest snapshot once per 100 ms window. The market stream, raw execution consumers and recorded Replay keep their existing cadence.
 - **Measurements and verification.** In the controlled UI fixture, five snapshots spaced 16 ms apart previously produced five table updates. Now the table refreshes once and contains the latest retained rows. A second regression verifies that unchanged trade rows retain their render identity. Fast-forward pull, typegen, typecheck, 2,792 tests in 281 files, production build, Chart E2E and 55 viewport scenarios passed. No upgrade notice appeared.

@@ -56,6 +56,7 @@ describe("AffenTerminalWindow Shell & Telemetry", () => {
 
       const sync = container.querySelector(".affen-sync-block")!;
       expect(sync.textContent).toContain("Sync Symbol: QCOM");
+      expect(screen.getByRole("main").querySelector(".research-terminal")).not.toBeNull();
     });
 
     it("displays live UTC formatted clock in header actions", () => {
