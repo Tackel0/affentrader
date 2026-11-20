@@ -118,6 +118,10 @@ Outputs filterable trade setups with a **Setup-Score (0–100)**, transparent po
 
 *(Every landed fix/feature is verified directly against modified source files; global test/build counts are only updated after `@qa-verifier` completes the full post-edit verification gate.)*
 
+### Pass 2026-11-20 — Publish Live Tape Snapshots Once per Browser Frame
+- **Cause and change.** `MarketService.accept` copied the retained 5,000-trade tape for every trade. Each market now stores trades in a bounded circular window, and `tradesFor` materializes a newest-first snapshot on demand. In the browser the selected tape is published once per animation frame. Raw tick subscribers, candle aggregation and execution logic still receive every trade immediately. Stops and mode switches cancel queued publications.
+- **Measurements and verification.** The regression sends 100 Binance trades and verifies 100 immediate tick calls, a single tape frame and expiration of an old feed's pending snapshot. The 150,000-trade test verifies exact window boundaries and conserved volumes across three venues. Individual isolated runs took 4.04 s before and 3.57 s after. Fast-forward pull, typegen and typecheck, all 2,789 tests in 281 files, production build, Chart E2E and all 51 viewport scenarios passed. No upgrade notice appeared.
+
 ### Pass 2026-11-20 — Release Backing Buffers for Dormant Chart Layers
 - **Cause and change.** The renderer used full-size transparent buffers for inactive chart styles and empty overlay, notice and alert layers. `canvasLayer` now accepts an explicit content check and releases a dormant backing buffer while preserving the most recent Vela dimensions. Plot projections and debug auditing still update before the alert content check.
 - **Measurements.** The default single chart uses 30 sized layers instead of 45. With the same full-width phone layout, 390 × 844 backing pixels fell from 45,068,400 to 30,045,600. The 820 × 1180 sample fell from 134,907,120 to 89,938,080 and the 1440 × 900 sample from 319,102,740 to 212,735,160. In Chromium selecting Hollow candles allocated one layer, and switching back released it.

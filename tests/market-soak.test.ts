@@ -42,6 +42,7 @@ describe("market service under sustained load", () => {
       // The tape keeps only the most recent trades.
       expect(service.tradesFor(symbol).length).toBeLessThanOrEqual(5000);
       expect(service.tradesFor(symbol)[0].seq).toBe(49_999);
+      expect(service.tradesFor(symbol).at(-1)?.seq).toBe(45_000);
       const minutes = service.barsFor(symbol, "1m");
       // 50,000 trades at 25 ms spacing cover 1,250 s, about 21 one-minute bars.
       expect(minutes.length).toBeGreaterThanOrEqual(20);

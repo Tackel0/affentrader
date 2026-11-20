@@ -71,6 +71,33 @@ type CloseListener = (
 ) => void;
 /** Above this many quote-only symbols one all-market ticker stream is cheaper. */
 const INDIVIDUAL_TICKER_LIMIT = 150;
+const TRADE_WINDOW_SIZE = 5000;
+
+/** Retain raw observations for tick subscribers and materialize a newest-first tape only when read. */
+class RecentTrades {
+  private entries: Tick[] = [];
+  private next = 0;
+  private cached: Tick[] | undefined;
+
+  push(tick: Tick) {
+    this.entries[this.next] = tick;
+    this.next = (this.next + 1) % TRADE_WINDOW_SIZE;
+    this.cached = undefined;
+  }
+
+  snapshot(): Tick[] {
+    if (this.cached) return this.cached;
+    const newest = new Array<Tick>(this.entries.length);
+    let cursor = this.next;
+    for (let index = 0; index < newest.length; index++) {
+      cursor = cursor > 0 ? cursor - 1 : TRADE_WINDOW_SIZE - 1;
+      newest[index] = this.entries[cursor];
+    }
+    this.cached = newest;
+    return newest;
+  }
+}
+
 export class MarketService {
   private iexStream: IexStream | null = null;
   private iexEpoch = -1;
@@ -151,7 +178,8 @@ export class MarketService {
   private liveHistory = new Set<string>();
   private historySources = new Map<string, boolean>();
   private startedAt = 0;
-  private tradesBySymbol = new Map<string, Tick[]>();
+  private tradesBySymbol = new Map<string, RecentTrades>();
+  private tapeFrame: { id: number; symbol: string } | null = null;
   /** Custom time intervals that are aggregated alongside the presets. */
   private extraFrames = new Set<string>();
   /** Tick intervals (`100T`) being aggregated from the trade stream. */
@@ -254,7 +282,23 @@ export class MarketService {
     }
   };
   tradesFor(symbol: string): Tick[] {
-    return this.tradesBySymbol.get(symbol) ?? this.tradesBySymbol.get(stripVenue(symbol)) ?? [];
+    return (this.tradesBySymbol.get(symbol) ?? this.tradesBySymbol.get(stripVenue(symbol)))?.snapshot() ?? [];
+  }
+  private scheduleTape(symbol: string, epoch: number) {
+    if (this.tapeFrame) {
+      this.tapeFrame.symbol = symbol;
+      return;
+    }
+    const pending = { symbol, id: 0 };
+    pending.id = requestAnimationFrame(() => {
+      if (this.tapeFrame !== pending) return;
+      this.tapeFrame = null;
+      const state = useChartStore.getState();
+      if (epoch !== this.generation || state.symbol !== pending.symbol) return;
+      const trades = this.tradesFor(pending.symbol);
+      if (trades !== state.trades) state.set({ trades });
+    });
+    this.tapeFrame = pending;
   }
   private frames(): string[] {
     return [...TIMEFRAMES, ...this.extraFrames];
@@ -441,6 +485,10 @@ export class MarketService {
     this.iexStream?.stop(); this.iexStream = null; this.iexBases.clear(); this.iexReady.clear(); this.iexDelivered.clear(); this.iexClosed.clear();
     this.running = false;
     this.generation++;
+    if (this.tapeFrame) {
+      globalThis.cancelAnimationFrame?.(this.tapeFrame.id);
+      this.tapeFrame = null;
+    }
     this.hlQueue = [];
     this.hlDraining = false;
     clearTimeout(this.hlDrainTimer);
@@ -1689,11 +1737,14 @@ export class MarketService {
       !tick.simulated && (provider === "hyperliquid" || provider === "kraken") ? { basis: "trade", time: tick.time } : undefined,
     );
     if (epoch !== this.generation) return;
-    const previousTrades = this.tradesFor(tick.symbol);
-    const nextTrades = new Array<Tick>(Math.min(previousTrades.length + 1, 5000));
-    nextTrades[0] = tick;
-    for (let index = 1; index < nextTrades.length; index++) nextTrades[index] = previousTrades[index - 1];
-    this.tradesBySymbol.set(tick.symbol, nextTrades);
+    let tape = this.tradesBySymbol.get(tick.symbol);
+    if (!tape) {
+      tape = new RecentTrades();
+      const fallback = this.tradesBySymbol.get(stripVenue(tick.symbol))?.snapshot();
+      if (fallback) for (let index = fallback.length - 1; index >= 0; index--) tape.push(fallback[index]);
+      this.tradesBySymbol.set(tick.symbol, tape);
+    }
+    tape.push(tick);
     const source = tick.simulated ? "simulation" : "exchange";
     const sourceState = useChartStore.getState();
     const frames = [...this.frames(), ...this.tickFrames];
@@ -1715,7 +1766,8 @@ export class MarketService {
       };
     }
     if (tick.symbol === sourceState.symbol) {
-      pendingPatch.trades = nextTrades;
+      if (typeof requestAnimationFrame === "function") this.scheduleTape(tick.symbol, epoch);
+      else pendingPatch.trades = tape.snapshot();
     }
     const krakenLiveFrom = this.krakenLiveFrom.get(tick.symbol);
     for (const timeframe of this.frames()) {
