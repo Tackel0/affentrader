@@ -1478,6 +1478,25 @@ async function run() {
       await waitForPagePredicate(cdp, '!!document.querySelector(\'.right-sidebar[aria-label="Watchlist sidebar"] .sidebar-sheet-resizer[aria-valuenow]\')', "Watchlist opens from bottom navigation");
       await tapWorkspaceTarget(cdp, 'nav.utility-rail [aria-label="Chart"]');
       await waitForPagePredicate(cdp, '!document.querySelector(".right-sidebar")', "Chart closes the sheet");
+
+      activeLabel = `${vp.name} compact terminal startup`;
+      await cdp.send("Page.navigate", { url: `${baseUrl}/terminal?view=help` });
+      await waitForPagePredicate(
+        cdp,
+        'document.readyState === "complete" && !!document.querySelector(\'.research-terminal.is-single-pane[data-layout-ready="true"]\')',
+        `${vp.name} terminal opens in a single pane`,
+      );
+      await settleUi(cdp, 350);
+      const startupRequests = await cdp.send("Runtime.evaluate", {
+        expression: `performance.getEntriesByType("resource")
+          .map(entry => new URL(entry.name).pathname)
+          .filter(path => ["/api/terminal-opportunities", "/api/terminal-fundamentals", "/api/terminal-markets"].includes(path))`,
+        returnByValue: true,
+      });
+      if (startupRequests.result?.value?.length !== 0) {
+        throw new Error(`[${vp.name}] Terminal Help preloaded unrelated panels: ${startupRequests.result?.value?.join(", ")}`);
+      }
+      recordAudit(vp, "/terminal compact startup", await inspectViewportDom(cdp, true));
     }
 
     let pwaShortcutsChecked = 0;

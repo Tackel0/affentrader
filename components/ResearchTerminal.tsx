@@ -33,6 +33,7 @@ import { CalendarPanel } from "./CalendarPanel";
 import { TerminalMarkets } from "./TerminalMarkets";
 import { TerminalCompare } from "./TerminalCompare";
 import { ModuleErrorBoundary } from "./ModuleErrorBoundary";
+import { COMPACT_WORKSPACE_QUERY } from "@/lib/chart/bottomPanelResize";
 
 const HeatmapPanel = lazy(() => import("./HeatmapPanel").then(({ HeatmapPanel }) => ({ default: HeatmapPanel })));
 const OsintMapPanel = lazy(() => import("./OsintMapPanel").then(({ OsintMapPanel }) => ({ default: OsintMapPanel })));
@@ -353,9 +354,11 @@ export function ResearchTerminal({
 } = {}) {
   const [comparison, setComparison] = useState<readonly [string, string, string]>();
   const [view, setView] = useState<TerminalView>(initialView);
+  const [opportunitiesVisited, setOpportunitiesVisited] = useState(initialView === "opps");
   const [layoutMode, setLayoutMode] = useState<TerminalLayoutMode>(
     defaultLayout ?? (externalWindow ? "split-3" : "single"),
   );
+  const [layoutReady, setLayoutReady] = useState(!externalWindow || defaultLayout !== undefined);
   const [activePane, setActivePane] = useState<TerminalPaneId>("p1");
   const [pane2View, setPane2View] = useState<TerminalView>(initialView === "fa" ? "markets" : "fa");
   const [pane3View, setPane3View] = useState<TerminalView>("markets");
@@ -394,9 +397,12 @@ export function ResearchTerminal({
   const prevChartSymbol = useRef(chartSymbol);
 
   useEffect(() => {
-    if (defaultLayout || typeof window === "undefined" || typeof window.matchMedia !== "function") return;
-    const query = window.matchMedia("(max-width: 768px)");
-    const syncPhoneLayout = () => {
+    if (defaultLayout || typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      setLayoutReady(true);
+      return;
+    }
+    const query = window.matchMedia(COMPACT_WORKSPACE_QUERY);
+    const syncCompactLayout = () => {
       if (userChangedLayoutRef.current) return;
       if (query.matches) {
         if (preMobileLayoutRef.current === null && layoutModeRef.current !== "single") {
@@ -410,13 +416,14 @@ export function ResearchTerminal({
         preMobileLayoutRef.current = null;
       }
     };
-    syncPhoneLayout();
+    syncCompactLayout();
+    setLayoutReady(true);
     if (typeof query.addEventListener === "function") {
-      query.addEventListener("change", syncPhoneLayout);
-      return () => query.removeEventListener("change", syncPhoneLayout);
+      query.addEventListener("change", syncCompactLayout);
+      return () => query.removeEventListener("change", syncCompactLayout);
     }
-    query.addListener(syncPhoneLayout);
-    return () => query.removeListener(syncPhoneLayout);
+    query.addListener(syncCompactLayout);
+    return () => query.removeListener(syncCompactLayout);
   }, [defaultLayout]);
 
   useEffect(() => {
@@ -508,6 +515,7 @@ export function ResearchTerminal({
   const setPaneView = (paneId: TerminalPaneId, nextView: TerminalView) => {
     if (paneId === "p1") {
       reset();
+      if (nextView === "opps") setOpportunitiesVisited(true);
       setView(nextView);
     } else if (paneId === "p2") {
       setPane2View(nextView);
@@ -951,6 +959,7 @@ export function ResearchTerminal({
   return (
     <div
       className={`research-terminal affen-terminal${externalWindow ? "" : " is-embedded"}${layoutMode === "single" && !maximizedPane ? " is-single-pane" : ""}`}
+      data-layout-ready={layoutReady}
       aria-label="AffenTerminal Pro Workspace"
     >
       <form
@@ -1153,8 +1162,7 @@ export function ResearchTerminal({
             key={item.id}
             className={view === item.id ? "active" : ""}
             onClick={() => {
-              reset();
-              setView(item.id);
+              setPaneView("p1", item.id);
               setActivePane("p1");
             }}
           >
@@ -1191,11 +1199,13 @@ export function ResearchTerminal({
             />
 
             <div className="pane-content">
-              <div hidden={view !== "opps"}>
-                <ModuleErrorBoundary moduleName="Opportunities" resetKey="p1:opps">
-                  {renderPaneBody("opps", "p1")}
-                </ModuleErrorBoundary>
-              </div>
+              {opportunitiesVisited && (
+                <div hidden={view !== "opps"}>
+                  <ModuleErrorBoundary moduleName="Opportunities" resetKey="p1:opps">
+                    {renderPaneBody("opps", "p1")}
+                  </ModuleErrorBoundary>
+                </div>
+              )}
               {view !== "opps" && (
                 <ModuleErrorBoundary moduleName={getPaneTitle(view)} resetKey={`p1:${view}`}>
                   {renderPaneBody(view, "p1")}
@@ -1225,9 +1235,11 @@ export function ResearchTerminal({
             />
 
             <div className="pane-content">
-              <ModuleErrorBoundary moduleName={getPaneTitle(resolvedPane2View)} resetKey={`p2:${resolvedPane2View}`}>
-                {renderPaneBody(resolvedPane2View, "p2")}
-              </ModuleErrorBoundary>
+              {layoutReady && (
+                <ModuleErrorBoundary moduleName={getPaneTitle(resolvedPane2View)} resetKey={`p2:${resolvedPane2View}`}>
+                  {renderPaneBody(resolvedPane2View, "p2")}
+                </ModuleErrorBoundary>
+              )}
             </div>
           </aside>
         )}
@@ -1252,9 +1264,11 @@ export function ResearchTerminal({
             />
 
             <div className="pane-content">
-              <ModuleErrorBoundary moduleName={getPaneTitle(pane3View)} resetKey={`p3:${pane3View}`}>
-                {renderPaneBody(pane3View, "p3")}
-              </ModuleErrorBoundary>
+              {layoutReady && (
+                <ModuleErrorBoundary moduleName={getPaneTitle(pane3View)} resetKey={`p3:${pane3View}`}>
+                  {renderPaneBody(pane3View, "p3")}
+                </ModuleErrorBoundary>
+              )}
             </div>
           </aside>
         )}

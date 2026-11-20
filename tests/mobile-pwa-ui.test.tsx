@@ -41,6 +41,7 @@ import { Watchlist } from "@/components/Watchlist";
 import { ChartToolbarOverflow } from "@/components/ChartToolbarOverflow";
 import { PriceLevelMenu } from "@/components/PriceLevelMenu";
 import { priceLevelAction } from "@/components/priceLevelAction";
+import { COMPACT_WORKSPACE_QUERY } from "@/lib/chart/bottomPanelResize";
 import { validateExitLevels } from "@/lib/trading/exitLevels";
 import { useChartStore } from "@/stores/useChartStore";
 import { DEFAULT_TICKET, usePaperStore } from "@/stores/usePaperStore";
@@ -246,8 +247,8 @@ describe("Mobile PWA & Touch UI regressions", () => {
     expect(ticket.exitLevels?.reduce((sum, l) => sum + l.quantity, 0)).toBeCloseTo(0.5, 8);
   });
 
-  it("auto-flattens ResearchTerminal to single-pane on <=768px while preserving manual 2-Pane toggle and deduping touch autocomplete clicks", async () => {
-    const mm = createMatchMediaController({ "(max-width: 768px)": true });
+  it("starts compact ResearchTerminal with a single pane and loads additional panes on demand", async () => {
+    const mm = createMatchMediaController({ [COMPACT_WORKSPACE_QUERY]: true });
     window.matchMedia = mm.mockMatchMedia;
     global.fetch = vi.fn(async (url) => jsonResponse(url === "/api/osint-map" ? {
       vessels: [], flights: [], routes: [], chokepoints: [],
@@ -258,6 +259,7 @@ describe("Mobile PWA & Touch UI regressions", () => {
     const root = container.querySelector(".research-terminal")!;
     expect(root.className).toContain("is-single-pane");
     expect(container.querySelector(".terminal-secondary-pane")).toBeNull();
+    expect(global.fetch).not.toHaveBeenCalled();
 
     // Manual override stays intact
     fireEvent.click(container.querySelector('.segmented button[title*="2-Pane"]') as HTMLButtonElement);
@@ -479,17 +481,20 @@ describe("Mobile PWA & Touch UI regressions", () => {
     }) as typeof fetch;
 
     const win = render(<AffenTerminalWindow initialView="help" />);
-    await waitFor(() => {
-      expect(win.container.textContent).toContain("62");
-      expect(win.container.textContent).toContain("Trade-Setups aktiv");
-    });
+    await waitFor(() => expect(win.container.textContent).toContain("62"));
+    fireEvent.click(within(win.container).getByRole("button", { name: "Trade-Möglichkeiten" }));
+    await waitFor(() => expect(win.container.textContent).toContain("Trade-Setups aktiv"));
+    fireEvent.click(within(win.container).getByRole("button", { name: "Commands" }));
+    fireEvent.click(within(win.container).getByRole("button", { name: "Trade-Möglichkeiten" }));
+    expect(win.container.textContent).toContain("Trade-Setups aktiv");
+    expect(vi.mocked(global.fetch).mock.calls.filter(([url]) => String(url).includes("/api/terminal-opportunities"))).toHaveLength(1);
 
     const news = render(<NewsPanel />);
     await waitFor(() => expect(news.container.textContent).toContain("Breaking wire"));
   });
 
-  it("restores desktop multi-pane layout in ResearchTerminal when resizing from <=768px back above 768px and isolates Escape to topmost Modal", () => {
-    const mm = createMatchMediaController({ "(max-width: 768px)": false });
+  it("restores the desktop terminal layout after leaving the compact viewport and isolates Escape to the topmost modal", () => {
+    const mm = createMatchMediaController({ [COMPACT_WORKSPACE_QUERY]: false });
     window.matchMedia = mm.mockMatchMedia;
     global.fetch = vi.fn(async () => jsonResponse({})) as typeof fetch;
 
@@ -498,11 +503,11 @@ describe("Mobile PWA & Touch UI regressions", () => {
     expect(root.className).not.toContain("is-single-pane");
     expect(container.querySelector(".terminal-tertiary-pane")).not.toBeNull();
 
-    act(() => mm.setMatches("(max-width: 768px)", true));
+    act(() => mm.setMatches(COMPACT_WORKSPACE_QUERY, true));
     expect(root.className).toContain("is-single-pane");
     expect(container.querySelector(".terminal-secondary-pane")).toBeNull();
 
-    act(() => mm.setMatches("(max-width: 768px)", false));
+    act(() => mm.setMatches(COMPACT_WORKSPACE_QUERY, false));
     expect(root.className).not.toContain("is-single-pane");
     expect(container.querySelector(".terminal-tertiary-pane")).not.toBeNull();
 

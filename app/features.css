@@ -2395,7 +2395,7 @@
     flex-wrap: wrap;
   }
 }
-@media (max-width: 800px) {
+@media (max-width: 800px), (max-width: 1024px) and (pointer: coarse) {
   .affen-window-shell {
     height: 100dvh;
     min-height: 0;
@@ -2452,6 +2452,11 @@
   }
   .research-terminal.is-embedded.is-single-pane {
     padding: 0;
+  }
+  .research-terminal[data-layout-ready="false"] :is(.terminal-secondary-pane, .terminal-tertiary-pane) { display: none; }
+  .research-terminal[data-layout-ready="false"] .terminal-workspace-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-rows: minmax(0, 1fr) !important;
   }
   .research-terminal.is-single-pane .terminal-workspace-grid {
     flex: 1;
