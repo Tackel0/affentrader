@@ -91,10 +91,11 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
   }, [theme]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [phoneChart, setPhoneChart] = useState(() => window.matchMedia(PHONE_CHART_QUERY).matches);
+  const [phoneGrid, setPhoneGrid] = useState(false);
   const [drawingToolsOpen, setDrawingToolsOpen] = useState(false);
   useEffect(() => {
     const query = window.matchMedia(PHONE_CHART_QUERY);
-    const update = () => { setPhoneChart(query.matches); setDrawingToolsOpen(false); };
+    const update = () => { setPhoneChart(query.matches); setPhoneGrid(false); setDrawingToolsOpen(false); };
     update();
     query.addEventListener("change", update);
     return () => query.removeEventListener("change", update);
@@ -254,7 +255,7 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
         {(!phoneChart || drawingToolsOpen) && <DrawingRail id="workspace-drawing-tools" />}
         <div className="center-workspace">
           <ModuleErrorBoundary moduleName="Chart Grid">
-            <ChartGrid />
+            <ChartGrid phoneLayout={phoneChart ? { grid: phoneGrid, toggleGrid: () => setPhoneGrid(previous => !previous) } : undefined} />
           </ModuleErrorBoundary>
           <ReplayBar />
           <RangeToolbar/>

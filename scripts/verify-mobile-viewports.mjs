@@ -777,6 +777,22 @@ async function tapWorkspaceTarget(cdp, selector, minSize = 44) {
   await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
 }
 
+async function choosePhoneChartLayout(cdp, label) {
+  const menu = '.toolbar-mobile-overflow [aria-label="More chart controls"]';
+  const layout = '.mobile-chart-controls [aria-label="Layout setup"]';
+  await tapWorkspaceTarget(cdp, menu, 36);
+  await waitForPagePredicate(cdp, `!!document.querySelector(${JSON.stringify(layout)})`, "phone chart layout menu");
+  await tapWorkspaceTarget(cdp, layout, 36);
+  const choice = `.layout-popover button[aria-label="${label}"]`;
+  await waitForPagePredicate(cdp, `!!document.querySelector(${JSON.stringify(choice)})`, `${label} layout choice`);
+  await tapWorkspaceTarget(cdp, choice, 36);
+  const close = await cdp.send("Runtime.evaluate", {
+    expression: `document.querySelector(${JSON.stringify(menu)})?.getAttribute("aria-expanded") === "true"`,
+    returnByValue: true,
+  });
+  if (close.result?.value) await tapWorkspaceTarget(cdp, menu, 36);
+}
+
 async function inspectViewportDom(cdp, mobile) {
   const res = await cdp.send("Runtime.evaluate", {
     expression: `(() => {
@@ -1185,6 +1201,7 @@ async function run() {
     let compactDockSnapChecked = false;
     let sidebarSheetsChecked = 0;
     let phoneDrawingOverlayChecked = false;
+    let phoneChartFocusChecked = false;
 
     const recordAudit = (viewport, scenario, audit) => {
       results.push({
@@ -1300,6 +1317,24 @@ async function run() {
         await tapWorkspaceTarget(cdp, ".phone-drawing-toggle", 36);
         await waitForPagePredicate(cdp, '!document.querySelector("#workspace-drawing-tools")', "phone drawing tools close");
         phoneDrawingOverlayChecked = true;
+        activeLabel = "phone chart focus";
+        await choosePhoneChartLayout(cdp, "Eight charts");
+        await waitForPagePredicate(cdp, `document.querySelector('.phone-chart-switcher select')?.options.length === 8
+          && document.querySelectorAll('.chart-grid-cell').length === 1
+          && document.querySelector('.chart-grid-cell').clientWidth >= 380`, "eight-chart layout defaults to one full-width chart");
+        await cdp.send("Runtime.evaluate", { expression: `(() => {
+          const picker = document.querySelector('.phone-chart-switcher select');
+          picker.selectedIndex = 1;
+          picker.dispatchEvent(new Event('change', { bubbles: true }));
+        })()` });
+        await waitForPagePredicate(cdp, `document.querySelector('.chart-grid-cell.active-cell')?.dataset.cellId === 'cell-2'`, "phone chart selector activates the chosen chart");
+        await tapWorkspaceTarget(cdp, ".phone-chart-switcher button", 36);
+        await waitForPagePredicate(cdp, `document.querySelectorAll('.chart-grid-cell').length === 8`, "phone grid is available on demand");
+        await tapWorkspaceTarget(cdp, ".phone-chart-switcher button", 36);
+        await waitForPagePredicate(cdp, `document.querySelectorAll('.chart-grid-cell').length === 1`, "phone returns to one chart");
+        await choosePhoneChartLayout(cdp, "One chart");
+        await waitForPagePredicate(cdp, `!document.querySelector('.phone-chart-switcher')`, "single-chart layout closes the selector");
+        phoneChartFocusChecked = true;
         for (const [button, label] of [
           ["Watchlists", "Watchlist sidebar"], ["Alerts", "Alerts sidebar"], ["Object tree", "Object tree sidebar"],
         ]) {
@@ -1634,6 +1669,7 @@ async function run() {
           compactDockSnapChecked,
           sidebarSheetsChecked,
           phoneDrawingOverlayChecked,
+          phoneChartFocusChecked,
           compactNavigationViewports: COMPACT_NAV_VIEWPORTS.map(v => v.name),
           compactCanvasDensity: 2,
           pwaShortcutsChecked,
