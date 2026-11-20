@@ -1063,6 +1063,19 @@ async function run() {
     if (!opts.liveApis) {
       await cdp.send("Page.addScriptToEvaluateOnNewDocument", {
         source: `(() => {
+          window.__sidebarMounted = false;
+          const sidebarObserver = new MutationObserver(records => {
+            for (const { addedNodes } of records) {
+              for (const node of addedNodes) {
+                if (node instanceof Element && (node.matches(".right-sidebar") || node.querySelector(".right-sidebar"))) {
+                  window.__sidebarMounted = true;
+                  sidebarObserver.disconnect();
+                  return;
+                }
+              }
+            }
+          });
+          sidebarObserver.observe(document, { childList: true, subtree: true });
           const NativeWorker = window.Worker;
           window.__pineLifecycle = { started: 0, terminated: 0 };
           window.Worker = class extends NativeWorker {
@@ -1299,6 +1312,9 @@ async function run() {
         );
       }
       await settleUi(cdp, 350);
+      if (vp.mobile && !opts.liveApis) {
+        await waitForPagePredicate(cdp, "window.__sidebarMounted === false", `${vp.name} chart startup skips the sidebar`);
+      }
       recordAudit(vp, "/", await inspectViewportDom(cdp, vp.mobile));
       if (vp.width === 390 && !opts.liveApis) {
         activeLabel = "phone drawings overlay";
@@ -1473,6 +1489,9 @@ async function run() {
       await tapWorkspaceTarget(cdp, 'nav.utility-rail [aria-label="Chart"]');
       await waitForPagePredicate(cdp, 'document.querySelector(\'nav.utility-rail [aria-label="Chart"]\')?.getAttribute("aria-pressed") === "true"', "Chart is active");
       await settleUi(cdp, 200);
+      if (!opts.liveApis) {
+        await waitForPagePredicate(cdp, "window.__sidebarMounted === false", `${vp.name} chart startup skips the sidebar`);
+      }
       recordAudit(vp, "/ compact navigation", await inspectViewportDom(cdp, true));
       await tapWorkspaceTarget(cdp, 'nav.utility-rail [aria-label="Watchlists"]');
       await waitForPagePredicate(cdp, '!!document.querySelector(\'.right-sidebar[aria-label="Watchlist sidebar"] .sidebar-sheet-resizer[aria-valuenow]\')', "Watchlist opens from bottom navigation");

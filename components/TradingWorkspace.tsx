@@ -89,7 +89,9 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(
+    () => Boolean(initialSidebar) || !window.matchMedia(COMPACT_WORKSPACE_QUERY).matches,
+  );
   const [phoneChart, setPhoneChart] = useState(() => window.matchMedia(PHONE_CHART_QUERY).matches);
   const [phoneGrid, setPhoneGrid] = useState(false);
   const [drawingToolsOpen, setDrawingToolsOpen] = useState(false);
