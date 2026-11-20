@@ -4,6 +4,10 @@ import { checkRemote, pushWorkspace } from "@/lib/sync";
 import { createWorkspaceBackup, workspaceFingerprint } from "@/lib/workspaceBackup";
 import { useChartStore } from "@/stores/useChartStore";
 import { useSyncStore } from "@/stores/useSyncStore";
+import { useAlertStore } from "@/stores/useAlertStore";
+import { useStrategyStore } from "@/stores/useStrategyStore";
+import { useWatchlistStore } from "@/stores/useWatchlistStore";
+import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
 import { hotStorage } from "@/lib/debouncedStorage";
 
 function pendingRequest() {
@@ -126,5 +130,61 @@ describe("delayed sync metadata", () => {
     request.reject(new Error("Network failed"));
     expect(await peek).toBeNull();
     expect(useSyncStore.getState()).toBe(uploaded);
+  });
+});
+
+describe("workspace change detection", () => {
+  it("skips full capture and serialization while only live candles change", () => {
+    const chart = useChartStore.getState();
+    const fingerprint = workspaceFingerprint();
+    const capture = vi.spyOn(useWorkspaceStore.getState(), "capture");
+    const stringify = vi.spyOn(JSON, "stringify");
+    try {
+      for (let close = 1; close <= 100; close++) {
+        chart.set({ candles: [{ time: 1, open: 1, high: close, low: 1, close, volume: 1 }] });
+        expect(workspaceFingerprint()).toBe(fingerprint);
+      }
+      expect(capture).not.toHaveBeenCalled();
+      expect(stringify.mock.calls.some(([value]) => value?.version === 1 && value?.chart && value?.premium)).toBe(false);
+    } finally {
+      chart.set({ candles: chart.candles });
+    }
+  });
+
+  it("notices edits from every saved store and matches the exact export", () => {
+    const chart = useChartStore.getState();
+    const watchlists = useWatchlistStore.getState();
+    const alerts = useAlertStore.getState();
+    const strategy = useStrategyStore.getState();
+    const workspace = useWorkspaceStore.getState();
+    const edits = [
+      () => chart.set({ timeframe: chart.timeframe === "1D" ? "1m" : "1D" }),
+      () => watchlists.rename(watchlists.activeId, "Sync regression watchlist"),
+      () => useAlertStore.setState({
+        logs: [{
+          id: "sent", alertId: "alert", name: "Sync regression", symbol: "BTCUSDT",
+          time: 1, price: 1, simulated: true, condition: "crossing_up",
+        }],
+      }),
+      () => strategy.edit({ name: "Sync regression strategy" }),
+      () => workspace.setTheme(workspace.theme === "dark" ? "light" : "dark"),
+    ];
+    try {
+      let previous = workspaceFingerprint();
+      for (const edit of edits) {
+        edit();
+        const current = workspaceFingerprint();
+        expect(current).not.toBe(previous);
+        expect(current).toBe(workspaceFingerprint(JSON.stringify(createWorkspaceBackup())));
+        previous = current;
+      }
+    } finally {
+      chart.set({ timeframe: chart.timeframe });
+      useWatchlistStore.setState({ lists: watchlists.lists });
+      useAlertStore.setState({ logs: alerts.logs });
+      strategy.edit({ name: strategy.document.name });
+      workspace.setTheme(workspace.theme);
+      useWorkspaceStore.setState({ cells: workspace.cells });
+    }
   });
 });
