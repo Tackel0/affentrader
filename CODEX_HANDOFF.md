@@ -118,6 +118,11 @@ Outputs filterable trade setups with a **Setup-Score (0–100)**, transparent po
 
 *(Every landed fix/feature is verified directly against modified source files; global test/build counts are only updated after `@qa-verifier` completes the full post-edit verification gate.)*
 
+### Pass 2026-11-20 — Raise Login Button Contrast
+- **Cause and change.** Mobile Lighthouse 13.6.0 scored `/login` at 91 for accessibility. The submit button was the only weighted failure, with 4.11:1 contrast against white text. `siteLoginPage` now uses a deeper blue that reaches 5.27:1.
+- **Verification.** The mobile Lighthouse score for `/login` reached 100 on the new production build. Fast-forward pull, typegen and typecheck, all 2,786 tests in 279 files, production build, Chart E2E and all 48 viewport scenarios passed. No upgrade notice appeared.
+- **Earlier deployment verified.** GitHub Actions run 44774566471 deployed `80aaaf61` as `affenterminal--r20261120163826-80aaaf61`. All five live endpoints returned HTTP 200 and the login timestamp matched the revision.
+
 ### Pass 2026-11-20 — Load the Workspace Screener and Terminal on Demand
 - **Cause and change.** `BottomPanel` eagerly imported Screener and Research Terminal while the dock was closed. Both now load when selected and keep the dock in place with an accessible loading status. The direct `/terminal` entry still opens its own terminal workspace.
 - **Measurements.** JavaScript listed for `TradingWorkspace` in the production client manifest fell from 3,275,698 to 2,364,675 raw bytes and from 928,122 to 685,214 gzip bytes (26%). Component text was present in the previous entry chunks and only in deferred chunks after the change.
