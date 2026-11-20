@@ -761,18 +761,18 @@ async function verifyTouchResize(cdp, selector, label, consoleErrors) {
   }
 }
 
-async function tapWorkspaceNavigation(cdp, label) {
+async function tapWorkspaceTarget(cdp, selector, minSize = 44) {
   const response = await cdp.send("Runtime.evaluate", {
     expression: `(() => {
-      const button = document.querySelector(${JSON.stringify(`nav.utility-rail button[aria-label="${label}"]`)});
+      const button = document.querySelector(${JSON.stringify(selector)});
       const rect = button?.getBoundingClientRect();
-      if (!rect || rect.width < 44 || rect.height < 44) return null;
+      if (!rect || rect.width < ${minSize} || rect.height < ${minSize}) return null;
       return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) };
     })()`,
     returnByValue: true,
   });
   const point = response.result?.value;
-  if (!point) throw new Error(`Workspace navigation target unavailable: ${label}`);
+  if (!point) throw new Error(`Workspace touch target unavailable: ${selector}`);
   await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [point] });
   await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
 }
@@ -1184,6 +1184,7 @@ async function run() {
     const results = [];
     let compactDockSnapChecked = false;
     let sidebarSheetsChecked = 0;
+    let phoneDrawingOverlayChecked = false;
 
     const recordAudit = (viewport, scenario, audit) => {
       results.push({
@@ -1283,6 +1284,22 @@ async function run() {
       await settleUi(cdp, 350);
       recordAudit(vp, "/", await inspectViewportDom(cdp, vp.mobile));
       if (vp.width === 390 && !opts.liveApis) {
+        activeLabel = "phone drawings overlay";
+        const widthBefore = (await cdp.send("Runtime.evaluate", {
+          expression: 'document.querySelector(".chart-grid").clientWidth',
+          returnByValue: true,
+        })).result.value;
+        if (widthBefore < vp.width - 8) throw new Error("Phone chart did not use the available width");
+        await tapWorkspaceTarget(cdp, ".phone-drawing-toggle", 36);
+        await waitForPagePredicate(cdp, `(() => {
+          const rail = document.querySelector("#workspace-drawing-tools");
+          return !!rail?.querySelector(".vela-dtb-btn") && getComputedStyle(rail).position === "absolute"
+            && document.querySelector(".chart-grid").clientWidth === ${widthBefore};
+        })()`, "phone drawing tools open without squeezing the chart");
+        recordAudit(vp, "/ drawing tools overlay", await inspectViewportDom(cdp, true));
+        await tapWorkspaceTarget(cdp, ".phone-drawing-toggle", 36);
+        await waitForPagePredicate(cdp, '!document.querySelector("#workspace-drawing-tools")', "phone drawing tools close");
+        phoneDrawingOverlayChecked = true;
         for (const [button, label] of [
           ["Watchlists", "Watchlist sidebar"], ["Alerts", "Alerts sidebar"], ["Object tree", "Object tree sidebar"],
         ]) {
@@ -1418,13 +1435,13 @@ async function run() {
         return devicePixelRatio === 3 && canvases.length > 0 && canvases.every(canvas =>
           Math.abs(canvas.width - canvas.clientWidth * 2) <= 2);
       })()`, `${vp.name} Vela canvas drawing density is capped on DPR-3 touch screens`);
-      await tapWorkspaceNavigation(cdp, "Chart");
+      await tapWorkspaceTarget(cdp, 'nav.utility-rail [aria-label="Chart"]');
       await waitForPagePredicate(cdp, 'document.querySelector(\'nav.utility-rail [aria-label="Chart"]\')?.getAttribute("aria-pressed") === "true"', "Chart is active");
       await settleUi(cdp, 200);
       recordAudit(vp, "/ compact navigation", await inspectViewportDom(cdp, true));
-      await tapWorkspaceNavigation(cdp, "Watchlists");
+      await tapWorkspaceTarget(cdp, 'nav.utility-rail [aria-label="Watchlists"]');
       await waitForPagePredicate(cdp, '!!document.querySelector(\'.right-sidebar[aria-label="Watchlist sidebar"] .sidebar-sheet-resizer[aria-valuenow]\')', "Watchlist opens from bottom navigation");
-      await tapWorkspaceNavigation(cdp, "Chart");
+      await tapWorkspaceTarget(cdp, 'nav.utility-rail [aria-label="Chart"]');
       await waitForPagePredicate(cdp, '!document.querySelector(".right-sidebar")', "Chart closes the sheet");
     }
 
@@ -1616,6 +1633,7 @@ async function run() {
           pineWorkerLifecycleChecked,
           compactDockSnapChecked,
           sidebarSheetsChecked,
+          phoneDrawingOverlayChecked,
           compactNavigationViewports: COMPACT_NAV_VIEWPORTS.map(v => v.name),
           compactCanvasDensity: 2,
           pwaShortcutsChecked,

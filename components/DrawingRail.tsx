@@ -11,7 +11,7 @@ import { IconButton } from "./ui";
 import { DrawingToolsMenu } from "./WorkspaceMenus";
 
 /** Vela's public, workspace-docked toolbar controls whichever chart is currently active. */
-export function DrawingRail() {
+export function DrawingRail({ id }: { id?: string }) {
   const host = useRef<HTMLDivElement>(null), native = useRef<DrawingToolbar | null>(null);
   const [owner, setOwner] = useState<Vela | null>(null), [ready, setReady] = useState(false), [error, setError] = useState("");
   const [collapsed, setCollapsed] = useState(false);
@@ -76,7 +76,7 @@ export function DrawingRail() {
   const locked = drawings.length > 0 && drawings.every(doc => doc.locked), hidden = drawings.length > 0 && drawings.every(doc => doc.visible === false);
   const batch = (field: "locked" | "visible", value: boolean) => owner?.drawings.updateMany(drawings.map(doc => ({ id: doc.id, patch: { [field]: value } })));
   return (
-    <aside className={`drawing-toolbar native-drawing-rail ${collapsed ? "is-collapsed" : ""}`} aria-label="Drawing tools">
+    <aside id={id} className={`drawing-toolbar native-drawing-rail ${collapsed ? "is-collapsed" : ""}`} aria-label="Drawing tools">
       <div className="native-drawing-host" ref={host} />
       {error ? <span role="alert" className="drawing-load-error" title={error}>Tools unavailable</span> : null}
       <div className="drawing-rail-actions">

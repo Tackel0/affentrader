@@ -118,6 +118,11 @@ Outputs filterable trade setups with a **Setup-Score (0–100)**, transparent po
 
 *(Every landed fix/feature is verified directly against modified source files; global test/build counts are only updated after `@qa-verifier` completes the full post-edit verification gate.)*
 
+### Pass 2026-11-20 — Give the Phone Chart the Full Width
+- **Cause and change.** The docked drawing rail used 55 CSS pixels even while idle on a 390 px phone. Portrait phones and short touch landscape viewports now open `DrawingRail` from the chart toolbar. It is mounted on demand and overlays the plot. The wide touch layout keeps the docked rail, and all drawing commands remain available.
+- **Measurements and verification.** Chromium measured the plot at 390 CSS px instead of 335. Touch opens and closes the native tools while leaving the plot width intact. Fast-forward pull, typegen and typecheck, all 2,787 tests in 280 files, production build, chart E2E and 51 viewport scenarios passed. The audit checked 1,770 controls with zero horizontal overflow. No upgrade notice appeared.
+- **Earlier deployment verified.** GitHub Actions run 44780159654 deployed `0cd98fe8` as `affenterminal--r20261120171203-0cd98fe8`. All five live endpoints returned HTTP 200 and the login timestamp matched the revision.
+
 ### Pass 2026-11-20 — Reduce High-DPI Chart Backing Resolution on Handhelds
 - **Cause and change.** On a DPR-3 display Vela allocated full-resolution backing dimensions for 45 canvases in the default single chart. The compact workspace now caps Vela at a backing factor of 2 through `--chart-canvas-max-dpr`. `patch-vela-canvas-density.mjs` applies the host setting to the five pinned Vela bundles. CSS geometry and the physical device ratio remain available to the browser.
 - **Measurements.** In Chromium with device DPR 3, the same 45 canvases used 87,103,350 → 38,712,600 backing pixels at 390 × 844 and 303,541,020 → 134,907,120 at 820 × 1180 (55.6% fewer each). A 1440 × 900 desktop sample retained its factor of 3 and all 319,102,740 pixels. These are canvas pixel counts. Physical-device memory pressure and crash rates require device measurements.

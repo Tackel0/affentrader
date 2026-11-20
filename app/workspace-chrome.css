@@ -355,6 +355,13 @@
   .native-drawing-rail .vela-dtb-icon { width: 36px; min-width: 36px; height: 36px; }
   .native-drawing-rail .vela-dtb-hit--arrow { width: 14px; min-height: 36px; }
 }
+.workspace-toolbar.tv-toolbar > .phone-drawing-toggle { display: inline-flex; }
+.workspace-main.phone-chart > .native-drawing-rail {
+  position: absolute;
+  inset: 0 auto 0 0;
+  z-index: 32;
+  box-shadow: 4px 0 16px #0004;
+}
 @media (max-width: 480px) {
   .tv-toolbar > .compare-toolbar-button,
   .tv-toolbar > [aria-label="Alert"],

@@ -14,6 +14,7 @@ import {
   PanelRightClose,
   PanelRightOpen,
   ExternalLink,
+  PenTool,
 } from "lucide-react";
 import { useChartStore } from "@/stores/useChartStore";
 import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
@@ -39,11 +40,13 @@ export function WorkspaceToolbar({
   onImport,
   sidebarOpen,
   toggleSidebar,
+  phoneDrawing,
 }: {
   onExport: () => void;
   onImport: () => void;
   sidebarOpen: boolean;
   toggleSidebar: () => void;
+  phoneDrawing?: { open: boolean; toggle: () => void };
 }) {
   const symbol = useChartStore((s) => s.symbol),
     replay = useWorkspaceStore((s) => s.replay.active),
@@ -184,6 +187,10 @@ export function WorkspaceToolbar({
           <PanelRightOpen size={19} />
         )}
       </IconButton>
+      {phoneDrawing && <IconButton label="Drawing tools" className="phone-drawing-toggle"
+        aria-expanded={phoneDrawing.open} aria-controls={phoneDrawing.open ? "workspace-drawing-tools" : undefined} onClick={phoneDrawing.toggle}>
+        <PenTool size={19} />
+      </IconButton>}
       <ChartToolbarOverflow toggleSidebar={toggleSidebar}/>
     </div>
   );

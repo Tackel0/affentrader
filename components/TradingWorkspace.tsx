@@ -52,6 +52,7 @@ interface WorkspaceProps {
   deployment?: ReactNode;
   initialSidebar?: "watchlist" | "alerts";
 }
+const PHONE_CHART_QUERY = "(max-width: 600px), (max-width: 1024px) and (max-height: 520px) and (pointer: coarse)";
 
 export default function TradingWorkspace({ deployment, initialSidebar }: WorkspaceProps) {
   const [mounted, setMounted] = useState(false);
@@ -89,6 +90,15 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [phoneChart, setPhoneChart] = useState(() => window.matchMedia(PHONE_CHART_QUERY).matches);
+  const [drawingToolsOpen, setDrawingToolsOpen] = useState(false);
+  useEffect(() => {
+    const query = window.matchMedia(PHONE_CHART_QUERY);
+    const update = () => { setPhoneChart(query.matches); setDrawingToolsOpen(false); };
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
   const sidebarRef = useRef<HTMLElement | null>(null);
   const sidebarHandle = useRef<HTMLDivElement | null>(null);
   const sidebarSheetHandle = useRef<HTMLDivElement | null>(null);
@@ -132,6 +142,7 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
   }, [initialSidebar]);
   const toggleSidebar = (tab: SidebarTab = sidebar) => {
     const opening = !sidebarOpen || sidebar !== tab;
+    if (opening) setDrawingToolsOpen(false);
     setSidebarOpen(opening);
     useChartStore.getState().set({
       sidebarTab: tab,
@@ -139,11 +150,15 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
     });
   };
   const openPanel = (tab: "orderflow" | "terminal" | "pine") => {
-    if (window.matchMedia(COMPACT_WORKSPACE_QUERY).matches) setSidebarOpen(false);
+    if (window.matchMedia(COMPACT_WORKSPACE_QUERY).matches) {
+      setSidebarOpen(false);
+      setDrawingToolsOpen(false);
+    }
     useChartStore.getState().set({ bottomOpen: true, bottomTab: tab });
   };
   const openChart = () => {
     setSidebarOpen(false);
+    setDrawingToolsOpen(false);
     useChartStore.getState().set({ bottomOpen: false });
   };
   const workspaceFile = useRef<HTMLInputElement>(null);
@@ -216,6 +231,13 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
         onImport={() => workspaceFile.current?.click()}
         sidebarOpen={sidebarOpen}
         toggleSidebar={toggleSidebar}
+        phoneDrawing={phoneChart ? {
+          open: drawingToolsOpen,
+          toggle: () => {
+            if (!drawingToolsOpen) setSidebarOpen(false);
+            setDrawingToolsOpen(!drawingToolsOpen);
+          },
+        } : undefined}
       />
       <input
         hidden
@@ -228,8 +250,8 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
           e.target.value = "";
         }}
       />
-      <div className="workspace-main">
-        <DrawingRail />
+      <div className={`workspace-main${phoneChart ? " phone-chart" : ""}`}>
+        {(!phoneChart || drawingToolsOpen) && <DrawingRail id="workspace-drawing-tools" />}
         <div className="center-workspace">
           <ModuleErrorBoundary moduleName="Chart Grid">
             <ChartGrid />
