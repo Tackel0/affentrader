@@ -400,37 +400,53 @@ function PineScreenerView() {
   const [filters, setFilters] = useState<PineFilter[]>([]);
   const [status, setStatus] = useState("");
   const [running, setRunning] = useState(false);
-  const worker = useRef<Worker | null>(null);
-  const cancel = useRef(false);
+  const activeScan = useRef<AbortController | null>(null);
   useEffect(
     () => () => {
-      cancel.current = true;
-      worker.current?.terminate();
+      activeScan.current?.abort();
+      activeScan.current = null;
     },
     [],
   );
   const columns = useMemo(() => [...new Set(rows.flatMap((r) => Object.keys(r.values)))], [rows]);
   const visible = useMemo(() => rows.filter((r) => !r.error && passesPineFilters(r, filters)), [rows, filters]);
+  const stop = () => {
+    activeScan.current?.abort();
+    activeScan.current = null;
+    setRunning(false);
+    setStatus("Stopped");
+  };
   const run = async () => {
-    cancel.current = false;
-    worker.current?.terminate();
-    const w = new Worker(new URL("../workers/pinescreener.worker.ts", import.meta.url));
-    worker.current = w;
+    if (activeScan.current) return;
+    const scan = new AbortController();
+    const { signal } = scan;
+    activeScan.current = scan;
     setRunning(true);
     setRows([]);
+    setStatus("Loading symbols…");
     try {
+      const w = new Worker(new URL("../workers/pinescreener.worker.ts", import.meta.url));
+      let rejectPending: ((reason: unknown) => void) | undefined;
+      signal.addEventListener("abort", () => {
+        w.onmessage = null;
+        w.onerror = null;
+        w.terminate();
+        rejectPending?.(signal.reason);
+      }, { once: true });
       let symbols: string[];
-      if (universe === "top40") symbols = (await loadScreener(null, 40)).rows.map((r) => r.symbol);
+      if (universe === "top40") symbols = (await loadScreener(null, 40, "binance", signal)).rows.map((r) => r.symbol);
       else symbols = (lists.find((l) => l.id === universe)?.symbols ?? []).filter((x) => !x.startsWith("###")).slice(0, 60);
+      signal.throwIfAborted();
       let done = 0;
       for (const symbol of symbols) {
-        if (cancel.current) break;
         setStatus(`Running ${symbol} · ${done}/${symbols.length}`);
         let row: PineScreenRow;
         try {
           const bars = await marketService.fetchBars(symbol, timeframe, 300);
+          signal.throwIfAborted();
           const response = await new Promise<PineScreenResponse>((resolve, reject) => {
             const id = crypto.randomUUID();
+            rejectPending = reject;
             w.onmessage = (event: MessageEvent<PineScreenResponse>) => event.data.id === id && resolve(event.data);
             w.onerror = (event) => reject(new Error(event.message));
             w.postMessage({ id, symbol, timeframe, source, libraries, bars });
@@ -438,21 +454,29 @@ function PineScreenerView() {
           row = { symbol, values: response.values, error: response.error, price: bars.at(-1)?.close };
         } catch (error) {
           row = { symbol, values: {}, error: error instanceof Error ? error.message : String(error) };
+        } finally {
+          rejectPending = undefined;
+          w.onmessage = null;
+          w.onerror = null;
         }
+        signal.throwIfAborted();
         done++;
         setRows((previous) => [...previous, row]);
         // A script that fails to compile fails for every symbol; stop early.
         if (row.error && done === 1) {
           setStatus(`Script error: ${row.error}`);
-          break;
+          return;
         }
       }
-      if (!cancel.current) setStatus((current) => (current.startsWith("Script error") ? current : `Done · ${done} symbols`));
+      setStatus(`Done · ${done} symbols`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : String(error));
+      if (!signal.aborted) setStatus(error instanceof Error ? error.message : String(error));
     } finally {
-      w.terminate();
-      setRunning(false);
+      scan.abort();
+      if (activeScan.current === scan) {
+        activeScan.current = null;
+        setRunning(false);
+      }
     }
   };
   return (
@@ -477,7 +501,7 @@ function PineScreenerView() {
             ))}
           </select>
         </label>
-        <button className="button primary small" onClick={running ? () => (cancel.current = true) : run}>
+        <button className="button primary small" onClick={running ? stop : run}>
           <Play size={12} /> {running ? "Stop" : "Run script"}
         </button>
         <button className="button small" onClick={() => setSource(useChartStore.getState().pineDraft?.source ?? source)}>

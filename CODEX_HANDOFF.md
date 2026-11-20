@@ -118,6 +118,11 @@ Outputs filterable trade setups with a **Setup-Score (0–100)**, transparent po
 
 *(Every landed fix/feature is verified directly against modified source files; global test/build counts are only updated after `@qa-verifier` completes the full post-edit verification gate.)*
 
+### Pass 2026-11-20 — Cancel Pine Screener Scans Immediately
+- **Cause and change.** Stop only set a shared flag, so a worker could keep running and a late candle request could post to a worker after the panel closed. `PineScreenerView` now owns an abort controller for each scan. Stop and unmount terminate the worker and settle its pending result. The symbol-list request is cancelled, and late market history or worker replies are ignored. A new scan can start as soon as Stop is pressed.
+- **Verification.** Two jsdom tests reproduced the previous failures. Three now cover immediate stop and restart, closing during candle loading, and cancelling the symbol-list request. Chromium confirmed the worker stopped while the list response was held, and a second worker completed the EMA scan and shut down. Fast-forward pull, typegen and typecheck, all 2,785 tests in 279 files, production build, chart E2E and all 48 viewport scenarios passed. No upgrade notice appeared.
+- **Previous deployment verified.** GitHub Actions run 44771654675 deployed `77ea99cb` as `affenterminal--r20261120162048-77ea99cb`. All five live endpoints returned HTTP 200 and the login timestamp matched the revision.
+
 ### Pass 2026-11-20 — Retire Pine Workers When Charts Close
 - **Cause and change.** Vela destroyed each chart study while its engine's blob worker stayed alive. `useVelaChart` and `SatelliteChart` now terminate their own engine during cleanup. `patch-pine-worker-lifecycle.mjs` closes the pinned Vela-PineTS 0.3.0 engine, clears pending state, and blocks asynchronous history and library replies from creating another worker. Both package bundles are patched without changing the installed version.
 - **Measurements.** A real Chromium run with a Pine study and three data-source changes previously started four Pine workers and terminated none. The same run now starts four and terminates the three replaced workers. The four-viewport gate checks this on its desktop scenario. The unit test resolves a library reply after cleanup and verifies that the worker stays closed.
