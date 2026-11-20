@@ -1,8 +1,8 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useChartStore } from "@/stores/useChartStore";
 import { verdictOf, type RatingEntry, type Verdict } from "@/lib/ta/rating";
-import { chartRating } from "@/lib/ta/chartRating";
+import { useChartRating } from "@/hooks/useChartRating";
 import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
 import { intervalLabel } from "@/lib/market/intervals";
 
@@ -66,13 +66,15 @@ export function TechnicalsCard() {
   const candles = useChartStore((s) => s.candles);
   const timeframe = useChartStore((s) => s.timeframe);
   const symbol = useChartStore(s => s.symbol);
+  const feedEpoch = useChartStore(s => s.feedEpoch);
   const recovery = useChartStore(s => s.candleRecoveries[`${s.symbol}:${s.timeframe}`]);
   const error = useChartStore(s => s.chartError);
   const replayActive = useWorkspaceStore(s => s.replay.active);
   const cursorTime = useWorkspaceStore(s => s.replay.cursorTime);
   const [open, setOpen] = useState(false);
-  const view = useMemo(() => chartRating(candles, { replayActive, cursorTime, recovering: !!recovery, error }),
-    [candles, symbol, timeframe, replayActive, cursorTime, recovery, error]);
+  const { view, calculating } = useChartRating(candles, `${symbol}:${timeframe}:${feedEpoch}`, {
+    replayActive, cursorTime, recovering: !!recovery, error,
+  });
   const rating = view.rating;
   return (
     <section className="technicals" aria-label="Technicals">
@@ -108,7 +110,8 @@ export function TechnicalsCard() {
           </p>
         </>
       ) : (
-        <p className="form-help" role="status">{view.status === "recovering" ? "Waiting for uninterrupted candle history."
+        <p className="form-help" role="status">{calculating ? "Calculating technicals…"
+          : view.status === "recovering" ? "Waiting for uninterrupted candle history."
           : view.status === "error" ? "Technicals unavailable while chart history has an error."
           : view.status === "replay-waiting" ? "Waiting for the Replay cursor."
           : view.replay ? "Needs at least 60 revealed Replay candles." : "Needs at least 60 loaded candles."}</p>

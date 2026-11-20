@@ -16,6 +16,7 @@ import {
 } from "./index";
 
 export type Vote = "buy" | "sell" | "neutral";
+export const MIN_RATING_BARS = 60;
 
 export interface RatingEntry {
   name: string;
@@ -60,7 +61,7 @@ function pushIf(list: RatingEntry[], name: string, value: number, vote: Vote | n
 
 /** Votes of eleven oscillators and moving averages on the latest bar. Needs about 60 bars. */
 export function technicalRating(bars: readonly OHLCV[]): Rating | null {
-  if (bars.length < 60) return null;
+  if (bars.length < MIN_RATING_BARS) return null;
   const close = source(bars, "close");
   const price = last(close);
   const oscillators: RatingEntry[] = [];

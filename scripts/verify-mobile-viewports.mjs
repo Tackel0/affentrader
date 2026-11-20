@@ -484,10 +484,12 @@ function buildMockApiPayload(urlStr) {
         : sample;
     }
     if (resource === "klines") {
-      const baseTime = now - 60 * 3_600_000;
+      const intraday = /^(\d+)([mhd])$/.exec(url.searchParams.get("interval") ?? "");
+      const duration = intraday ? Number(intraday[1]) * { m: 60_000, h: 3_600_000, d: 86_400_000 }[intraday[2]] : 3_600_000;
+      const baseTime = Math.floor(now / duration) * duration - 120 * duration;
       const rows = [];
-      for (let i = 0; i < 60; i++) {
-        const openT = baseTime + i * 3_600_000;
+      for (let i = 0; i < 120; i++) {
+        const openT = baseTime + i * duration;
         const open = 90500 + i * 12;
         const close = open + (i % 2 === 0 ? 35 : -18);
         const high = Math.max(open, close) + 45;
@@ -499,7 +501,7 @@ function buildMockApiPayload(urlStr) {
           low.toFixed(2),
           close.toFixed(2),
           "125.4",
-          openT + 3_599_999,
+          openT + duration - 1,
           "11400000",
           420,
           "65.2",
@@ -985,6 +987,17 @@ async function run() {
     if (!opts.liveApis) {
       await cdp.send("Page.addScriptToEvaluateOnNewDocument", {
         source: `(() => {
+          const NativeWorker = window.Worker;
+          window.Worker = class extends NativeWorker {
+            constructor(url, options) {
+              super(url, options);
+              if (options?.name === "Chart technicals") {
+                this.addEventListener("message", (event) => {
+                  if (event.data?.view?.status === "ready") window.__chartRatingReceived = true;
+                });
+              }
+            }
+          };
           const NativeWebSocket = window.WebSocket;
           class InertWebSocket extends EventTarget {
             static CONNECTING = 0;
@@ -1179,6 +1192,13 @@ async function run() {
         'document.readyState === "complete" && !!document.querySelector(".trading-app") && !document.querySelector(".boot-screen")',
         `${vp.name} / .trading-app`,
       );
+      if (!opts.liveApis && !vp.mobile) {
+        await waitForPagePredicate(
+          cdp,
+          'window.__chartRatingReceived === true && !!document.querySelector(".technicals .gauges")',
+          `${vp.name} / technicals worker response and rendered gauges`,
+        );
+      }
       await settleUi(cdp, 350);
       recordAudit(vp, "/", await inspectViewportDom(cdp, vp.mobile));
 
