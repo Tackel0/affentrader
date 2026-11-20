@@ -3,7 +3,7 @@ import { baseVolume, periodLabel, quoteRange, rangeDescription } from "@/lib/mar
 import { useQuoteRanges } from "@/hooks/useQuoteRanges";
 import { symbolLabel } from "@/lib/symbolId";
 import { lazy, Suspense, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { bindBottomPanelResize } from "@/lib/chart/bottomPanelResize";
+import { bindBottomPanelResize, COMPACT_WORKSPACE_QUERY } from "@/lib/chart/bottomPanelResize";
 import {
   ChevronDown,
   ChevronUp,
@@ -66,9 +66,14 @@ export function BottomPanel() {
   const resize = useRef<ReturnType<typeof bindBottomPanelResize>>(null);
   useLayoutEffect(() => {
     const dock = panel.current;
-    const chart = dock?.parentElement?.querySelector<HTMLElement>(".chart-grid");
-    if (!resizable || !dock || !chart || !content.current || !handle.current) return;
-    const binding = bindBottomPanelResize(dock, content.current, handle.current, chart);
+    const workspace = dock?.parentElement;
+    const chart = workspace?.querySelector<HTMLElement>(".chart-grid");
+    const body = content.current;
+    if (!resizable || !dock || !workspace || !chart || !body || !handle.current) return;
+    const compact = window.matchMedia(COMPACT_WORKSPACE_QUERY);
+    const binding = bindBottomPanelResize(dock, body, handle.current, chart, () => {
+      if (compact.matches) return workspace.clientHeight - (dock.offsetHeight - body.offsetHeight);
+    });
     resize.current = binding;
     return () => {
       binding.dispose();
@@ -78,7 +83,8 @@ export function BottomPanel() {
   return (
     <section
       ref={panel}
-      className={`bottom-panel ${open ? "expanded" : ""} ${resizable ? "resizable-panel" : ""} ${tab === "pine" ? "editor-panel" : tab === "strategy" ? "strategy-panel" : tab === "orderflow" ? "orderflow-panel" : TOOL_TABS.includes(tab) ? "tool-panel" : ""}`}
+      data-tab={tab}
+      className={`bottom-panel ${open ? "expanded" : ""} ${resizable ? "resizable-panel" : ""} ${tab === "pine" ? "editor-panel" : tab === "strategy" ? "strategy-panel" : TOOL_TABS.includes(tab) ? "tool-panel" : ""}`}
     >
       {resizable ? (
         <div

@@ -198,12 +198,31 @@
   }
   :is(.bottom-panel-resizer, .sidebar-sheet-resizer):is(:focus-visible, [data-resizing])::before { background: var(--accent); }
   :is(.bottom-panel-resizer, .sidebar-sheet-resizer):focus-visible { outline-offset: -2px; }
+  .center-workspace {
+    --panel-tabs-height: 36px;
+    position: relative;
+    padding-bottom: calc(var(--panel-tabs-height) + 1px);
+  }
+  .center-workspace > .bottom-panel {
+    position: absolute;
+    inset: auto 0 0;
+    display: flex;
+    flex-direction: column;
+    z-index: 26;
+  }
+  .center-workspace > .bottom-panel.expanded {
+    max-height: 100%;
+    box-shadow: 0 -4px 18px #0004;
+  }
+  .center-workspace > .bottom-panel .bottom-panel-tabs {
+    height: var(--panel-tabs-height);
+  }
   .center-workspace > .chart-grid { min-height: 180px; }
   .bottom-panel.expanded > .bottom-panel-content,
-  .bottom-panel.expanded.orderflow-panel > .bottom-panel-content,
+  .bottom-panel.expanded[data-tab="orderflow"] > .bottom-panel-content,
   .bottom-panel.expanded.resizable-panel > .bottom-panel-content {
     height: clamp(200px, var(--panel-height, 42dvh), max(200px, 55dvh));
-    min-height: 200px;
+    min-height: 0;
     max-height: max(200px, 55dvh);
     overflow: auto;
   }

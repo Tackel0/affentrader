@@ -1381,6 +1381,10 @@ async function run() {
 
       // 3b: / + open BottomPanel (Order flow)
       activeLabel = `${vp.name}:/+orderflow`;
+      const chartHeight = (await cdp.send("Runtime.evaluate", {
+        expression: 'document.querySelector(".chart-grid").clientHeight',
+        returnByValue: true,
+      })).result?.value;
       const openedOrderflow = await cdp.send("Runtime.evaluate", {
         expression: `(() => {
           const btn = document.querySelector('.workspace-panel-strip button[data-panel="orderflow"]');
@@ -1395,11 +1399,29 @@ async function run() {
       }
       await waitForPagePredicate(
         cdp,
-        '!!document.querySelector(".bottom-panel.expanded.orderflow-panel .detailed-orderflow")',
+        '!!document.querySelector(\'.bottom-panel.expanded[data-tab="orderflow"] .detailed-orderflow\')',
         `${vp.name} BottomPanel Order flow loaded`,
       );
       await settleUi(cdp, 300);
+      if (vp.mobile) {
+        const openHeight = (await cdp.send("Runtime.evaluate", {
+          expression: 'document.querySelector(".chart-grid").clientHeight',
+          returnByValue: true,
+        })).result?.value;
+        if (!chartHeight || openHeight !== chartHeight) throw new Error(`[${vp.name}] Order flow resized the chart from ${chartHeight} to ${openHeight}`);
+      }
       recordAudit(vp, "/ + BottomPanel(orderflow)", await inspectViewportDom(cdp, vp.mobile));
+      await cdp.send("Runtime.evaluate", {
+        expression: 'document.querySelector(\'.bottom-panel button[aria-label="Collapse bottom panel"]\').click()',
+      });
+      await waitForPagePredicate(
+        cdp,
+        `(() => {
+          const dock = document.querySelector('.bottom-panel[data-tab="orderflow"]:not(.expanded)');
+          return !!dock && dock.offsetHeight <= 40;
+        })()`,
+        `${vp.name} Order flow collapses to its toolbar`,
+      );
 
       // 3c: / + open BottomPanel (AffenTerminal embedded)
       activeLabel = `${vp.name}:/+terminal`;
