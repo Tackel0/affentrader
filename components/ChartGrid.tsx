@@ -149,6 +149,7 @@ function SatelliteChart({
   useEffect(() => {
     let disposed = false;
     let chart: Vela | null = null;
+    let terminatePine: (() => void) | undefined;
     const off: (() => void)[] = [];
     const studyHandles = new Map<string, string>();
     const mount = async () => {
@@ -217,11 +218,11 @@ function SatelliteChart({
               i.script ||
               INDICATORS.find((d) => d.id === i.definitionId)?.script,
           )
-        )
-          chart.registerEngine(
-            "pine",
-            new pine.PineWorkerEngine(pineEngineOptions()),
-          );
+        ) {
+          const engine = new pine.PineWorkerEngine(pineEngineOptions());
+          terminatePine = () => engine.terminate();
+          chart.registerEngine("pine", engine);
+        }
         off.push(
           chart.renderer.onCrosshairMove((event) => {
             if (chart?.market.symbol !== current.current.symbol || chart.market.timeframe !== current.current.timeframe) return;
@@ -289,7 +290,7 @@ function SatelliteChart({
     return () => {
       disposed = true;
       off.forEach((fn) => fn());
-      chart?.destroy();
+      try { chart?.destroy(); } finally { terminatePine?.(); }
       chartRef.current = null;
     };
   }, [signature, epoch, symbolEpoch]);

@@ -991,14 +991,30 @@ async function run() {
       await cdp.send("Page.addScriptToEvaluateOnNewDocument", {
         source: `(() => {
           const NativeWorker = window.Worker;
+          window.__pineLifecycle = { started: 0, terminated: 0 };
           window.Worker = class extends NativeWorker {
             constructor(url, options) {
               super(url, options);
+              this.pineCandidate = String(url).startsWith("blob:");
               if (options?.name === "Chart technicals") {
                 this.addEventListener("message", (event) => {
                   if (event.data?.view?.status === "ready") window.__chartRatingReceived = true;
                 });
               }
+            }
+            postMessage(message, ...args) {
+              if (this.pineCandidate && !this.pineTracked && message?.kind === "prepare") {
+                this.pineTracked = true;
+                window.__pineLifecycle.started++;
+              }
+              return super.postMessage(message, ...args);
+            }
+            terminate() {
+              if (this.pineTracked && !this.pineStopped) {
+                this.pineStopped = true;
+                window.__pineLifecycle.terminated++;
+              }
+              return super.terminate();
             }
           };
           const NativeWebSocket = window.WebSocket;
@@ -1350,6 +1366,7 @@ async function run() {
     // worker still requires login online and can show a data-free page offline.
     let offlineNavigationChecked = false;
     let deploymentUpdateChecked = false;
+    let pineWorkerLifecycleChecked = false;
     if (serverProc && !opts.liveApis) {
       await setViewport(VIEWPORTS[0]);
       activeLabel = "deployment update";
@@ -1391,7 +1408,65 @@ async function run() {
       );
       deploymentUpdateChecked = true;
 
+      activeLabel = "Pine worker lifecycle";
+      const errorsBeforePine = consoleErrors.length;
+      await setViewport(VIEWPORTS[3]);
+      await cdp.send("Page.navigate", { url: `${baseUrl}/` });
+      await waitForPagePredicate(
+        cdp,
+        '!!document.querySelector(\'.workspace-panel-strip [data-panel="pine"]\') && !document.querySelector(".boot-screen")',
+        "workspace ready to open the Pine editor",
+      );
+      await cdp.send("Runtime.evaluate", {
+        expression: `document.querySelector('.workspace-panel-strip [data-panel="pine"]').click()`,
+      });
+      await waitForPagePredicate(
+        cdp,
+        '[...document.querySelectorAll("button")].some(button => button.textContent.trim() === "Add to chart" && !button.disabled)',
+        "Pine editor can add a study",
+      );
+      await cdp.send("Runtime.evaluate", {
+        expression: `[...document.querySelectorAll("button")].find(button => button.textContent.trim() === "Add to chart").click()`,
+      });
+      await waitForPagePredicate(
+        cdp,
+        "window.__pineLifecycle.started === 1",
+        "a Pine worker starts for the installed study",
+      );
+      for (const [index, mode] of ["simulation", "auto"].entries()) {
+        await cdp.send("Runtime.evaluate", {
+          expression: `(() => {
+            if (!document.querySelector('select[aria-label="Market data mode"]')) {
+              document.querySelector('button[aria-label="Main menu"]').click();
+            }
+          })()`,
+        });
+        await waitForPagePredicate(
+          cdp,
+          `!!document.querySelector('select[aria-label="Market data mode"]')`,
+          "market data mode picker",
+        );
+        await cdp.send("Runtime.evaluate", {
+          expression: `(() => {
+            const select = document.querySelector('select[aria-label="Market data mode"]');
+            select.value = ${JSON.stringify(mode)};
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+          })()`,
+        });
+        await waitForPagePredicate(
+          cdp,
+          `window.__pineLifecycle.started === ${index + 2}
+            && window.__pineLifecycle.terminated === ${index + 1}`,
+          `previous Pine worker closes when switching to ${mode}`,
+        );
+      }
+      if (consoleErrors.length !== errorsBeforePine) {
+        throw new Error(`Pine worker cycle reported browser errors:\n${consoleErrors.slice(errorsBeforePine).join("\n")}`);
+      }
+      pineWorkerLifecycleChecked = true;
+
       activeLabel = "offline navigation";
+      await setViewport(VIEWPORTS[0]);
       await waitForPagePredicate(cdp, "!!navigator.serviceWorker.controller", "active service worker");
       await cdp.send("Network.clearBrowserCookies");
       await cdp.send("Page.navigate", { url: `${baseUrl}/terminal?view=opps` });
@@ -1424,6 +1499,7 @@ async function run() {
           scenariosChecked: results.length,
           offlineNavigationChecked,
           deploymentUpdateChecked,
+          pineWorkerLifecycleChecked,
           pwaShortcutsChecked,
           maxDocOverflowRatio: Math.max(...results.map((r) => r.docScrollWidth / Math.max(1, r.innerWidth))),
           totalMobileControlsAudited: results

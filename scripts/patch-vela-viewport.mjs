@@ -36,3 +36,4 @@ await import("./patch-vela-count-readout.mjs");
 await import("./patch-vela-count-axis.mjs");
 await import("./patch-vela-candle-repair.mjs");
 await import("./patch-vela-request-paint.mjs");
+await import("./patch-pine-worker-lifecycle.mjs");

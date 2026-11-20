@@ -121,6 +121,7 @@ export function useVelaChart(container: RefObject<HTMLDivElement | null>) {
   useEffect(() => {
     let disposed = false;
     let instance: Vela | null = null;
+    let terminatePine: (() => void) | undefined;
     const off: (() => void)[] = [];
     const initialize = async () => {
       try {
@@ -172,10 +173,9 @@ export function useVelaChart(container: RefObject<HTMLDivElement | null>) {
         );
         feeds.current.set(instance, trackedFeed);
         off.push(bindReplayClock(instance));
-        instance.registerEngine(
-          "pine",
-          new pine.PineWorkerEngine(pineEngineOptions()),
-        );
+        const engine = new pine.PineWorkerEngine(pineEngineOptions());
+        terminatePine = () => engine.terminate();
+        instance.registerEngine("pine", engine);
         instance.renderer.set({ attribution: true, indicatorTitles: false });
         off.push(instance.on("history:complete",report=>{if(instance&&!disposed)nativeHistory.current={chart:instance,...report};}));
         off.push(bindPriceScale(instance, container.current, priceScaleHost(useWorkspaceStore.getState().activeId)));
@@ -417,7 +417,7 @@ export function useVelaChart(container: RefObject<HTMLDivElement | null>) {
       replaySerial.current++;
       nativeHistory.current=null;
       off.forEach((fn) => fn());
-      instance?.destroy();
+      try { instance?.destroy(); } finally { terminatePine?.(); }
       indicatorHandles.clear();
       signatures.current.clear();
       if (primaryChart === instance) publishPrimaryChart(null);
