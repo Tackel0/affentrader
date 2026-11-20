@@ -118,6 +118,11 @@ Outputs filterable trade setups with a **Setup-Score (0–100)**, transparent po
 
 *(Every landed fix/feature is verified directly against modified source files; global test/build counts are only updated after `@qa-verifier` completes the full post-edit verification gate.)*
 
+### Pass 2026-11-20 — Skip Empty Paper-Order Chart Frames
+- **Cause and change.** A live Binance profile with Chromium at 390 × 844 and 4× CPU slowdown attributed 570 samples to DOM measurement in the Paper Order renderer. The layer measured the chart and cleared its canvas for every frame while no orders were visible. `registerChartOrderLines` now retains order levels between account changes, takes the empty path before any canvas or layout work, and clears once when the last visible label leaves the pane. Active controls keep their editing and cancellation behavior.
+- **Verification.** The renderer regression checks 30 empty frames on either side of a working order, verifies editing, and checks one final clear. Fast-forward pull, typegen and typecheck, all 2,787 tests in 280 files, production build, chart E2E and all 48 viewport scenarios passed. No upgrade notice appeared.
+- **Previous deployment verified.** GitHub Actions run 44777126296 deployed `a66b68f9` as `affenterminal--r20261120165455-a66b68f9`. All five endpoints returned HTTP 200 and the login timestamp matched. Run 44776061578 stopped at the hosted E2E job, and the descendant release passed that job and included the login contrast fix.
+
 ### Pass 2026-11-20 — Add Mobile Sheets for Watchlist, Alerts and Object Tree
 - **Cause and change.** Narrow viewports showed the three sidebar panels as fixed top overlays with a thin width handle. The sidebar now opens along the bottom of the chart and uses the same drag and keyboard controls as the bottom dock. `TradingWorkspace` limits its height to the chart area so the workspace controls remain accessible. The desktop sidebar keeps its width adjustment.
 - **Verification.** At 390 × 844 Chromium opened Watchlist, Alerts and Object Tree through the utility rail and used touch events to reach all three stops in each one. It also verified that the sidebar closes. Fast-forward pull, typegen and typecheck, all 2,786 tests in 279 files, production build, chart E2E and all 48 viewport scenarios passed. No upgrade notice appeared.

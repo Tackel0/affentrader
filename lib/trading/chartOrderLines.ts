@@ -16,14 +16,37 @@ export function registerChartOrderLines(){
     type Review=OrderLineReview&{line:OrderLinePlacement};
     type Row={element:HTMLDivElement;edit:HTMLButtonElement;cancel:HTMLButtonElement;review:Review;gesture?:{review:Review;pointer:number;start:number;delta:number}};
     const rows=new Map<string,Row>();
+    let cachedOrders: readonly Order[] | undefined, cachedSymbol: string | undefined;
+    let levels: ReturnType<typeof orderLineLevels> = [];
+    const clear = (ctx: CanvasRenderingContext2D | null, element: HTMLCanvasElement) => {
+      ctx?.setTransform(1, 0, 0, 1, 0, 0);
+      ctx?.clearRect(0, 0, element.width, element.height);
+    };
+    const hide = (element: HTMLCanvasElement, container: HTMLDivElement) => {
+      if (!rows.size) return;
+      container.hidden = true;
+      for (const row of rows.values()) row.element.remove();
+      rows.clear();
+      clear(element.getContext("2d"), element);
+    };
     const render=(args:RendererLayerArgs)=>{
       last=args;if(!canvas||!root)return;
-      const context=contextForCanvas(canvas),state=usePaperStore.getState(),ctx=canvas.getContext("2d");
-      ctx?.setTransform(1,0,0,1,0,0);ctx?.clearRect(0,0,canvas.width,canvas.height);
-      if(!context||(state.mode==="replay")!==context.replay){root.hidden=true;return;}root.hidden=false;
+      const context = contextForCanvas(canvas), state = usePaperStore.getState();
+      if (!context || (state.mode === "replay") !== context.replay) { hide(canvas, root); return; }
+      const orders = activeAccount(state).orders;
+      if (cachedOrders !== orders || cachedSymbol !== context.symbol) {
+        cachedOrders = orders;
+        cachedSymbol = context.symbol;
+        levels = orderLineLevels(orders, context.symbol);
+      }
+      if (!levels.length) { hide(canvas, root); return; }
+      const lines = placeOrderLines(levels, price => args.coords.priceToY(price, args.scale, args.bounds), args.bounds.top, args.bounds.height);
+      if (!lines.length) { hide(canvas, root); return; }
       const host=canvas.closest<HTMLElement>("[data-vela-cell]");if(!host)return;
+      const ctx = canvas.getContext("2d");
+      clear(ctx, canvas);
+      if (root.hidden) root.hidden = false;
       const rect=canvas.getBoundingClientRect(),parent=(root.parentElement??host).getBoundingClientRect(),left=rect.left-parent.left,top=rect.top-parent.top;
-      const levels=orderLineLevels(activeAccount(state).orders,context.symbol),lines=placeOrderLines(levels,price=>args.coords.priceToY(price,args.scale,args.bounds),args.bounds.top,args.bounds.height);
       const visible=new Set(lines.map(line=>line.id));for(const [id,row] of rows)if(!visible.has(id)){row.element.remove();rows.delete(id);}
       if(ctx){ctx.scale(args.coords.dpr,args.coords.dpr);ctx.save();ctx.beginPath();ctx.rect(0,args.bounds.top,args.coords.width,args.bounds.height);ctx.clip();}
       for(const line of lines){
@@ -45,9 +68,12 @@ export function registerChartOrderLines(){
         row.edit.setAttribute("aria-label",`Modify chart order ${line.order.id} ${line.field}`);row.edit.title="Click to modify; drag vertically to review a new price";row.cancel.setAttribute("aria-label",`Cancel chart order ${line.order.id} ${line.field}`);
         if(ctx){ctx.strokeStyle=line.color;ctx.lineWidth=1;ctx.setLineDash([6,4]);ctx.beginPath();ctx.moveTo(0,line.y);ctx.lineTo(args.coords.width,line.y);ctx.stroke();if(Math.abs(line.y-line.labelY)>1){const x=Math.max(4,args.coords.width-260);ctx.setLineDash([]);ctx.beginPath();ctx.moveTo(x-8,line.y);ctx.lineTo(x,line.labelY);ctx.stroke();}}
       }
-      if(ctx)for(const line of lines)paintOrderLineLabel(ctx,{x:Math.max(4,args.coords.width-260),y:line.labelY,maxWidth:Math.max(0,Math.min(252,args.coords.width-8)),text:`${line.label} @ ${formatPrice(line.price)}`,color:line.color,background:getComputedStyle(root).getPropertyValue("--panel").trim()||args.theme.background});
+      if (ctx) {
+        const background = getComputedStyle(root).getPropertyValue("--panel").trim() || args.theme.background;
+        for (const line of lines) paintOrderLineLabel(ctx, { x: Math.max(4, args.coords.width - 260), y: line.labelY, maxWidth: Math.max(0, Math.min(252, args.coords.width - 8)), text: `${line.label} @ ${formatPrice(line.price)}`, color: line.color, background });
+      }
       ctx?.restore();
     };
-    return{mount:(element:HTMLCanvasElement)=>{canvas=element;const host=element.closest<HTMLElement>("[data-vela-cell]");if(!host)return;root=document.createElement("div");root.className="chart-order-lines";(host.parentElement??host).append(root);off=usePaperStore.subscribe((state,previous)=>{if(state.live===previous.live&&state.replay===previous.replay&&state.mode===previous.mode&&state.contextEpoch===previous.contextEpoch)return;if(!frame)frame=requestAnimationFrame(()=>{frame=0;if(last)render(last);});});},render,destroy:()=>{off?.();if(frame)cancelAnimationFrame(frame);root?.remove();rows.clear();last=undefined;canvas=undefined;root=undefined;}};
+    return{mount:(element:HTMLCanvasElement)=>{canvas=element;const host=element.closest<HTMLElement>("[data-vela-cell]");if(!host)return;root=document.createElement("div");root.className="chart-order-lines";root.hidden=true;(host.parentElement??host).append(root);off=usePaperStore.subscribe((state,previous)=>{if(state.live===previous.live&&state.replay===previous.replay&&state.mode===previous.mode&&state.contextEpoch===previous.contextEpoch)return;if(!frame)frame=requestAnimationFrame(()=>{frame=0;if(last)render(last);});});},render,destroy:()=>{off?.();if(frame)cancelAnimationFrame(frame);root?.remove();rows.clear();cachedOrders=undefined;levels=[];last=undefined;canvas=undefined;root=undefined;}};
   }});
 }
