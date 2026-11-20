@@ -15,8 +15,8 @@ const VIEWPORTS = [
   { name: "1440x900", width: 1440, height: 900, mobile: false },
 ];
 const COMPACT_NAV_VIEWPORTS = [
-  { name: "820x1180", width: 820, height: 1180, mobile: true },
-  { name: "844x390", width: 844, height: 390, mobile: true },
+  { name: "820x1180", width: 820, height: 1180, mobile: true, deviceScaleFactor: 3 },
+  { name: "844x390", width: 844, height: 390, mobile: true, deviceScaleFactor: 3 },
 ];
 
 const TERMINAL_VIEW_TABS = [
@@ -1213,7 +1213,7 @@ async function run() {
       await cdp.send("Emulation.setDeviceMetricsOverride", {
         width: vp.width,
         height: vp.height,
-        deviceScaleFactor: vp.mobile ? 2 : 1,
+        deviceScaleFactor: vp.deviceScaleFactor ?? (vp.mobile ? 2 : 1),
         mobile: vp.mobile,
       });
       await cdp.send(
@@ -1412,6 +1412,12 @@ async function run() {
         return Math.abs(rect.bottom - innerHeight) <= 1 && usable.length === 6
           && usable.every(button => button.offsetWidth >= 44 && button.offsetHeight >= 44);
       })()`, `${vp.name} workspace bottom navigation`);
+      await waitForPagePredicate(cdp, `(() => {
+        const canvases = [...document.querySelectorAll(".vela-container canvas")]
+          .filter(canvas => canvas.width > 0 && canvas.clientWidth > 0);
+        return devicePixelRatio === 3 && canvases.length > 0 && canvases.every(canvas =>
+          Math.abs(canvas.width - canvas.clientWidth * 2) <= 2);
+      })()`, `${vp.name} Vela canvas drawing density is capped on DPR-3 touch screens`);
       await tapWorkspaceNavigation(cdp, "Chart");
       await waitForPagePredicate(cdp, 'document.querySelector(\'nav.utility-rail [aria-label="Chart"]\')?.getAttribute("aria-pressed") === "true"', "Chart is active");
       await settleUi(cdp, 200);
@@ -1611,6 +1617,7 @@ async function run() {
           compactDockSnapChecked,
           sidebarSheetsChecked,
           compactNavigationViewports: COMPACT_NAV_VIEWPORTS.map(v => v.name),
+          compactCanvasDensity: 2,
           pwaShortcutsChecked,
           maxDocOverflowRatio: Math.max(...results.map((r) => r.docScrollWidth / Math.max(1, r.innerWidth))),
           totalMobileControlsAudited: results

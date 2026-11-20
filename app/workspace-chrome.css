@@ -134,6 +134,7 @@
 @media (max-width: 768px), (max-width: 1024px) and (pointer: coarse) {
   .trading-app {
     --workspace-nav-height: 54px;
+    --chart-canvas-max-dpr: 2;
     padding-bottom: calc(var(--workspace-nav-height) + env(safe-area-inset-bottom));
   }
   .trading-app .utility-rail {
