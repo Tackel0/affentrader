@@ -260,15 +260,20 @@ export function registerOrderflowPlugins() {
     async symbol => ({ ...await loadPriceGridMetadata(stripVenue(symbol)), symbol })));
   registerDerivedIndicator();
   registerNativeIndicator(visibleProfileDescriptor());
-  registerRendererLayer({ id: "af-study-notices", placement: "above-data", create: () => canvasLayer((ctx, args, cell) => {
-    const notices = currentStudyNotices(cell); if (!notices.length) return;
-    const unavailable = notices.some(notice => /unavailable|waiting|no observed|no recorded|collecting|candles only/i.test(notice.message));
-    const label = unavailable ? "Data gaps / waiting" : "Partial / estimated data";
-    const text = args.coords.width < 420 ? `${unavailable ? "Data gaps" : "Partial data"} · ${notices.length} sources` : `${label} · ${notices.length} sources · Data coverage details`;
-    ctx.globalAlpha = 1; ctx.font = "10px sans-serif"; ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
-    const width = Math.max(10, args.coords.width - 60), y = args.bounds.top + args.bounds.height - 9;
-    ctx.fillStyle = args.theme.background; ctx.fillRect(48, y - 11, width + 4, 15); ctx.fillStyle = args.theme.textColor; ctx.fillText(text, 52, y, width);
-  }) });
+  registerRendererLayer({ id: "af-study-notices", placement: "above-data", create: () => {
+    let notices: ReturnType<typeof currentStudyNotices> = [];
+    return canvasLayer((ctx, args) => {
+      const unavailable = notices.some(notice => /unavailable|waiting|no observed|no recorded|collecting|candles only/i.test(notice.message));
+      const label = unavailable ? "Data gaps / waiting" : "Partial / estimated data";
+      const text = args.coords.width < 420 ? `${unavailable ? "Data gaps" : "Partial data"} · ${notices.length} sources` : `${label} · ${notices.length} sources · Data coverage details`;
+      ctx.globalAlpha = 1; ctx.font = "10px sans-serif"; ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+      const width = Math.max(10, args.coords.width - 60), y = args.bounds.top + args.bounds.height - 9;
+      ctx.fillStyle = args.theme.background; ctx.fillRect(48, y - 11, width + 4, 15); ctx.fillStyle = args.theme.textColor; ctx.fillText(text, 52, y, width);
+    }, (_args, cell) => {
+      notices = currentStudyNotices(cell);
+      return notices.length > 0;
+    });
+  } });
   registerNativeIndicator(depthHeatmapDescriptor(receive => marketService.onBook(receive), depthSource));
   registerRendererLayer({ id: "af-depth-heatmap", placement: "below-data", create: () => {
     let channel: DepthHeatmapChannel | undefined;
@@ -313,17 +318,10 @@ export function registerOrderflowPlugins() {
   registerRendererLayer({
     id: "af-alerts",
     placement: "above-data",
-    create: () =>
-      canvasLayer((ctx, args, cell) => {
-        projections.set(cell.id, args);
-        auditPaint(args, cell.id, cell.replay);
+    create: () => {
+      let alerts: ReturnType<typeof useAlertStore.getState>["alerts"] = [];
+      return canvasLayer((ctx, args) => {
         const { coords, scale, bounds } = args;
-        const state = useChartStore.getState();
-        const alerts = useAlertStore
-          .getState()
-          .alerts.filter(
-            (a) => a.symbol === cell.symbol && a.status === "active",
-          );
         for (const alert of alerts)
           for (const price of [
             alert.price,
@@ -342,7 +340,15 @@ export function registerOrderflowPlugins() {
             ctx.font = "10px sans-serif";
             ctx.fillText(`◉ ${alert.name}`, 12, y - 6);
           }
-      }),
+      }, (args, cell) => {
+        projections.set(cell.id, args);
+        auditPaint(args, cell.id, cell.replay);
+        const candidates = useAlertStore.getState().alerts;
+        if (!candidates.length) return false;
+        alerts = candidates.filter(alert => alert.symbol === cell.symbol && alert.status === "active");
+        return alerts.length > 0;
+      });
+    },
   });
   registerChartType({
     id: "footprint",

@@ -118,6 +118,12 @@ Outputs filterable trade setups with a **Setup-Score (0–100)**, transparent po
 
 *(Every landed fix/feature is verified directly against modified source files; global test/build counts are only updated after `@qa-verifier` completes the full post-edit verification gate.)*
 
+### Pass 2026-11-20 — Release Backing Buffers for Dormant Chart Layers
+- **Cause and change.** The renderer used full-size transparent buffers for inactive chart styles and empty overlay, notice and alert layers. `canvasLayer` now accepts an explicit content check and releases a dormant backing buffer while preserving the most recent Vela dimensions. Plot projections and debug auditing still update before the alert content check.
+- **Measurements.** The default single chart uses 30 sized layers instead of 45. With the same full-width phone layout, 390 × 844 backing pixels fell from 45,068,400 to 30,045,600. The 820 × 1180 sample fell from 134,907,120 to 89,938,080 and the 1440 × 900 sample from 319,102,740 to 212,735,160. In Chromium selecting Hollow candles allocated one layer, and switching back released it.
+- **Verification.** The renderer regression covers reactivation and a Vela resize while dormant. Fast-forward pull, typegen and typecheck, all 2,788 tests in 281 files, production build, Chart E2E and 51 viewport scenarios passed. No upgrade notice appeared.
+- **Previous deployment verified.** GitHub Actions run 44781914703 deployed `76568caf` as `affenterminal--r20261120172404-76568caf`. All five endpoints returned HTTP 200 and the login timestamp matched.
+
 ### Pass 2026-11-20 — Give the Phone Chart the Full Width
 - **Cause and change.** The docked drawing rail used 55 CSS pixels even while idle on a 390 px phone. Portrait phones and short touch landscape viewports now open `DrawingRail` from the chart toolbar. It is mounted on demand and overlays the plot. The wide touch layout keeps the docked rail, and all drawing commands remain available.
 - **Measurements and verification.** Chromium measured the plot at 390 CSS px instead of 335. Touch opens and closes the native tools while leaving the plot width intact. Fast-forward pull, typegen and typecheck, all 2,787 tests in 280 files, production build, chart E2E and 51 viewport scenarios passed. The audit checked 1,770 controls with zero horizontal overflow. No upgrade notice appeared.

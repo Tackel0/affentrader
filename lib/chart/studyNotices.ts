@@ -38,6 +38,7 @@ export function routeStudyNotice(owner: object, cell: CellContext, title: string
   changed(cell.id); return true;
 }
 export function currentStudyNotices(cell: CellContext, all: readonly StudyNotice[] = snapshot) {
+  if (!all.length) return [];
   const context = studyNoticeContext(cell);
   return all.filter(entry => entry.cell === cell.id && entry.context === context && alive(entry));
 }

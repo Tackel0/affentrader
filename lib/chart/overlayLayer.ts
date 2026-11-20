@@ -214,6 +214,6 @@ export function registerOverlayLayer() {
             }
           }
         }
-      }),
+      }, (_args, cell) => getOverlays(cell.id).length > 0),
   });
 }

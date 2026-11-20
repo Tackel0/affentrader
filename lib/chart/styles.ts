@@ -343,11 +343,10 @@ export function registerChartStyles() {
         const token = Symbol(info.id);
         let layerId: string | undefined;
         const layer = canvasLayer((ctx, args, cell) => {
-          if (args.priceStyle !== info.id || args.bars.length === 0) return;
           layerId = cell.id;
           runDerivedPaint(cell.id, token, { owner: cell.id === "primary" ? useWorkspaceStore.getState().activeId : cell.id,
             symbol: cell.symbol, timeframe: cell.timeframe, type: info.id }, () => painter(ctx, args, cell.id));
-        });
+        }, args => args.priceStyle === info.id && args.bars.length > 0);
         return { ...layer, destroy: () => { layer.destroy(); if (layerId) { clearDerivedIssue(layerId, token); clearDerivedCache(layerId); } } };
       },
     });
