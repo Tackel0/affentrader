@@ -118,6 +118,11 @@ Outputs filterable trade setups with a **Setup-Score (0–100)**, transparent po
 
 *(Every landed fix/feature is verified directly against modified source files; global test/build counts are only updated after `@qa-verifier` completes the full post-edit verification gate.)*
 
+### Pass 2026-11-20 — Refresh the Live Orderflow Tape Every 100 Milliseconds
+- **Cause and change.** The visible Time & Sales panel rebuilt and rescored a tape with up to 5,000 executions at browser frame cadence. `OrderFlowPanel` still shows retained trades immediately on open and then refreshes from the newest snapshot once per 100 ms window. The market stream, raw execution consumers and recorded Replay keep their existing cadence.
+- **Measurements and verification.** In the controlled UI fixture, five snapshots spaced 16 ms apart previously produced five table updates. Now the table refreshes once and contains the latest retained rows. A second regression verifies that unchanged trade rows retain their render identity. Fast-forward pull, typegen, typecheck, 2,792 tests in 281 files, production build, Chart E2E and 55 viewport scenarios passed. No upgrade notice appeared.
+- **Earlier deployment verified.** GitHub Actions run 44823437803 deployed `20de972a` as `affenterminal--r20261120215416-20de972a`. All five live endpoints returned HTTP 200 and the login timestamp matched the revision.
+
 ### Pass 2026-11-20 — Retain the Tablet Layout in Landscape
 - **Cause and change.** Rotating the tested 11-inch tablet exceeded the 1024 px compact viewport cutoff and switched to the desktop layout. `COMPACT_WORKSPACE_QUERY` and its workspace, chart and terminal CSS now cover touch-primary viewports up to 1366 px. The tablet keeps bottom navigation, single-chart focus, the slide-up panels and the chart density cap in either orientation.
 - **Measurements and verification.** At 1180 × 820 the saved eight-chart layout now starts one 1,124 px chart with 30 sized canvases. Previously it opened eight 191 px charts and 240 sized canvases. Rotating from 820 × 1180 preserved the selected second chart, bottom navigation and 30 canvases. Fast-forward pull, typegen, typecheck, 2,791 tests in 281 files, build, Chart E2E and all 55 viewport scenarios passed. The audit checked 1,916 mobile controls with zero horizontal overflow. No upgrade notice appeared.

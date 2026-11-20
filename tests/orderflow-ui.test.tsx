@@ -158,6 +158,24 @@ describe("OrderFlowPanel & FootprintInspector UI regression", () => {
     expect(useChartStore.getState().chartType).toBe("tpo");
   });
 
+  it("samples the newest retained tape once per refresh window", async () => {
+    vi.useFakeTimers();
+    render(<OrderFlowPanel />);
+    const tape = within(screen.getByRole("table", { name: "Filtered time and sales" }));
+    expect(tape.getAllByRole("row")).toHaveLength(5);
+
+    for (let count = 5; count <= 9; count++) {
+      await act(async () => {
+        useChartStore.getState().set({ trades: sampleTicks(count) });
+        await vi.advanceTimersByTimeAsync(16);
+      });
+      expect(tape.getAllByRole("row")).toHaveLength(5);
+    }
+
+    await act(async () => vi.advanceTimersByTimeAsync(40));
+    expect(tape.getAllByRole("row")).toHaveLength(10);
+  });
+
   it("refreshes depth and elapsed time without rendering Time and Sales rows again", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(64_000);
@@ -175,8 +193,8 @@ describe("OrderFlowPanel & FootprintInspector UI regression", () => {
     expect(renderTradeRow).not.toHaveBeenCalled();
   });
 
-  it("renders only added Time and Sales rows when a live frame retains the existing trades", () => {
-    const frame = vi.spyOn(globalThis, "requestAnimationFrame").mockReturnValue(1);
+  it("renders only added Time and Sales rows when a live refresh retains the existing trades", async () => {
+    vi.useFakeTimers();
     const retained = sampleTicks().map(trade => Object.freeze(trade));
     useChartStore.setState({ trades: retained });
     render(<OrderFlowPanel />);
@@ -185,8 +203,7 @@ describe("OrderFlowPanel & FootprintInspector UI regression", () => {
 
     const added = Object.freeze({ ...retained[0], id: "added", time: 65_000, price: 200 });
     act(() => useChartStore.setState({ trades: [added, ...retained] }));
-    expect(frame).toHaveBeenCalledOnce();
-    act(() => frame.mock.calls[0][0](0));
+    await act(async () => vi.advanceTimersByTimeAsync(120));
     expect(renderTradeRow.mock.calls.map(([price]) => price)).toEqual([200]);
     const tape = screen.getByRole("table", { name: "Filtered time and sales" });
     expect(within(tape).getAllByRole("row")).toHaveLength(6);

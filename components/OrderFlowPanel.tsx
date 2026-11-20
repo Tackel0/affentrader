@@ -29,6 +29,7 @@ import { PriceLevelMenu } from "./PriceLevelMenu";
 import { intervalMs } from "@/lib/market/intervals";
 import { defaultTapePreferences, readTapePreferences, tapeHighlightMultipliers } from "@/lib/orderflow/tapePreferences";
 import { formatOrderflowAmount as number } from "@/lib/orderflow/formatAmount";
+const LIVE_TAPE_REFRESH_MS = 100;
 const emptyRevision = () => 0;
 export function OrderFlowPanel() {
   const [preferences, setPreferences] = useState(defaultTapePreferences);
@@ -80,20 +81,26 @@ export function OrderFlowPanel() {
       setCurrent({ key, ...result }); return;
     }
     let previous: ReturnType<typeof useChartStore.getState>["trades"] | undefined;
-    let raf = 0;
+    let sampledAt = -Infinity;
+    let refresh: ReturnType<typeof setTimeout> | undefined;
     const sample = () => {
       const trades = useChartStore.getState().trades;
-      if (trades === previous) return; previous = trades;
+      if (trades === previous) return;
+      previous = trades;
+      sampledAt = performance.now();
       try { setCurrent({ key, value: captureTimeSales(trades, { symbol, simulated, replay }), error: "" }); }
       catch (error) { setCurrent({ key, value: null, error: error instanceof Error ? error.message : "Tape unavailable." }); }
     };
     const schedule = () => {
-      if (raf) return;
-      raf = requestAnimationFrame(() => { raf = 0; sample(); });
+      if (refresh !== undefined) return;
+      refresh = setTimeout(() => {
+        refresh = undefined;
+        sample();
+      }, Math.max(0, LIVE_TAPE_REFRESH_MS - (performance.now() - sampledAt)));
     };
     sample();
     const off = useChartStore.subscribe(state => { if (state.trades !== previous) schedule(); });
-    return () => { off(); if (raf) cancelAnimationFrame(raf); };
+    return () => { off(); clearTimeout(refresh); };
   }, [key, symbol, simulated, replay, timeframe, source, replayReady, through, archiveRevision]);
   const hoverPaused = !replay && pauseOnHover && hoveredTape?.key === key;
   const snapshot = paused ? frozen.value : hoverPaused ? hoveredTape.value : current.key === key ? current.value : null;
