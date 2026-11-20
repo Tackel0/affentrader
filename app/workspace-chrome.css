@@ -135,6 +135,25 @@
   .workspace-panel-strip .panel-tab svg { width: 14px; }
   .workspace-panel-menu { width: min(240px, calc(100vw - 16px)); }
   .bottom-panel.expanded:not(.resizable-panel) { max-height: none; }
+  .bottom-panel .bottom-panel-resizer {
+    position: relative;
+    inset: auto;
+    flex: none;
+    display: grid;
+    place-items: center;
+    height: 36px;
+    background: var(--surface);
+    opacity: 1;
+  }
+  .bottom-panel-resizer::before {
+    content: "";
+    width: 36px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--muted);
+  }
+  .bottom-panel-resizer:is(:focus-visible, [data-resizing])::before { background: var(--accent); }
+  .bottom-panel-resizer:focus-visible { outline-offset: -2px; }
   .center-workspace > .chart-grid { min-height: 180px; }
   .bottom-panel.expanded > .bottom-panel-content,
   .bottom-panel.expanded.orderflow-panel > .bottom-panel-content,

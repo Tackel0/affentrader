@@ -1,15 +1,16 @@
 import { expect, test, vi } from "vitest";
 import { bindBottomPanelResize } from "@/lib/chart/bottomPanelResize";
 
-test("coalesces bottom panel drags, preserves the last size on cancel, and cleans up", () => {
+test("coalesces desktop drags, snaps compact panels, and restores the last size on cancel", () => {
   let queued: FrameRequestCallback | undefined;
   const requestFrame = vi.fn((callback: FrameRequestCallback) => { queued = callback; return 1; });
   const cancelFrame = vi.fn(() => { queued = undefined; });
   const disconnect = vi.fn();
   const observe = vi.fn();
-  const window = new EventTarget();
+  const compact = { matches: false };
+  const window = Object.assign(new EventTarget(), { matchMedia: () => compact });
   const handle = Object.assign(new EventTarget(), {
-    dataset: {}, setAttribute: vi.fn(), setPointerCapture: vi.fn(),
+    dataset: {}, setAttribute: vi.fn(), removeAttribute: vi.fn(), setPointerCapture: vi.fn(),
     hasPointerCapture: () => true, releasePointerCapture: vi.fn(),
   });
   let size = "";
@@ -49,15 +50,29 @@ test("coalesces bottom panel drags, preserves the last size on cancel, and clean
     pointer("pointercancel", 20);
     expect(size).toBe("460px");
 
+    compact.matches = true;
     pointer("pointerdown", 310);
-    pointer("pointermove", 300);
+    pointer("pointerup", 360);
+    expect(size).toBe("400px");
+    expect(handle.setAttribute).toHaveBeenCalledWith("aria-valuetext", "Half height");
+    const press = (key: string) => handle.dispatchEvent(Object.assign(new Event("keydown"), { key }));
+    press("ArrowDown");
+    expect(size).toBe("200px");
+    expect(handle.setAttribute).toHaveBeenCalledWith("aria-valuetext", "Peek");
+    press("ArrowUp");
+    press("ArrowUp");
+    expect(size).toBe("600px");
+    expect(handle.setAttribute).toHaveBeenCalledWith("aria-valuetext", "Full height");
+
+    pointer("pointerdown", 310);
+    pointer("pointermove", 360);
   } finally {
     binding.dispose();
     vi.unstubAllGlobals();
   }
   expect(queued).toBeUndefined();
   expect(disconnect).toHaveBeenCalledOnce();
-  expect(size).toBe("460px");
+  expect(size).toBe("600px");
   expect(handle.dataset).toEqual({});
-  expect(handle.releasePointerCapture).toHaveBeenCalledTimes(3);
+  expect(handle.releasePointerCapture).toHaveBeenCalledTimes(4);
 });

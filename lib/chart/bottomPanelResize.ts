@@ -1,15 +1,26 @@
 const HEIGHT_PROPERTY = "--panel-height";
 const DEFAULT_HEIGHT = 370;
 const MIN_HEIGHT = 200;
+const COMPACT_PANEL_QUERY = "(max-width: 768px)";
 
 export function bindBottomPanelResize(panel: HTMLElement, content: HTMLElement, handle: HTMLElement, chart: HTMLElement) {
+  const compact = window.matchMedia(COMPACT_PANEL_QUERY);
   let limits = { min: 0, max: 0 };
   let drag: { pointer: number; y: number; height: number; previous: string; next: number } | null = null;
   let frame: number | null = null;
   let restoreHeight = DEFAULT_HEIGHT;
 
   const clamp = (height: number) => Math.max(limits.min, Math.min(limits.max, Math.round(height)));
-  const announceHeight = (height: number) => handle.setAttribute("aria-valuenow", String(Math.round(height)));
+  const stops = () => [limits.min, Math.round((limits.min + limits.max) / 2), limits.max];
+  const nearestStop = (height: number) => stops().reduce((nearest, stop) =>
+    Math.abs(stop - height) < Math.abs(nearest - height) ? stop : nearest);
+  const announceHeight = (height: number) => {
+    const rounded = Math.round(height);
+    handle.setAttribute("aria-valuenow", String(rounded));
+    const label = compact.matches ? ["Peek", "Half height", "Full height"][stops().lastIndexOf(rounded)] : undefined;
+    if (label) handle.setAttribute("aria-valuetext", label);
+    else handle.removeAttribute("aria-valuetext");
+  };
   const setSize = (height: number) => {
     const next = clamp(height);
     panel.style.setProperty(HEIGHT_PROPERTY, `${next}px`);
@@ -38,12 +49,12 @@ export function bindBottomPanelResize(panel: HTMLElement, content: HTMLElement, 
 
   const stop = (commit: boolean) => {
     if (!drag) return;
-    const { pointer, previous, next } = drag;
+    const { pointer, previous, next, height: dragHeight } = drag;
     drag = null;
     if (frame !== null) cancelAnimationFrame(frame);
     frame = null;
     delete handle.dataset.resizing;
-    if (commit) setSize(next);
+    if (commit) setSize(compact.matches && Math.abs(next - dragHeight) >= 4 ? nearestStop(next) : next);
     else {
       panel.style.setProperty(HEIGHT_PROPERTY, previous);
       measure();
@@ -89,7 +100,13 @@ export function bindBottomPanelResize(panel: HTMLElement, content: HTMLElement, 
     const height = measure();
     if (event.key === "End") maximize();
     else if (event.key === "Home") setSize(limits.min);
-    else setSize(height + (event.key === "ArrowUp" ? 20 : -20));
+    else if (compact.matches) {
+      const current = Math.round(height);
+      const next = event.key === "ArrowUp"
+        ? stops().find(stop => stop > current) ?? limits.max
+        : stops().reverse().find(stop => stop < current) ?? limits.min;
+      setSize(next);
+    } else setSize(height + (event.key === "ArrowUp" ? 20 : -20));
   };
 
   handle.addEventListener("pointerdown", start);
