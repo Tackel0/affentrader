@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { randomBytes, scryptSync } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -1305,12 +1306,43 @@ async function run() {
       return;
     }
 
+    // The audit owns this server and browser profile. Prove the installed service
+    // worker still requires login online and can show a data-free page offline.
+    let offlineNavigationChecked = false;
+    if (serverProc && !opts.liveApis) {
+      activeLabel = "offline navigation";
+      await setViewport(VIEWPORTS[0]);
+      await waitForPagePredicate(cdp, "!!navigator.serviceWorker.controller", "active service worker");
+      await cdp.send("Network.clearBrowserCookies");
+      await cdp.send("Page.navigate", { url: `${baseUrl}/terminal?view=opps` });
+      await waitForPagePredicate(
+        cdp,
+        `location.pathname === "/login" && !!document.querySelector('form[action="/login"]')`,
+        "online navigation still requires login",
+      );
+      const stopped = once(serverProc, "exit", { signal: AbortSignal.timeout(8_000) });
+      serverProc.kill("SIGTERM");
+      await stopped;
+      serverProc = null;
+      const offlineUrl = `${baseUrl}/terminal?view=opps`;
+      await cdp.send("Page.navigate", { url: offlineUrl });
+      await waitForPagePredicate(
+        cdp,
+        `document.querySelector("h1")?.textContent === "Keine Verbindung"
+          && document.querySelector("main a")?.href === ${JSON.stringify(offlineUrl)}
+          && document.documentElement.scrollWidth <= innerWidth`,
+        "offline notice, retry URL and mobile layout",
+      );
+      offlineNavigationChecked = true;
+    }
+
     console.log("MOBILE VIEWPORT AUDIT PASS");
     console.log(
       JSON.stringify(
         {
           viewports: VIEWPORTS.map((v) => v.name),
           scenariosChecked: results.length,
+          offlineNavigationChecked,
           maxDocOverflowRatio: Math.max(...results.map((r) => r.docScrollWidth / Math.max(1, r.innerWidth))),
           totalMobileControlsAudited: results
             .filter((r) => r.viewport !== "1440x900")
