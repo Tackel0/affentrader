@@ -2,7 +2,7 @@
 import { baseVolume, periodLabel, quoteRange, rangeDescription } from "@/lib/market/quoteMetrics";
 import { useQuoteRanges } from "@/hooks/useQuoteRanges";
 import { symbolLabel } from "@/lib/symbolId";
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { bindBottomPanelResize } from "@/lib/chart/bottomPanelResize";
 import {
   ChevronDown,
@@ -16,7 +16,6 @@ import {
   ArrowUpRight,
   Maximize2,
 } from "lucide-react";
-import { HeatmapPanel } from "./HeatmapPanel";
 import { WorkspacePanelTabs } from "./WorkspacePanelTabs";
 import { useChartStore } from "@/stores/useChartStore";
 import { describeSymbol, formatPrice, formatVolume, getSymbol } from "@/lib/symbols";
@@ -43,6 +42,9 @@ import { CalendarPanel } from "./CalendarPanel";
 import { ResearchTerminal } from "./ResearchTerminal";
 import { ModuleErrorBoundary } from "./ModuleErrorBoundary";
 import type { BottomTab } from "@/types/trading";
+
+const HeatmapPanel = lazy(() => import("./HeatmapPanel").then(({ HeatmapPanel }) => ({ default: HeatmapPanel })));
+
 /** Tabs that share the resizable full-height tool layout. */
 const TOOL_TABS: BottomTab[] = ["trading", "dom", "portfolio", "screener", "terminal", "news", "calendar", "heatmap"];
 const examples: Record<string, string> = {
@@ -129,7 +131,9 @@ export function BottomPanel() {
             ) : tab === "calendar" ? (
               <CalendarPanel />
             ) : tab === "heatmap" ? (
-              <HeatmapPanel />
+              <Suspense fallback={<p className="form-help" role="status">Loading heatmap…</p>}>
+                <HeatmapPanel />
+              </Suspense>
             ) : (
               <OrderFlowPanel />
             )}

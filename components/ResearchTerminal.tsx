@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { ExternalLink, Maximize2, Minimize2, X } from "lucide-react";
 import { useChartStore } from "@/stores/useChartStore";
 import { useLinkStore } from "@/stores/useLinkStore";
@@ -32,9 +32,10 @@ import { NewsPanel } from "./NewsPanel";
 import { CalendarPanel } from "./CalendarPanel";
 import { TerminalMarkets } from "./TerminalMarkets";
 import { TerminalCompare } from "./TerminalCompare";
-import { HeatmapPanel } from "./HeatmapPanel";
-import { OsintMapPanel } from "./OsintMapPanel";
 import { ModuleErrorBoundary } from "./ModuleErrorBoundary";
+
+const HeatmapPanel = lazy(() => import("./HeatmapPanel").then(({ HeatmapPanel }) => ({ default: HeatmapPanel })));
+const OsintMapPanel = lazy(() => import("./OsintMapPanel").then(({ OsintMapPanel }) => ({ default: OsintMapPanel })));
 
 type Capm = NonNullable<ReturnType<typeof terminalCapm>> & {
   ticker: string;
@@ -898,9 +899,17 @@ export function ResearchTerminal({
       case "macro":
         return <CalendarPanel />;
       case "heatmap":
-        return <HeatmapPanel onSelectSymbol={syncSymbol} />;
+        return (
+          <Suspense fallback={<p className="form-help" role="status">Loading heatmap…</p>}>
+            <HeatmapPanel onSelectSymbol={syncSymbol} />
+          </Suspense>
+        );
       case "osint":
-        return <OsintMapPanel onSelectSymbol={syncSymbol} />;
+        return (
+          <Suspense fallback={<p className="form-help" role="status">Loading map…</p>}>
+            <OsintMapPanel onSelectSymbol={syncSymbol} />
+          </Suspense>
+        );
       case "markets":
         if (paneId === "p3") {
           return (

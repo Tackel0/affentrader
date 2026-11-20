@@ -118,6 +118,11 @@ Outputs filterable trade setups with a **Setup-Score (0–100)**, transparent po
 
 *(Every landed fix/feature is verified directly against modified source files; global test/build counts are only updated after `@qa-verifier` completes the full post-edit verification gate.)*
 
+### Pass 2026-11-20 — Load OSINT and Heatmap on Demand
+- **Cause and change.** Both panels and the world atlas were in the initial browser JavaScript even on the default chart and terminal views. `ResearchTerminal` and `BottomPanel` now load the optional panels with `React.lazy` and show a status message during the first load. The viewport audit waits for each panel’s controls before inspecting its layout. The touch autocomplete regression waits for the real OSINT filter input.
+- **Measured webpack entry chunks.** Compared with `5275ddc`, the gzip total for `AffenTerminalWindow` on `/terminal` fell from 198,778 to 142,522 bytes (28.3%). The `TradingWorkspace` entry on `/` fell from 994,649 to 938,471 bytes (5.6%). Both panel markers moved from initial chunks to async chunks. These figures are build sizes from the Next.js client reference manifest, not a live latency measurement.
+- **Verification.** Fast-forward pull, Next typegen and typecheck, all 2,764 Vitest tests across 274 files, production build, headless Chromium E2E, and 48 scenarios across four viewports passed. The audit checked 1,630 mobile controls and found no horizontal overflow. The push to `main` starts Azure CI. GitHub Actions and live Azure probes require the network domains already saved in the environment draft.
+
 ### Pass 2026-11-20 — Snapshot-Accurate Workspace Sync & Browser Readiness — `[Local gate PASS; deployment pending]`
 - **Cause:** `pushWorkspace` recomputed the workspace fingerprint after awaiting HTTP. Edits made during a slow upload became the synced baseline even though the server never received them. This also captured and serialized the entire backup twice per upload. Delayed metadata responses could reset an uploading/newly connected device's state, and duplicate manual pushes could race.
 - **Files / symbols:** `lib/sync.ts` (`pushWorkspace`, `checkRemote`), `lib/workspaceBackup.ts` (`workspaceFingerprint`), `tests/sync-client.test.ts`.

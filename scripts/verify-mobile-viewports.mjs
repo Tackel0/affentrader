@@ -19,8 +19,8 @@ const TERMINAL_VIEW_TABS = [
   { key: "FA", label: "Fundamentals (FA)" },
   { key: "SCAN", label: "Stock bases" },
   { key: "MARKETS", label: "Markets" },
-  { key: "OSINT", label: "Tanker & Flights (OSINT)" },
-  { key: "HEATMAP", label: "Heatmap" },
+  { key: "OSINT", label: "Tanker & Flights (OSINT)", content: '[aria-label="OSINT filter"]' },
+  { key: "HEATMAP", label: "Heatmap", content: ".heatmap-panel" },
   { key: "CAPM", label: "CAPM" },
   { key: "NEWS", label: "News" },
 ];
@@ -1260,6 +1260,13 @@ async function run() {
           })()`,
           `${vp.name} /terminal tab ${mod.key} active`,
         );
+        if (mod.content) {
+          await waitForPagePredicate(
+            cdp,
+            `!!document.querySelector(${JSON.stringify(mod.content)})`,
+            `${vp.name} /terminal module ${mod.key} loaded`,
+          );
+        }
         await settleUi(cdp, 350);
         recordAudit(vp, `/terminal(${mod.key})`, await inspectViewportDom(cdp, vp.mobile));
       }

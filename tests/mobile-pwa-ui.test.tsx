@@ -246,10 +246,13 @@ describe("Mobile PWA & Touch UI regressions", () => {
     expect(ticket.exitLevels?.reduce((sum, l) => sum + l.quantity, 0)).toBeCloseTo(0.5, 8);
   });
 
-  it("auto-flattens ResearchTerminal to single-pane on <=768px while preserving manual 2-Pane toggle and deduping touch autocomplete clicks", () => {
+  it("auto-flattens ResearchTerminal to single-pane on <=768px while preserving manual 2-Pane toggle and deduping touch autocomplete clicks", async () => {
     const mm = createMatchMediaController({ "(max-width: 768px)": true });
     window.matchMedia = mm.mockMatchMedia;
-    global.fetch = vi.fn(async () => jsonResponse({})) as typeof fetch;
+    global.fetch = vi.fn(async (url) => jsonResponse(url === "/api/osint-map" ? {
+      vessels: [], flights: [], routes: [], chokepoints: [],
+      feedStatus: { ais: { ok: true }, adsb: { ok: true } },
+    } : {})) as typeof fetch;
 
     const { container } = render(<ResearchTerminal externalWindow initialView="help" />);
     const root = container.querySelector(".research-terminal")!;
@@ -268,7 +271,7 @@ describe("Mobile PWA & Touch UI regressions", () => {
     const osintOpt = within(listbox).getByRole("option", { name: /Marine AIS Vessels/i });
 
     fireEvent.click(osintOpt);
-    expect(container.querySelector(".osint-panel, [aria-label*='OSINT'], .screener-view")).not.toBeNull();
+    expect(await within(container).findByRole("textbox", { name: "OSINT filter" })).toBeTruthy();
     expect(container.querySelector(".terminal-autocomplete")).toBeNull();
 
     // Simulated desktop mouseDown followed immediately by click within 300ms executes once
