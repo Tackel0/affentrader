@@ -18,6 +18,22 @@ export default function manifest(): MetadataRoute.Manifest {
       { src: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
       { src: "/icons/icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
     ],
+    screenshots: [
+      {
+        src: "/screenshots/workspace-phone.png",
+        sizes: "780x1688",
+        type: "image/png",
+        form_factor: "narrow",
+        label: "AffenTerminal chart on a phone",
+      },
+      {
+        src: "/screenshots/workspace-tablet.png",
+        sizes: "1180x820",
+        type: "image/png",
+        form_factor: "wide",
+        label: "AffenTerminal chart on a landscape tablet",
+      },
+    ],
     shortcuts: [
       { name: "Terminal", url: "/terminal", icons: [shortcutIcon] },
       { name: "Watchlist", url: "/?panel=watchlist", icons: [shortcutIcon] },

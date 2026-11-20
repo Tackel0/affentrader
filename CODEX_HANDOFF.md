@@ -118,6 +118,10 @@ Outputs filterable trade setups with a **Setup-Score (0–100)**, transparent po
 
 *(Every landed fix/feature is verified directly against modified source files; global test/build counts are only updated after `@qa-verifier` completes the full post-edit verification gate.)*
 
+### Pass 2026-11-20 — Add Phone and Tablet PWA Installation Previews
+- **Cause and change.** The web manifest had icons and shortcuts, while the browser installation dialog had no preview of the workspace. `app/manifest.ts` now lists a 780 × 1688 phone screenshot and an 1180 × 820 landscape tablet screenshot captured with simulated prices. Only those two static image URLs join the existing public PWA paths.
+- **Verification.** The browser gate fetches both previews without a session and checks their PNG dimensions against the manifest. Fast-forward pull, typegen, typecheck, 2,793 tests in 281 files, production build, Chart E2E and 55 viewport scenarios passed. The audit also verified both prompts' assets, all three app shortcuts, offline recovery and the update notice. No upgrade notice appeared.
+
 ### Pass 2026-11-20 — Skip Chart Settings Serialization on Market Updates
 - **Cause and change.** The view, appearance, series and derived-style bindings serialized their settings on each chart or workspace store update. `subscribeChartSettings` now checks the relevant field and the workspace cell, owner and theme before invoking the existing preference comparison.
 - **Measurements and verification.** In the eight-cell regression, 100 candle updates plus 100 Replay cursor updates previously invoked `JSON.stringify` 6,400 times. The same updates now cause zero serializations. An actual chart preference edit still notifies the owning renderer. All 64 targeted chart tests, 2,793 tests overall, production build, Chart E2E and 55 viewport scenarios passed in the shared release gate. No upgrade notice appeared.

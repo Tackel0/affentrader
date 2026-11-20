@@ -23,6 +23,8 @@ const PUBLIC_PWA_PATHS = new Set([
   "/icons/icon-512.png",
   "/icons/icon-maskable-512.png",
   "/icons/apple-touch-icon.png",
+  "/screenshots/workspace-phone.png",
+  "/screenshots/workspace-tablet.png",
 ]);
 
 function isHttpsRequest(request: NextRequest): boolean {

@@ -1530,11 +1530,30 @@ async function run() {
     }
 
     let pwaShortcutsChecked = 0;
+    let pwaScreenshotsChecked = 0;
     if (serverProc && !opts.liveApis) {
       await setViewport(VIEWPORTS[0]);
       const manifestResponse = await fetch(`${baseUrl}/manifest.webmanifest`);
       if (!manifestResponse.ok) throw new Error("Unable to read the installed app manifest");
       const manifest = await manifestResponse.json();
+      for (const form of ["narrow", "wide"]) {
+        activeLabel = `PWA screenshot ${form}`;
+        const screenshot = manifest.screenshots?.find(item => item.form_factor === form);
+        if (typeof screenshot?.src !== "string") throw new Error(`Missing PWA screenshot for ${form}`);
+        const url = new URL(screenshot.src, baseUrl);
+        if (url.origin !== baseUrl || screenshot.type !== "image/png") throw new Error(`Invalid PWA screenshot for ${form}`);
+        const response = await fetch(url, { redirect: "manual" });
+        if (!response.ok || response.headers.get("content-type") !== "image/png") {
+          await response.body?.cancel();
+          throw new Error(`PWA screenshot for ${form} is unavailable without authentication`);
+        }
+        const png = Buffer.from(await response.arrayBuffer());
+        if (png.length < 24 || png.subarray(1, 4).toString() !== "PNG" ||
+          `${png.readUInt32BE(16)}x${png.readUInt32BE(20)}` !== screenshot.sizes) {
+          throw new Error(`PWA screenshot for ${form} differs from its manifest size`);
+        }
+        pwaScreenshotsChecked++;
+      }
       for (const [name, selector] of [
         ["Watchlist", 'aside[aria-label="Watchlist sidebar"]'],
         ["Alerts", 'aside[aria-label="Alerts sidebar"]'],
@@ -1723,6 +1742,7 @@ async function run() {
           compactNavigationViewports: COMPACT_NAV_VIEWPORTS.map(v => v.name),
           compactCanvasDensity: 2,
           pwaShortcutsChecked,
+          pwaScreenshotsChecked,
           maxDocOverflowRatio: Math.max(...results.map((r) => r.docScrollWidth / Math.max(1, r.innerWidth))),
           totalMobileControlsAudited: results
             .filter((r) => r.viewport !== "1440x900")
