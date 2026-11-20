@@ -179,7 +179,7 @@ export class MarketService {
   private historySources = new Map<string, boolean>();
   private startedAt = 0;
   private tradesBySymbol = new Map<string, RecentTrades>();
-  private tapeFrame: { id: number; symbol: string } | null = null;
+  private displayFrame: { id: number; symbol: string; timeframe: string; candles?: OHLCV[] } | null = null;
   /** Custom time intervals that are aggregated alongside the presets. */
   private extraFrames = new Set<string>();
   /** Tick intervals (`100T`) being aggregated from the trade stream. */
@@ -284,21 +284,32 @@ export class MarketService {
   tradesFor(symbol: string): Tick[] {
     return (this.tradesBySymbol.get(symbol) ?? this.tradesBySymbol.get(stripVenue(symbol)))?.snapshot() ?? [];
   }
-  private scheduleTape(symbol: string, epoch: number) {
-    if (this.tapeFrame) {
-      this.tapeFrame.symbol = symbol;
+  private scheduleDisplay(symbol: string, timeframe: string, epoch: number, candles?: OHLCV[]) {
+    if (this.displayFrame) {
+      const pending = this.displayFrame;
+      if (pending.symbol !== symbol || pending.timeframe !== timeframe || candles) {
+        pending.symbol = symbol;
+        pending.timeframe = timeframe;
+        pending.candles = candles;
+      }
       return;
     }
-    const pending = { symbol, id: 0 };
+    const pending = { symbol, timeframe, candles, id: 0 };
     pending.id = requestAnimationFrame(() => {
-      if (this.tapeFrame !== pending) return;
-      this.tapeFrame = null;
+      if (this.displayFrame !== pending) return;
+      this.displayFrame = null;
       const state = useChartStore.getState();
       if (epoch !== this.generation || state.symbol !== pending.symbol) return;
       const trades = this.tradesFor(pending.symbol);
-      if (trades !== state.trades) state.set({ trades });
+      const candles = pending.candles;
+      // A market change or a history repair may supersede the queued candle.
+      const currentCandles = pending.timeframe === state.timeframe && candles !== state.candles &&
+        candles === this.barsFor(pending.symbol, pending.timeframe) ? candles : undefined;
+      if (trades !== state.trades || currentCandles) {
+        state.set({ trades, ...(currentCandles ? { candles: currentCandles } : {}) });
+      }
     });
-    this.tapeFrame = pending;
+    this.displayFrame = pending;
   }
   private frames(): string[] {
     return [...TIMEFRAMES, ...this.extraFrames];
@@ -485,9 +496,9 @@ export class MarketService {
     this.iexStream?.stop(); this.iexStream = null; this.iexBases.clear(); this.iexReady.clear(); this.iexDelivered.clear(); this.iexClosed.clear();
     this.running = false;
     this.generation++;
-    if (this.tapeFrame) {
-      globalThis.cancelAnimationFrame?.(this.tapeFrame.id);
-      this.tapeFrame = null;
+    if (this.displayFrame) {
+      globalThis.cancelAnimationFrame?.(this.displayFrame.id);
+      this.displayFrame = null;
     }
     this.hlQueue = [];
     this.hlDraining = false;
@@ -1765,10 +1776,10 @@ export class MarketService {
         ),
       };
     }
-    if (tick.symbol === sourceState.symbol) {
-      if (typeof requestAnimationFrame === "function") this.scheduleTape(tick.symbol, epoch);
-      else pendingPatch.trades = tape.snapshot();
-    }
+    const selected = tick.symbol === sourceState.symbol;
+    const batchDisplay = selected && typeof requestAnimationFrame === "function";
+    if (selected && !batchDisplay) pendingPatch.trades = tape.snapshot();
+    let displayCandles: OHLCV[] | undefined;
     const krakenLiveFrom = this.krakenLiveFrom.get(tick.symbol);
     for (const timeframe of this.frames()) {
       const key = `${tick.symbol}:${timeframe}`;
@@ -1798,12 +1809,16 @@ export class MarketService {
           return;
         }
       }
-      if (tick.symbol === sourceState.symbol && timeframe === sourceState.timeframe) {
-        pendingPatch.candles = next.bars;
+      if (selected && timeframe === sourceState.timeframe) {
+        if (batchDisplay) displayCandles = next.bars;
+        else pendingPatch.candles = next.bars;
       }
     }
     if (Object.keys(pendingPatch).length > 0 && epoch === this.generation) {
       useChartStore.getState().set(pendingPatch);
+    }
+    if (batchDisplay && epoch === this.generation) {
+      this.scheduleDisplay(tick.symbol, sourceState.timeframe, epoch, displayCandles);
     }
     for (const timeframe of this.tickFrames) {
       const key = `${tick.symbol}:${timeframe}`;

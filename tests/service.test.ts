@@ -161,7 +161,7 @@ describe("market lifecycle and source isolation", () => {
     expect(useChartStore.getState().trades).toHaveLength(1);
     expect(vi.getTimerCount()).toBe(0);
   });
-  it("publishes one screen tape per frame and delivers every raw trade immediately", () => {
+  it("publishes the screen tape and time candles together and delivers every raw update immediately", () => {
     let pending: FrameRequestCallback | undefined;
     const requestFrame = vi.fn((callback: FrameRequestCallback) => { pending = callback; return 56; });
     const cancelFrame = vi.fn();
@@ -169,27 +169,48 @@ describe("market lifecycle and source isolation", () => {
     vi.stubGlobal("cancelAnimationFrame", cancelFrame);
     const onTrade = vi.fn();
     const off = service.onTick(onTrade);
+    const onBar = vi.fn();
     service.start(["BTCUSDT"], "auto");
+    const offBars = service.subscribe("BTCUSDT", "1m", onBar);
+    const display = vi.fn();
+    const offDisplay = useChartStore.subscribe((state, previous) => {
+      if (state.candles !== previous.candles || state.trades !== previous.trades)
+        display(state.candles, state.trades);
+    });
     const socket = FakeSocket.instances[0]; socket.open();
     const trade = { e: "aggTrade", s: "BTCUSDT", T: Date.now(), p: "100", q: "2", m: false };
     try {
       for (let id = 1; id <= 100; id++) socket.message({ ...trade, a: id });
       expect(onTrade).toHaveBeenCalledTimes(100);
+      expect(onBar).toHaveBeenCalledTimes(100);
       expect(requestFrame).toHaveBeenCalledOnce();
-      expect(useChartStore.getState().trades).toEqual([]);
+      expect(display).not.toHaveBeenCalled();
       const beforeFrame = service.tradesFor("BTCUSDT");
+      const liveBars = service.barsFor("BTCUSDT", "1m");
+      expect(liveBars.at(-1)?.volume).toBe(200);
       expect(beforeFrame.map(t => t.seq)).toEqual(Array.from({ length: 100 }, (_, index) => 100 - index));
       pending?.(0);
-      expect(useChartStore.getState().trades).toBe(beforeFrame);
+      expect(display).toHaveBeenCalledExactlyOnceWith(liveBars, beforeFrame);
 
       socket.message({ ...trade, a: 101 });
       expect(beforeFrame[0].seq).toBe(100);
       expect(service.tradesFor("BTCUSDT")[0].seq).toBe(101);
+      useChartStore.getState().set({ timeframe: "15m" });
+      pending?.(0);
+      expect(useChartStore.getState().candles).toEqual([]);
+      expect(useChartStore.getState().trades[0].seq).toBe(101);
+      socket.message({ ...trade, a: 102 });
+      pending?.(0);
+      expect(useChartStore.getState().candles).toBe(service.barsFor("BTCUSDT", "15m"));
+      socket.message({ ...trade, a: 103 });
       service.start(["BTCUSDT"], "simulation");
       expect(cancelFrame).toHaveBeenCalledWith(56);
       pending?.(0);
       expect(useChartStore.getState().trades).toEqual([]);
+      expect(useChartStore.getState().candles).toEqual([]);
     } finally {
+      offDisplay();
+      offBars();
       off();
     }
   });

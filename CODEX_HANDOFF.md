@@ -118,6 +118,11 @@ Outputs filterable trade setups with a **Setup-Score (0–100)**, transparent po
 
 *(Every landed fix/feature is verified directly against modified source files; global test/build counts are only updated after `@qa-verifier` completes the full post-edit verification gate.)*
 
+### Pass 2026-11-20 — Publish the Tape and Time Candles Together
+- **Cause and change.** After coalescing tape snapshots, `MarketService.accept` still published every same-frame time candle to the React store. The selected trade tape and trade-built time candles now share one frame publication. Live candle aggregation, raw trade and bar subscribers, and candle-close callbacks still receive all updates. The frame rejects an obsolete history snapshot or a changed timeframe, and feed resets cancel queued frames.
+- **Measurements and verification.** A controlled burst of 100 trades changed the display store 100 times for candles and once for the tape before the change. It now publishes both in one update and still delivers 100 trade callbacks and 100 bar callbacks with the same volume. The regression covers timeframe and feed changes while a frame is queued. All 2,791 tests in 281 files, production build, Chart E2E and 53 viewport scenarios passed after fast-forward pull and typecheck. No upgrade notice appeared.
+- **Earlier deployment verified.** GitHub Actions run 44821481652 deployed `c6e3af3f` as `affenterminal--r20261120213835-c6e3af3f`. All five live endpoints returned HTTP 200 and the login timestamp matched the revision.
+
 ### Pass 2026-11-20 — Skip the Closed Watchlist During Mobile Startup
 - **Cause and change.** `TradingWorkspace` started with an open sidebar at all widths and closed it in an effect on phones and tablets. The initial state now uses the compact viewport query and opens a sidebar immediately for an explicit Watchlist or Alerts shortcut. Desktop retains its open sidebar.
 - **Measurements and verification.** In the production Chromium probe, ordinary phone and tablet chart pages went from one sidebar mount to zero. Desktop and the phone Watchlist shortcut each mounted it once. The viewport gate now checks for transient startup mounts with a DOM observer. Fast-forward pull, typegen, typecheck, 2,791 tests in 281 files, build, Chart E2E and all 53 viewport scenarios passed. No upgrade notice appeared.
