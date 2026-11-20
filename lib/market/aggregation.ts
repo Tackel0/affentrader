@@ -9,33 +9,27 @@ export function aggregateTick(
   const time = bucketStart(timeframe, tick.time);
   const last = bars.at(-1);
   if (last && time < last.time) return { bars };
-  if (last?.time === time)
-    return {
-      bars: [
-        ...bars.slice(0, -1),
-        {
-          ...last,
-          high: Math.max(last.high, tick.price),
-          low: Math.min(last.low, tick.price),
-          close: tick.price,
-          volume: last.volume + tick.quantity,
-        },
-      ],
+  if (last?.time === time) {
+    const updated = bars.slice();
+    updated[updated.length - 1] = {
+      ...last,
+      high: Math.max(last.high, tick.price),
+      low: Math.min(last.low, tick.price),
+      close: tick.price,
+      volume: last.volume + tick.quantity,
     };
-  return {
-    bars: [
-      ...bars.slice(-(limit - 1)),
-      {
-        time,
-        open: tick.price,
-        high: tick.price,
-        low: tick.price,
-        close: tick.price,
-        volume: tick.quantity,
-      },
-    ],
-    closed: last,
-  };
+    return { bars: updated };
+  }
+  const updated = limit === 1 ? [] : bars.slice(-(limit - 1));
+  updated.push({
+    time,
+    open: tick.price,
+    high: tick.price,
+    low: tick.price,
+    close: tick.price,
+    volume: tick.quantity,
+  });
+  return { bars: updated, closed: last };
 }
 export function aggregateBars(bars: OHLCV[], timeframe: Timeframe): OHLCV[] {
   const result: OHLCV[] = [];

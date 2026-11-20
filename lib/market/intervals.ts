@@ -92,7 +92,7 @@ export function parseInterval(raw: string): Interval | null {
   const match = /^(\d{1,5})\s*([a-zA-Z]*)$/.exec(text);
   if (!match) {
     const named: Record<string, string> = { D: "1D", W: "1W", M: "1M" };
-    return named[text] ? parseInterval(named[text]) : null;
+    return Object.hasOwn(named, text) ? parseInterval(named[text]) : null;
   }
   const value = Number(match[1]);
   const spelled = match[2];
@@ -158,9 +158,22 @@ export function intervalLabel(raw: string): string {
   return `${interval.value} ${names[interval.unit]}${interval.value === 1 ? "" : "s"}`;
 }
 
+const bucketIntervals = new Map<string, Interval>();
+
+function intervalForBucket(raw: string): Interval | null {
+  const cached = bucketIntervals.get(raw);
+  if (cached) return cached;
+  const parsed = parseInterval(raw);
+  if (parsed && raw.length <= 24) {
+    if (bucketIntervals.size >= 256) bucketIntervals.delete(bucketIntervals.keys().next().value!);
+    bucketIntervals.set(raw, parsed);
+  }
+  return parsed;
+}
+
 /** Start of the bar that contains `time` for a time interval. */
 export function bucketStart(raw: string, time: number): number {
-  const interval = parseInterval(raw);
+  const interval = intervalForBucket(raw);
   if (!interval || interval.unit === "T") return time;
   if (interval.unit === "W") {
     const span = interval.ms;
@@ -177,7 +190,7 @@ export function bucketStart(raw: string, time: number): number {
 
 /** Start of the bar that follows the one beginning at `start`. */
 export function nextBucket(raw: string, start: number): number {
-  const interval = parseInterval(raw);
+  const interval = intervalForBucket(raw);
   if (!interval || interval.unit === "T") return start + 1000;
   if (interval.unit === "M") {
     const date = new Date(start);
