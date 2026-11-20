@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
 import type { RendererLayerArgs } from "@luxalgo/vela";
 import { createProfilePocExtensionCache } from "@/lib/orderflow/profilePocExtensions";
-import { firstObservedPriceTouches } from "@/lib/orderflow/referenceTouches";
+import { firstObservedPriceTouches, firstObservedRangeTouches } from "@/lib/orderflow/referenceTouches";
 import { buildSessionVolumeProfiles } from "@/lib/orderflow/volumeProfileModel";
 import { defaultVolumeProfile, resolveVolumeProfile, volumeProfileInputVisible } from "@/lib/orderflow/volumeProfileSettings";
 import { paintVolumeProfiles } from "@/lib/orderflow/volumeProfileRenderer";
@@ -22,6 +22,29 @@ it("treats inclusive row-center touches as contact but never bridges a price gap
   expect(firstObservedPriceTouches([bar(start+day,100.6,101),bar(start+day+m,99,100.4)],refs)).toEqual([null]);
   expect(firstObservedPriceTouches([bar(start+day,100.5,101)],refs)).toEqual([start+day]);
   expect(firstObservedPriceTouches([bar(start+day,100,100.5)],refs)).toEqual([start+day]);
+});
+it("ignores invalid candle observations and point or range queries", () => {
+  const invalidBars = [
+    bar(start, Number.NaN, 110),
+    bar(Number.NaN, 90, 110),
+    bar(start + m, 90, Number.POSITIVE_INFINITY),
+    bar(start + 2 * m, 110, 90),
+  ];
+  const later = bar(start + 3 * m, 95, 105);
+  const refs = [
+    { from: start, price: 100 },
+    { from: start, price: Number.NaN },
+    { from: Number.NaN, price: 100 },
+    { from: start, price: Number.POSITIVE_INFINITY },
+    { from: later.time + 1, price: 100 },
+    { from: start, price: 105 },
+  ];
+  const ranges = refs.map(({ from, price }) => ({ from, low: price, high: price }));
+  const expected = [later.time, null, null, null, null, later.time];
+  expect(firstObservedPriceTouches([...invalidBars, later], refs)).toEqual(expected);
+  expect(firstObservedRangeTouches([...invalidBars, later], ranges)).toEqual(expected);
+  expect(firstObservedPriceTouches(invalidBars, refs)).toEqual(refs.map(() => null));
+  expect(firstObservedRangeTouches(invalidBars, ranges)).toEqual(refs.map(() => null));
 });
 it("recomputes touch times after in-place repairs, historical backfill and backward Replay seeks",()=>{
   const cache=createProfilePocExtensionCache(),bars=[bar(start+day,102,103),bar(start+day+m,100,101)];

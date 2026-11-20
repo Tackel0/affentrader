@@ -2,6 +2,12 @@ import type { OHLCV } from "@/types/trading";
 export type PriceTouchBar = Pick<OHLCV, "time" | "high" | "low">;
 export interface PriceTouchReference { from: number; price: number }
 export interface PriceRangeTouchReference { from: number; low: number; high: number }
+function validObservation(bar: PriceTouchBar): boolean {
+  return Number.isFinite(bar.time) && Number.isFinite(bar.low) && Number.isFinite(bar.high) && bar.low <= bar.high;
+}
+function observedBars(bars: readonly PriceTouchBar[]): readonly PriceTouchBar[] {
+  return bars.every(validObservation) ? bars : bars.filter(validObservation);
+}
 function lowerBound<T>(values: readonly T[], value: number, key: (item: T) => number, afterEqual = false): number {
   let low = 0, high = values.length;
   while (low < high) { const middle = (low + high) >>> 1;
@@ -9,15 +15,23 @@ function lowerBound<T>(values: readonly T[], value: number, key: (item: T) => nu
   }
   return low;
 }
-/** Earliest revealed candle at/after each reference's start whose inclusive
+/** Earliest chronological candle at/after each reference's start whose inclusive
  * high/low contains its price. A gap over a price never proves a touch.
  * Reverse range assignment gives O((bars + references) log references). */
-export function firstObservedPriceTouches(bars: readonly PriceTouchBar[], references: readonly PriceTouchReference[]): Array<number | null> {
-  const result: Array<number | null> = references.map(() => null);
-  if (!references.length || !bars.length) return result;
-  const prices = [...new Set(references.map(r => r.price))].sort((a,b) => a-b);
+export function firstObservedPriceTouches(input: readonly PriceTouchBar[], references: readonly PriceTouchReference[]): Array<number | null> {
+  const result = Array<number | null>(references.length).fill(null);
+  if (!references.length || !input.length) return result;
+  const bars = observedBars(input);
+  if (!bars.length) return result;
+  const validPrices = new Set<number>();
+  for (const { from, price } of references) {
+    if (Number.isFinite(from) && Number.isFinite(price)) validPrices.add(price);
+  }
+  if (!validPrices.size) return result;
+  const prices = [...validPrices].sort((a,b) => a-b);
   const pending = new Map<number, Array<{ reference: number; priceIndex: number }>>();
   references.forEach((reference,index) => {
+    if (!Number.isFinite(reference.from) || !Number.isFinite(reference.price)) return;
     const from = lowerBound(bars, reference.from, b => b.time), queries = pending.get(from) ?? [];
     queries.push({ reference:index, priceIndex:lowerBound(prices,reference.price,v=>v) }); pending.set(from,queries);
   });
@@ -48,10 +62,12 @@ export function firstObservedPriceTouches(bars: readonly PriceTouchBar[], refere
  * upper edge, activating candles with low <= that edge. A temporal max-high tree
  * then finds the earliest eligible candle with high >= the lower edge. This is
  * O((bars + references) log bars) after sorting, without false gap crossings. */
-export function firstObservedRangeTouches(bars: readonly PriceTouchBar[], references: readonly PriceRangeTouchReference[]): Array<number | null> {
-  const result: Array<number | null> = references.map(() => null);
-  if (!bars.length || !references.length) return result;
-  const candles = bars.map((bar,index) => ({...bar,index})).filter(bar => Number.isFinite(bar.low) && Number.isFinite(bar.high) && bar.low <= bar.high).sort((a,b) => a.low-b.low || a.index-b.index);
+export function firstObservedRangeTouches(input: readonly PriceTouchBar[], references: readonly PriceRangeTouchReference[]): Array<number | null> {
+  const result = Array<number | null>(references.length).fill(null);
+  if (!input.length || !references.length) return result;
+  const bars = observedBars(input);
+  if (!bars.length) return result;
+  const candles = bars.map(({ low, high }, index) => ({ low, high, index })).sort((a,b) => a.low-b.low || a.index-b.index);
   const queries = references.map((ref,index) => ({...ref,index})).filter(ref => Number.isFinite(ref.from) && Number.isFinite(ref.low) && Number.isFinite(ref.high) && ref.low <= ref.high).sort((a,b) => a.high-b.high);
   const tree = new Float64Array(bars.length * 4).fill(-Infinity);
   function add(node:number,lo:number,hi:number,index:number,high:number):void {
