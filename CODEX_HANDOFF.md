@@ -118,6 +118,12 @@ Outputs filterable trade setups with a **Setup-Score (0–100)**, transparent po
 
 *(Every landed fix/feature is verified directly against modified source files; global test/build counts are only updated after `@qa-verifier` completes the full post-edit verification gate.)*
 
+### Pass 2026-11-20 — Load the Workspace Screener and Terminal on Demand
+- **Cause and change.** `BottomPanel` eagerly imported Screener and Research Terminal while the dock was closed. Both now load when selected and keep the dock in place with an accessible loading status. The direct `/terminal` entry still opens its own terminal workspace.
+- **Measurements.** JavaScript listed for `TradingWorkspace` in the production client manifest fell from 3,275,698 to 2,364,675 raw bytes and from 928,122 to 685,214 gzip bytes (26%). Component text was present in the previous entry chunks and only in deferred chunks after the change.
+- **Verification.** Fast-forward pull, typegen and typecheck, all 2,786 tests in 279 files, production build, Chart E2E and all 48 viewport scenarios passed. A Chromium session opened the deferred Pine Screener, cancelled a scan, then ran the EMA script successfully. The viewport audit opened both embedded and direct Terminal routes. No upgrade notice appeared.
+- **Earlier deployment verified.** GitHub Actions run 44773775793 deployed `3405365b` as `affenterminal--r20261120163303-3405365b`. All five live endpoints returned HTTP 200 and the login timestamp matched the revision.
+
 ### Pass 2026-11-20 — Add Touch Snap Positions to the Bottom Dock
 - **Cause and change.** The resizable dock used a 6 px drag strip on phones and could stop at arbitrary heights. At widths up to 768 px the handle is now 36 px tall with a visible grip. `bindBottomPanelResize` snaps to the minimum, midpoint or maximum available height after dragging. Keyboard arrows move one stop at a time and the separator announces the current stop. Desktop drag sizing keeps pixel precision.
 - **Verification.** The resize regression checks desktop frame coalescing, compact snapping, keyboard operation and cleanup. Chromium used actual emulated touch events to reach all three stops at 390 × 844. Fast-forward pull, typegen and typecheck, all 2,786 tests in 279 files, production build, chart E2E and all 48 viewport scenarios passed. The audit covered 1,635 mobile controls with a maximum document width ratio of 1. No upgrade notice appeared.

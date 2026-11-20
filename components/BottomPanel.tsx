@@ -35,15 +35,15 @@ import { downloadFile } from "@/lib/files";
 import { TradingPanel } from "./TradingPanel";
 import { DomPanel } from "./DomPanel";
 import { PortfolioPanel } from "./PortfolioPanel";
-import { ScreenerPanel } from "./ScreenerPanel";
 import { NewsPanel } from "./NewsPanel";
 import { CalendarPanel } from "./CalendarPanel";
-import { ResearchTerminal } from "./ResearchTerminal";
 import { ModuleErrorBoundary } from "./ModuleErrorBoundary";
 import type { BottomTab } from "@/types/trading";
 
 const HeatmapPanel = lazy(() => import("./HeatmapPanel").then(({ HeatmapPanel }) => ({ default: HeatmapPanel })));
 const OrderFlowPanel = lazy(() => import("./OrderFlowPanel").then(({ OrderFlowPanel }) => ({ default: OrderFlowPanel })));
+const ScreenerPanel = lazy(() => import("./ScreenerPanel").then(({ ScreenerPanel }) => ({ default: ScreenerPanel })));
+const ResearchTerminal = lazy(() => import("./ResearchTerminal").then(({ ResearchTerminal }) => ({ default: ResearchTerminal })));
 const orderFlowLoading = <p className="form-help" role="status">Loading order flow…</p>;
 
 /** Tabs that share the resizable full-height tool layout. */
@@ -124,9 +124,13 @@ export function BottomPanel() {
             ) : tab === "portfolio" ? (
               <PortfolioPanel />
             ) : tab === "screener" ? (
-              <ScreenerPanel />
+              <Suspense fallback={<p className="form-help" role="status">Loading screener…</p>}>
+                <ScreenerPanel />
+              </Suspense>
             ) : tab === "terminal" ? (
-              <ResearchTerminal />
+              <Suspense fallback={<p className="form-help" role="status">Loading terminal…</p>}>
+                <ResearchTerminal />
+              </Suspense>
             ) : tab === "news" ? (
               <NewsPanel />
             ) : tab === "calendar" ? (
