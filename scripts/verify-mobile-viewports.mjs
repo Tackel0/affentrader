@@ -14,6 +14,10 @@ const VIEWPORTS = [
   { name: "768x1024", width: 768, height: 1024, mobile: true },
   { name: "1440x900", width: 1440, height: 900, mobile: false },
 ];
+const COMPACT_NAV_VIEWPORTS = [
+  { name: "820x1180", width: 820, height: 1180, mobile: true },
+  { name: "844x390", width: 844, height: 390, mobile: true },
+];
 
 const TERMINAL_VIEW_TABS = [
   { key: "OPPS", label: "Trade-Möglichkeiten" },
@@ -757,6 +761,22 @@ async function verifyTouchResize(cdp, selector, label, consoleErrors) {
   }
 }
 
+async function tapWorkspaceNavigation(cdp, label) {
+  const response = await cdp.send("Runtime.evaluate", {
+    expression: `(() => {
+      const button = document.querySelector(${JSON.stringify(`nav.utility-rail button[aria-label="${label}"]`)});
+      const rect = button?.getBoundingClientRect();
+      if (!rect || rect.width < 44 || rect.height < 44) return null;
+      return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) };
+    })()`,
+    returnByValue: true,
+  });
+  const point = response.result?.value;
+  if (!point) throw new Error(`Workspace navigation target unavailable: ${label}`);
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [point] });
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+}
+
 async function inspectViewportDom(cdp, mobile) {
   const res = await cdp.send("Runtime.evaluate", {
     expression: `(() => {
@@ -1380,6 +1400,28 @@ async function run() {
       }
     }
 
+    for (const vp of COMPACT_NAV_VIEWPORTS) {
+      activeLabel = `${vp.name} compact workspace navigation`;
+      await setViewport(vp);
+      await cdp.send("Page.navigate", { url: `${baseUrl}/` });
+      await waitForPagePredicate(cdp, `(() => {
+        const nav = document.querySelector("nav.utility-rail");
+        if (!nav || getComputedStyle(nav).position !== "fixed") return false;
+        const rect = nav.getBoundingClientRect();
+        const usable = [...nav.querySelectorAll("button")].filter(button => button.getClientRects().length > 0);
+        return Math.abs(rect.bottom - innerHeight) <= 1 && usable.length === 6
+          && usable.every(button => button.offsetWidth >= 44 && button.offsetHeight >= 44);
+      })()`, `${vp.name} workspace bottom navigation`);
+      await tapWorkspaceNavigation(cdp, "Chart");
+      await waitForPagePredicate(cdp, 'document.querySelector(\'nav.utility-rail [aria-label="Chart"]\')?.getAttribute("aria-pressed") === "true"', "Chart is active");
+      await settleUi(cdp, 200);
+      recordAudit(vp, "/ compact navigation", await inspectViewportDom(cdp, true));
+      await tapWorkspaceNavigation(cdp, "Watchlists");
+      await waitForPagePredicate(cdp, '!!document.querySelector(\'.right-sidebar[aria-label="Watchlist sidebar"] .sidebar-sheet-resizer[aria-valuenow]\')', "Watchlist opens from bottom navigation");
+      await tapWorkspaceNavigation(cdp, "Chart");
+      await waitForPagePredicate(cdp, '!document.querySelector(".right-sidebar")', "Chart closes the sheet");
+    }
+
     let pwaShortcutsChecked = 0;
     if (serverProc && !opts.liveApis) {
       await setViewport(VIEWPORTS[0]);
@@ -1568,6 +1610,7 @@ async function run() {
           pineWorkerLifecycleChecked,
           compactDockSnapChecked,
           sidebarSheetsChecked,
+          compactNavigationViewports: COMPACT_NAV_VIEWPORTS.map(v => v.name),
           pwaShortcutsChecked,
           maxDocOverflowRatio: Math.max(...results.map((r) => r.docScrollWidth / Math.max(1, r.innerWidth))),
           totalMobileControlsAudited: results

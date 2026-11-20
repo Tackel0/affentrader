@@ -10,7 +10,7 @@ import {ChartSnapshotDialog} from "./ChartSnapshotDialog";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { bindSidebarChartBounds } from "@/lib/chart/sidebarBounds";
 import { bindSidebarResize, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } from "@/lib/chart/sidebarResize";
-import { bindBottomPanelResize } from "@/lib/chart/bottomPanelResize";
+import { bindBottomPanelResize, COMPACT_WORKSPACE_QUERY } from "@/lib/chart/bottomPanelResize";
 import {
   Activity,
   ChevronDown,
@@ -18,6 +18,8 @@ import {
   List,
   Layers,
   SquareTerminal,
+  Terminal,
+  ChartCandlestick,
   X,
   ListTree,
 } from "lucide-react";
@@ -86,9 +88,6 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
-  const alertCount = useAlertStore(
-    (s) => s.alerts.filter((a) => a.status === "active").length,
-  );
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const sidebarRef = useRef<HTMLElement | null>(null);
   const sidebarHandle = useRef<HTMLDivElement | null>(null);
@@ -105,7 +104,7 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
       }),
     });
     const offBounds = chart ? bindSidebarChartBounds(sidebar, chart) : undefined;
-    const compact = window.matchMedia("(max-width: 768px)");
+    const compact = window.matchMedia(COMPACT_WORKSPACE_QUERY);
     let offHeight: (() => void) | undefined;
     const bindSheet = () => {
       offHeight?.();
@@ -124,16 +123,28 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
   }, [sidebarOpen]);
   // Keep the chart visible when entering the phone/tablet layout, including resizes.
   useEffect(() => {
-    const phone = window.matchMedia("(max-width: 768px)");
+    const phone = window.matchMedia(COMPACT_WORKSPACE_QUERY);
     const adapt = () => { if (phone.matches) setSidebarOpen(false); };
     if (initialSidebar) setSidebarOpen(true);
     else adapt();
     phone.addEventListener("change", adapt);
     return () => phone.removeEventListener("change", adapt);
   }, [initialSidebar]);
-  const toggleSidebarTab = (tab: "watchlist" | "alerts" | "objects") => {
-    setSidebarOpen(open => sidebar === tab ? !open : true);
-    useChartStore.getState().set({ sidebarTab: tab });
+  const toggleSidebar = (tab: SidebarTab = sidebar) => {
+    const opening = !sidebarOpen || sidebar !== tab;
+    setSidebarOpen(opening);
+    useChartStore.getState().set({
+      sidebarTab: tab,
+      ...(opening && window.matchMedia(COMPACT_WORKSPACE_QUERY).matches ? { bottomOpen: false } : {}),
+    });
+  };
+  const openPanel = (tab: "orderflow" | "terminal" | "pine") => {
+    if (window.matchMedia(COMPACT_WORKSPACE_QUERY).matches) setSidebarOpen(false);
+    useChartStore.getState().set({ bottomOpen: true, bottomTab: tab });
+  };
+  const openChart = () => {
+    setSidebarOpen(false);
+    useChartStore.getState().set({ bottomOpen: false });
   };
   const workspaceFile = useRef<HTMLInputElement>(null);
   const command = (kind: "undo" | "redo" | "clear" | "settings" | "fit") =>
@@ -204,7 +215,7 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
         onExport={save}
         onImport={() => workspaceFile.current?.click()}
         sidebarOpen={sidebarOpen}
-        toggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+        toggleSidebar={toggleSidebar}
       />
       <input
         hidden
@@ -280,65 +291,12 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
             </ModuleErrorBoundary>
           </aside>
         ) : null}
-        <aside className="utility-rail">
-          <IconButton
-            label="Watchlists"
-            className={sidebarOpen && sidebar === "watchlist" ? "active" : ""}
-            aria-pressed={sidebarOpen && sidebar === "watchlist"}
-            onClick={() => toggleSidebarTab("watchlist")}
-          >
-            <List size={21} />
-          </IconButton>
-          <div className="rail-alert">
-            <IconButton
-              label="Alerts"
-              className={sidebarOpen && sidebar === "alerts" ? "active" : ""}
-              aria-pressed={sidebarOpen && sidebar === "alerts"}
-              onClick={() => toggleSidebarTab("alerts")}
-            >
-              <Bell size={20} />
-            </IconButton>
-            {alertCount ? <span>{alertCount}</span> : null}
-          </div>
-          <IconButton
-            label="Object tree"
-            className={sidebarOpen && sidebar === "objects" ? "active" : ""}
-            aria-pressed={sidebarOpen && sidebar === "objects"}
-            onClick={() => toggleSidebarTab("objects")}
-          >
-            <ListTree size={20} />
-          </IconButton>
-          <IconButton
-            label="Order flow panel"
-            onClick={() =>
-              useChartStore
-                .getState()
-                .set({ bottomOpen: true, bottomTab: "orderflow" })
-            }
-          >
-            <Layers size={20} />
-          </IconButton>
-          <IconButton
-            label="Pine editor"
-            onClick={() =>
-              useChartStore
-                .getState()
-                .set({ bottomOpen: true, bottomTab: "pine" })
-            }
-          >
-            <SquareTerminal size={20} />
-          </IconButton>
-          <span className="flex-1" />
-          <a
-            className="engine-link"
-            href="https://github.com/luxalgo/vela"
-            target="_blank"
-            rel="noreferrer"
-            title="Powered by Vela"
-          >
-            V
-          </a>
-        </aside>
+        <WorkspaceNavigation
+          sidebar={sidebarOpen ? sidebar : null}
+          toggleSidebar={toggleSidebar}
+          openPanel={openPanel}
+          openChart={openChart}
+        />
       </div>
       <footer className="app-status">
         {(recordingTrades || recordingFailed) && <button className="archive-recording-status" aria-label={recordingFailed ? "Trade recording stopped; open archive" : "Trade recording active; open archive"} title={recordingFailed ? "Trade recording stopped. Open the local archive for details." : "Recording observed real classified trades locally in this tab."} onClick={() => useTradeArchiveStore.setState({ open: true })}>{recordingFailed ? "REC!" : "● REC"}</button>}
@@ -419,3 +377,52 @@ function ToastManager() {
   );
 }
 
+
+
+type SidebarTab = "watchlist" | "alerts" | "objects";
+
+function WorkspaceNavigation({ sidebar, toggleSidebar, openPanel, openChart }: {
+  sidebar: SidebarTab | null;
+  toggleSidebar: (tab: SidebarTab) => void;
+  openPanel: (tab: "orderflow" | "terminal" | "pine") => void;
+  openChart: () => void;
+}) {
+  const panel = useChartStore(s => s.bottomOpen ? s.bottomTab : null);
+  const alertCount = useAlertStore(s => s.alerts.filter(a => a.status === "active").length);
+  return (
+    <nav className="utility-rail" aria-label="Workspace navigation">
+      <IconButton label="Chart" className="compact-nav-only" aria-pressed={!sidebar && !panel} onClick={openChart}>
+        <ChartCandlestick size={21} />
+        <span className="compact-nav-label" aria-hidden="true">Chart</span>
+      </IconButton>
+      <IconButton label="Watchlists" aria-pressed={sidebar === "watchlist"} onClick={() => toggleSidebar("watchlist")}>
+        <List size={21} />
+        <span className="compact-nav-label" aria-hidden="true">Watchlist</span>
+      </IconButton>
+      <div className="rail-alert">
+        <IconButton label="Alerts" aria-pressed={sidebar === "alerts"} onClick={() => toggleSidebar("alerts")}>
+          <Bell size={20} />
+          <span className="compact-nav-label" aria-hidden="true">Alerts</span>
+        </IconButton>
+        {alertCount ? <span>{alertCount}</span> : null}
+      </div>
+      <IconButton label="Object tree" aria-pressed={sidebar === "objects"} onClick={() => toggleSidebar("objects")}>
+        <ListTree size={20} />
+        <span className="compact-nav-label" aria-hidden="true">Objects</span>
+      </IconButton>
+      <IconButton label="Order flow panel" aria-pressed={panel === "orderflow"} onClick={() => openPanel("orderflow")}>
+        <Layers size={20} />
+        <span className="compact-nav-label" aria-hidden="true">Order flow</span>
+      </IconButton>
+      <IconButton label="Terminal" className="compact-nav-only" aria-pressed={panel === "terminal"} onClick={() => openPanel("terminal")}>
+        <Terminal size={20} />
+        <span className="compact-nav-label" aria-hidden="true">Terminal</span>
+      </IconButton>
+      <IconButton label="Pine editor" className="desktop-nav-only" onClick={() => openPanel("pine")}>
+        <SquareTerminal size={20} />
+      </IconButton>
+      <span className="flex-1 desktop-nav-only" />
+      <a className="engine-link desktop-nav-only" href="https://github.com/luxalgo/vela" target="_blank" rel="noreferrer" title="Powered by Vela">V</a>
+    </nav>
+  );
+}
