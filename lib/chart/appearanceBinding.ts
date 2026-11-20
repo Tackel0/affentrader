@@ -3,6 +3,7 @@ import { resolveTheme } from "@luxalgo/vela";
 import type { WorkspaceTheme } from "@/types/workspace";
 import { useChartStore } from "@/stores/useChartStore";
 import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
+import { subscribeChartSettings } from "./settingsSubscription";
 import { chartTheme } from "./theme";
 import { appearanceDefaults, appearanceKey, nativeChartAppearance, readChartAppearance, validAppearancePreferences, type ChartAppearance, type ChartAppearancePreferences } from "./appearance";
 
@@ -28,8 +29,7 @@ export function chartAppearanceHost(cellId: string): ChartAppearanceHost {
     subscribe: listener => {
       let previous = JSON.stringify(read());
       const changed = () => { const next = JSON.stringify(read()); if (next !== previous) { previous = next; listener(); } };
-      const offChart = useChartStore.subscribe(changed), offWorkspace = useWorkspaceStore.subscribe(changed);
-      return () => { offChart(); offWorkspace(); };
+      return subscribeChartSettings("chartAppearance", changed);
     } };
 }
 

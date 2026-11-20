@@ -1,6 +1,7 @@
 import type { Vela } from "@luxalgo/vela";
 import { useChartStore } from "@/stores/useChartStore";
 import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
+import { subscribeChartSettings } from "./settingsSubscription";
 import { nativeSeriesPreferences, readSeriesPreferences, seriesPreferencesKey, validSeriesPreferences, type SeriesPreferences } from "./seriesPreferences";
 
 export interface SeriesPreferencesHost {
@@ -24,8 +25,7 @@ export function seriesPreferencesHost(cellId: string): SeriesPreferencesHost {
     subscribe: listener => {
       let previous = JSON.stringify(read());
       const changed = () => { const next = JSON.stringify(read()); if (next !== previous) { previous = next; listener(); } };
-      const offChart = useChartStore.subscribe(changed), offWorkspace = useWorkspaceStore.subscribe(changed);
-      return () => { offChart(); offWorkspace(); };
+      return subscribeChartSettings("seriesPreferences", changed);
     } };
 }
 

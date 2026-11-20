@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { chartViewKey, nativeChartView, readChartView, validChartView, type ChartViewPreferences } from "@/lib/chart/viewPreferences";
 import { bindChartView, chartViewHost } from "@/lib/chart/viewBinding";
+import { chartAppearanceHost } from "@/lib/chart/appearanceBinding";
+import { bindDerivedSettingsPaint } from "@/lib/chart/derivedSettings";
+import { seriesPreferencesHost } from "@/lib/chart/seriesBinding";
 import { useChartStore } from "@/stores/useChartStore";
 import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
 import { createWorkspaceBackup } from "@/lib/workspaceBackup";
@@ -102,6 +105,35 @@ describe("native chart view persistence", () => {
     const backup = createWorkspaceBackup(); expect(parseWorkspace(JSON.stringify(backup)).chart.state.chartView).toEqual(host.read());
     delete backup.chart.state.chartView; for (const cell of backup.premium!.state.cells as Array<Record<string, unknown>>) delete cell.chartView;
     expect(() => parseWorkspace(JSON.stringify(backup))).not.toThrow();
+  });
+
+  it("skips serializing renderer preferences on live market and Replay store updates", () => {
+    const workspace = useWorkspaceStore.getState();
+    workspace.setLayout("eight");
+    const changed = vi.fn();
+    const subscriptions = useWorkspaceStore.getState().cells.flatMap(({ id }) => [
+      chartViewHost(id).subscribe(changed),
+      chartAppearanceHost(id).subscribe(changed),
+      seriesPreferencesHost(id).subscribe(changed),
+      bindDerivedSettingsPaint(id, changed),
+    ]);
+    const stringify = vi.spyOn(JSON, "stringify");
+    try {
+      for (let tick = 1; tick <= 100; tick++) {
+        useChartStore.getState().set({
+          candles: [{ time: tick, open: 100, high: 100, low: 100, close: 100, volume: 2 }],
+        });
+        useWorkspaceStore.getState().setReplay({ cursorTime: tick });
+      }
+      expect(stringify).not.toHaveBeenCalled();
+      expect(changed).not.toHaveBeenCalled();
+      const activeView = chartViewHost(workspace.activeId);
+      activeView.write(defaults());
+      expect(changed).toHaveBeenCalledOnce();
+    } finally {
+      stringify.mockRestore();
+      subscriptions.forEach(unsubscribe => unsubscribe());
+    }
   });
 
   it("rejects malformed chart/cell preferences and stops writes during application or removal", () => {

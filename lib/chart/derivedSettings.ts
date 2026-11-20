@@ -1,5 +1,6 @@
 import { useChartStore } from "@/stores/useChartStore";
 import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
+import { subscribeChartSettings } from "./settingsSubscription";
 import { DEFAULT_CHART_TYPE_SETTINGS, type ChartTypeSettings } from "./chartTypes";
 import { invalidateCanvasLayers } from "./canvasLayer";
 import type { BoxSizing } from "./transforms";
@@ -50,6 +51,5 @@ export function bindDerivedSettingsPaint(cellId: string, invalidate = invalidate
     const next = JSON.stringify(value); if (next === previous) return;
     previous = next; invalidate(cellId);
   };
-  const offChart = useChartStore.subscribe(changed), offWorkspace = useWorkspaceStore.subscribe(changed);
-  return () => { offChart(); offWorkspace(); };
+  return subscribeChartSettings("chartTypeSettings", changed);
 }

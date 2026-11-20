@@ -118,6 +118,10 @@ Outputs filterable trade setups with a **Setup-Score (0–100)**, transparent po
 
 *(Every landed fix/feature is verified directly against modified source files; global test/build counts are only updated after `@qa-verifier` completes the full post-edit verification gate.)*
 
+### Pass 2026-11-20 — Skip Chart Settings Serialization on Market Updates
+- **Cause and change.** The view, appearance, series and derived-style bindings serialized their settings on each chart or workspace store update. `subscribeChartSettings` now checks the relevant field and the workspace cell, owner and theme before invoking the existing preference comparison.
+- **Measurements and verification.** In the eight-cell regression, 100 candle updates plus 100 Replay cursor updates previously invoked `JSON.stringify` 6,400 times. The same updates now cause zero serializations. An actual chart preference edit still notifies the owning renderer. All 64 targeted chart tests, 2,793 tests overall, production build, Chart E2E and 55 viewport scenarios passed in the shared release gate. No upgrade notice appeared.
+
 ### Pass 2026-11-20 — Improve Light Mode Contrast and Terminal Navigation
 - **Cause and change.** Light mode used low-contrast colors for navigation, status and market data. The palette, primary terminal button and simulation label now use foregrounds that work against the corresponding light surfaces. `AffenTerminalWindow` exposes the research view as its main landmark.
 - **Measurements and verification.** Authenticated Lighthouse accessibility snapshots at 390 × 844 went from 96 to 100 for the workspace and from 94 to 100 for the Research Terminal. The repeat reported no scored failures in either snapshot. The shared release gate passed typegen, typecheck, 2,793 tests in 281 files, production build, Chart E2E and 55 viewport scenarios. No upgrade notice appeared.
