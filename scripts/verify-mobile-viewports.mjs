@@ -15,7 +15,8 @@ const VIEWPORTS = [
   { name: "1440x900", width: 1440, height: 900, mobile: false },
 ];
 const COMPACT_NAV_VIEWPORTS = [
-  { name: "820x1180", width: 820, height: 1180, mobile: true, deviceScaleFactor: 3 },
+  { name: "820x1180", width: 820, height: 1180, mobile: true, deviceScaleFactor: 3, verifySavedLayout: true },
+  { name: "1180x820", width: 1180, height: 820, mobile: true, deviceScaleFactor: 3, verifySavedLayout: true },
   { name: "844x390", width: 844, height: 390, mobile: true, deviceScaleFactor: 3 },
 ];
 
@@ -1234,7 +1235,7 @@ async function run() {
     let sidebarSheetsChecked = 0;
     let phoneDrawingOverlayChecked = false;
     let phoneChartFocusChecked = false;
-    let tabletChartFocusChecked = false;
+    const tabletChartFocusViewports = [];
 
     const recordAudit = (viewport, scenario, audit) => {
       results.push({
@@ -1502,10 +1503,10 @@ async function run() {
       await waitForPagePredicate(cdp, '!!document.querySelector(\'.right-sidebar[aria-label="Watchlist sidebar"] .sidebar-sheet-resizer[aria-valuenow]\')', "Watchlist opens from bottom navigation");
       await tapWorkspaceTarget(cdp, 'nav.utility-rail [aria-label="Chart"]');
       await waitForPagePredicate(cdp, '!document.querySelector(".right-sidebar")', "Chart closes the sheet");
-      if (vp.width === 820 && !opts.liveApis) {
-        activeLabel = "tablet chart focus";
-        await verifyFocusedChartLayout(cdp, 750);
-        tabletChartFocusChecked = true;
+      if (vp.verifySavedLayout && !opts.liveApis) {
+        activeLabel = `${vp.name} tablet chart focus`;
+        await verifyFocusedChartLayout(cdp, vp.width - 70);
+        tabletChartFocusViewports.push(vp.name);
       }
 
       activeLabel = `${vp.name} compact terminal startup`;
@@ -1718,7 +1719,7 @@ async function run() {
           sidebarSheetsChecked,
           phoneDrawingOverlayChecked,
           phoneChartFocusChecked,
-          tabletChartFocusChecked,
+          tabletChartFocusViewports,
           compactNavigationViewports: COMPACT_NAV_VIEWPORTS.map(v => v.name),
           compactCanvasDensity: 2,
           pwaShortcutsChecked,

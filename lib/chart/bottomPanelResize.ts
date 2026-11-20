@@ -1,7 +1,7 @@
 const HEIGHT_PROPERTY = "--panel-height";
 const DEFAULT_HEIGHT = 370;
 const MIN_HEIGHT = 200;
-export const COMPACT_WORKSPACE_QUERY = "(max-width: 768px), (max-width: 1024px) and (pointer: coarse)";
+export const COMPACT_WORKSPACE_QUERY = "(max-width: 768px), (max-width: 1366px) and (pointer: coarse)";
 
 export function bindBottomPanelResize(panel: HTMLElement, content: HTMLElement, handle: HTMLElement, chart: HTMLElement, availableHeight?: () => number) {
   const compact = window.matchMedia(COMPACT_WORKSPACE_QUERY);

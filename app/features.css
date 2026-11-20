@@ -2395,7 +2395,7 @@
     flex-wrap: wrap;
   }
 }
-@media (max-width: 800px), (max-width: 1024px) and (pointer: coarse) {
+@media (max-width: 800px), (max-width: 1366px) and (pointer: coarse) {
   .affen-window-shell {
     height: 100dvh;
     min-height: 0;

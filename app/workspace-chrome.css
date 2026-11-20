@@ -131,7 +131,7 @@
 }
 .deployment-update .button { min-height: 44px; }
 .deployment-update-dismiss { min-width: 44px; font-size: 20px; }
-@media (max-width: 768px), (max-width: 1024px) and (pointer: coarse) {
+@media (max-width: 768px), (max-width: 1366px) and (pointer: coarse) {
   .trading-app {
     --workspace-nav-height: 54px;
     --chart-canvas-max-dpr: 2;
@@ -279,7 +279,7 @@
 .goto-date-fields input { width: 100%; min-width: 0; }
 .desktop-chart-tools { display: flex; flex-shrink: 0; align-items: center; }
 .toolbar-mobile-overflow { display: none; }
-@media (max-width: 768px), (max-width: 1024px) and (pointer: coarse) {
+@media (max-width: 768px), (max-width: 1366px) and (pointer: coarse) {
   .workspace-toolbar.tv-toolbar { position: relative; height: 42px; min-height: 42px; overflow: visible; padding: 0 4px; gap: 2px; }
   .tv-toolbar > :is(.interval-picker, .chart-type-host) { position: static; }
   .tv-toolbar > :is(.interval-picker, .chart-type-host) > .tv-popover {

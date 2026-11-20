@@ -44,7 +44,7 @@
 .indicator-action-list button {display:flex;align-items:center;gap:10px;text-align:left;padding:13px 12px;border-radius:4px;}
 .indicator-action-list button:hover,.indicator-action-list button:focus-visible {background:var(--hover);}
 .layout-eight .study-legend,.layout-six .study-legend {display:none;}
-@media (max-width: 768px), (max-width: 1024px) and (pointer: coarse) {
+@media (max-width: 768px), (max-width: 1366px) and (pointer: coarse) {
   .study-legend .chip-actions {display:none;}
   .chart-heading .study-legend .indicator-chip .chip-more {display:inline-flex;opacity:1;width:36px;height:36px;min-width:36px;min-height:36px;flex-shrink:0;}
   .study-legend .indicator-chips .indicator-chip {min-height:36px;}
