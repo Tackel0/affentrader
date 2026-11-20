@@ -34,12 +34,15 @@ export async function checkRemote(): Promise<RemoteInfo | null> {
   if (!state.key) return null;
   try {
     const { status, body } = await call(state.key, { query: "?peek=1" });
+    const current = useSyncStore.getState();
+    // A delayed peek must not overwrite a new connection or an in-flight upload.
+    if (current.key !== state.key || current.revision !== state.revision || current.status === "syncing") return null;
     if (status !== 200) {
       fail(body.error ?? `Server responded with HTTP ${status}`);
       return null;
     }
     const remote = { revision: body.revision, updatedAt: body.updatedAt, device: body.device };
-    const conflicting = remote.revision > state.revision && state.syncedFingerprint !== workspaceFingerprint();
+    const conflicting = remote.revision > current.revision && current.syncedFingerprint !== workspaceFingerprint();
     useSyncStore.getState().set({
       remote,
       error: "",
@@ -47,6 +50,8 @@ export async function checkRemote(): Promise<RemoteInfo | null> {
     });
     return remote;
   } catch {
+    const current = useSyncStore.getState();
+    if (current.key !== state.key || current.revision !== state.revision || current.status === "syncing") return null;
     fail("The sync server is unreachable.", "offline");
     return null;
   }
@@ -55,17 +60,21 @@ export async function checkRemote(): Promise<RemoteInfo | null> {
 /** Upload this workspace. Returns false when another device was ahead. */
 export async function pushWorkspace(): Promise<boolean> {
   const state = useSyncStore.getState();
-  if (!state.key) return false;
+  if (!state.key || state.status === "syncing") return false;
   state.set({ status: "syncing", error: "" });
   try {
+    // The baseline must describe the bytes sent, not edits made while awaiting HTTP.
+    const data = JSON.stringify(createWorkspaceBackup());
+    const fingerprint = workspaceFingerprint(data);
     const { status, body } = await call(state.key, {
       method: "PUT",
       body: JSON.stringify({
-        data: JSON.stringify(createWorkspaceBackup()),
+        data,
         baseRevision: state.revision,
         device: state.device || defaultDevice(),
       }),
     });
+    if (useSyncStore.getState().key !== state.key) return false;
     if (status === 409) {
       useSyncStore.getState().set({ status: "conflict", remote: body.current ?? null });
       return false;
@@ -76,13 +85,14 @@ export async function pushWorkspace(): Promise<boolean> {
     }
     useSyncStore.getState().set({
       revision: body.revision,
-      syncedFingerprint: workspaceFingerprint(),
+      syncedFingerprint: fingerprint,
       lastSyncedAt: Date.now(),
       status: "idle",
       remote: { revision: body.revision, updatedAt: body.updatedAt, device: state.device || defaultDevice() },
     });
     return true;
   } catch {
+    if (useSyncStore.getState().key !== state.key) return false;
     fail("The sync server is unreachable.", "offline");
     return false;
   }

@@ -5,6 +5,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { waitForChromePageTarget } from "./chrome-page-target.mjs";
 
 const VIEWPORTS = [
   { name: "360x800", width: 360, height: 800, mobile: true },
@@ -944,11 +945,7 @@ async function run() {
       ]));
     }
 
-    const parsedWs = new URL(browserWsUrl);
-    const listRes = await fetch(`http://127.0.0.1:${parsedWs.port}/json/list`);
-    const targets = await listRes.json();
-    const pageTarget = targets.find((t) => t.type === "page" && t.webSocketDebuggerUrl);
-    if (!pageTarget) throw new Error(`No inspectable Chrome page target found: ${JSON.stringify(targets)}`);
+    const pageTarget = await waitForChromePageTarget(browserWsUrl);
 
     cdp = new CdpClient(pageTarget.webSocketDebuggerUrl);
     await cdp.send("Runtime.enable");

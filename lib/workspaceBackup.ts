@@ -109,9 +109,8 @@ export async function restoreWorkspaceText(text: string): Promise<void> {
   await restoreWorkspace(parseWorkspace(text));
 }
 
-/** Short fingerprint of the current workspace, used to notice local changes. */
-export function workspaceFingerprint(): string {
-  const text = JSON.stringify(createWorkspaceBackup());
+/** Fingerprint an exact exported snapshot, or the current workspace when omitted. */
+export function workspaceFingerprint(text = JSON.stringify(createWorkspaceBackup())): string {
   let hash = 2166136261;
   for (let i = 0; i < text.length; i++) {
     hash ^= text.charCodeAt(i);
