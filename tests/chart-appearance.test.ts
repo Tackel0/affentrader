@@ -54,6 +54,34 @@ function setup(preferences: ChartAppearancePreferences | null = null) {
 }
 
 describe("persistent native canvas appearance", () => {
+  it("shares default price ticks with the grid and invalidates them on axis or formatter changes", () => {
+    const ticks = new NativeRenderer()["priceAxisTicks"];
+    const price = vi.fn((value: number) => `price ${value}`);
+    const scene = { style: { fontSize: 12 }, priceMintick: 0.01, format: { price } };
+    const pane = { kind: "price", scale: { min: 100, max: 110 }, bounds: { height: 450 } };
+    const read = () => ticks.ticksFor(scene, pane, {}) as { price: number; label: string }[];
+
+    const original = read();
+    expect(original.length).toBeGreaterThan(1);
+    for (let frame = 0; frame < 299; frame++) expect(read()).toBe(original);
+    expect(price).toHaveBeenCalledTimes(original.length);
+
+    pane.scale.max = 131;
+    const rescaled = read();
+    expect(rescaled).not.toEqual(original);
+    pane.bounds.height = 80;
+    expect(read().length).toBeLessThan(rescaled.length);
+    scene.format = { price: vi.fn(value => `updated ${value}`) };
+    const formatted = read();
+    expect(formatted.every(tick => tick.label.startsWith("updated "))).toBe(true);
+
+    const custom = [{ price: 105, label: "custom" }];
+    ticks.setHook(() => custom);
+    expect(read()).toEqual(custom);
+    ticks.setHook(null);
+    expect(read()).toEqual(formatted);
+  });
+
   it("presents the actual native theme dialog after synchronous host canvas restores settle", async () => {
     let current = { layout: { fontSize: 16 }, margins: { top: 25 } }, cached: unknown;
     const presented: unknown[] = [], target = {

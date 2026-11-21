@@ -34,6 +34,7 @@ await import("./patch-vela-drawing-paint.mjs");
 await import("./patch-vela-layer-animation.mjs");
 await import("./patch-vela-count-readout.mjs");
 await import("./patch-vela-count-axis.mjs");
+await import("./patch-vela-axis-cache.mjs");
 await import("./patch-vela-candle-repair.mjs");
 await import("./patch-vela-request-paint.mjs");
 await import("./patch-vela-canvas-density.mjs");
