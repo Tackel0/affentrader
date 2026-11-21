@@ -30,7 +30,7 @@ import { bindReplayClock, completedReplayBoundary } from "@/lib/chart/replayCloc
 import { workspaceReplay } from "@/lib/chart/workspaceReplay";
 import { chartTheme } from "@/lib/chart/theme";
 import { INDICATORS } from "@/lib/indicators/catalog";
-import { pineEngineOptions } from "@/lib/indicators/engineOptions";
+import { bindPineEngine } from "@/lib/indicators/engineOptions";
 import { formatPrice, describeSymbol } from "@/lib/symbols";
 import { symbolLabel } from "@/lib/symbolId";
 import type { WorkspaceCell } from "@/types/workspace";
@@ -167,9 +167,8 @@ function SatelliteChart({
     const studyHandles = new Map<string, string>();
     const mount = async () => {
       try {
-        const [vela, pine, plugins, fibonacci] = await Promise.all([
+        const [vela, plugins, fibonacci] = await Promise.all([
           import("@luxalgo/vela"),
-          import("@luxalgo/vela-pinets"),
           import("@/lib/orderflow/velaPlugins"),
           import("@/lib/drawings/fibonacciPlugin"),
         ]);
@@ -225,17 +224,7 @@ function SatelliteChart({
         off.push(bindTpoSessionMenu(ref.current, chart.renderer, cell.id));
         off.push(bindFootprintMenu(ref.current, chart.renderer, cell.id));
         applyTimezone(chart, useChartStore.getState().timezone, current.current.symbol);
-        if (
-          cell.indicators.some(
-            (i) =>
-              i.script ||
-              INDICATORS.find((d) => d.id === i.definitionId)?.script,
-          )
-        ) {
-          const engine = new pine.PineWorkerEngine(pineEngineOptions());
-          terminatePine = () => engine.terminate();
-          chart.registerEngine("pine", engine);
-        }
+        terminatePine = bindPineEngine(chart);
         off.push(
           chart.renderer.onCrosshairMove((event) => {
             if (chart?.market.symbol !== current.current.symbol || chart.market.timeframe !== current.current.timeframe) return;

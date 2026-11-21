@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { randomBytes, scryptSync } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import net from "node:net";
 import { tmpdir } from "node:os";
@@ -902,6 +902,11 @@ async function inspectViewportDom(cdp, mobile) {
 async function run() {
   const opts = parseArgs(process.argv.slice(2));
   const projectRoot = process.cwd();
+  const buildDir = join(opts.standaloneDir ? resolve(opts.standaloneDir) : projectRoot, ".next");
+  const loadableManifest = join(buildDir, "react-loadable-manifest.json");
+  const pineChunks = !opts.baseUrl && existsSync(loadableManifest)
+    ? (JSON.parse(readFileSync(loadableManifest, "utf8"))["lib/indicators/engineOptions.ts -> @luxalgo/vela-pinets"]?.files ?? [])
+    : [];
   const chromePath = resolveChromePath();
   if (!existsSync(chromePath)) {
     throw new Error(`Chrome/Chromium binary not found at ${chromePath}. Set CHROME_PATH.`);
@@ -1058,6 +1063,13 @@ async function run() {
 
     const consoleErrors = [];
     const http5xx = [];
+    const requestedPineChunks = new Set();
+    cdp.onEvent("Network.requestWillBeSent", ({ request }) => {
+      const requestPath = new URL(request.url).pathname;
+      if (request.url.startsWith(`${baseUrl}/`) && pineChunks.some(path => requestPath === `/_next/${path}`)) {
+        requestedPineChunks.add(requestPath);
+      }
+    });
     let activeLabel = "bootstrap";
 
     cdp.onEvent("Runtime.exceptionThrown", (params) => {
@@ -1661,6 +1673,7 @@ async function run() {
     let offlineNavigationChecked = false;
     let deploymentUpdateChecked = false;
     let pineWorkerLifecycleChecked = false;
+    let pineLoadsOnDemandChecked = false;
     if (serverProc && !opts.liveApis) {
       await setViewport(VIEWPORTS[0]);
       activeLabel = "deployment update";
@@ -1719,6 +1732,7 @@ async function run() {
         '[...document.querySelectorAll("button")].some(button => button.textContent.trim() === "Add to chart" && !button.disabled)',
         "Pine editor can add a study",
       );
+      if (requestedPineChunks.size) throw new Error("The Pine runtime loaded before the first Pine study was added");
       await cdp.send("Runtime.evaluate", {
         expression: `[...document.querySelectorAll("button")].find(button => button.textContent.trim() === "Add to chart").click()`,
       });
@@ -1727,6 +1741,8 @@ async function run() {
         "window.__pineLifecycle.started === 1",
         "a Pine worker starts for the installed study",
       );
+      if (pineChunks.length && !requestedPineChunks.size) throw new Error("Adding a Pine study did not load its engine bundle");
+      pineLoadsOnDemandChecked = pineChunks.length > 0;
       for (const [index, mode] of ["simulation", "auto"].entries()) {
         await cdp.send("Runtime.evaluate", {
           expression: `(() => {
@@ -1802,6 +1818,7 @@ async function run() {
           offlineNavigationChecked,
           deploymentUpdateChecked,
           pineWorkerLifecycleChecked,
+          pineLoadsOnDemandChecked,
           compactDockSnapChecked,
           sidebarSheetsChecked,
           phoneDrawingOverlayChecked,

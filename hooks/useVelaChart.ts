@@ -15,7 +15,7 @@ import { useChartStore } from "@/stores/useChartStore";
 import { useAlertStore } from "@/stores/useAlertStore";
 import { INDICATORS } from "@/lib/indicators/catalog";
 import { nativeIndicatorInputs as makeInputs } from "@/lib/indicators/nativeInputs";
-import { pineEngineOptions } from "@/lib/indicators/engineOptions";
+import { bindPineEngine } from "@/lib/indicators/engineOptions";
 import {installTradingSettings} from "@/lib/chart/tradingSettings";
 import {rangePlan,navigationDepth,dateWindow,recentWindow} from "@/lib/chart/ranges";
 import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
@@ -129,9 +129,8 @@ export function useVelaChart(container: RefObject<HTMLDivElement | null>) {
         clearHover();
         setReplayBar(null);
         explicitRange.current=null;
-        const [vela, pine, plugins, fibonacci] = await Promise.all([
+        const [vela, plugins, fibonacci] = await Promise.all([
           import("@luxalgo/vela"),
-          import("@luxalgo/vela-pinets"),
           import("@/lib/orderflow/velaPlugins"),
           import("@/lib/drawings/fibonacciPlugin"),
         ]);
@@ -173,9 +172,7 @@ export function useVelaChart(container: RefObject<HTMLDivElement | null>) {
         );
         feeds.current.set(instance, trackedFeed);
         off.push(bindReplayClock(instance));
-        const engine = new pine.PineWorkerEngine(pineEngineOptions());
-        terminatePine = () => engine.terminate();
-        instance.registerEngine("pine", engine);
+        terminatePine = bindPineEngine(instance);
         instance.renderer.set({ attribution: true, indicatorTitles: false });
         off.push(instance.on("history:complete",report=>{if(instance&&!disposed)nativeHistory.current={chart:instance,...report};}));
         off.push(bindPriceScale(instance, container.current, priceScaleHost(useWorkspaceStore.getState().activeId)));
