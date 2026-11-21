@@ -1,5 +1,8 @@
 "use client";
 import { memo, useCallback, useEffect, useMemo, useState, useSyncExternalStore, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
+import { ChevronDown, CircleHelp, SlidersHorizontal } from "lucide-react";
+import { Modal } from "./ui";
 import { useChartStore } from "@/stores/useChartStore";
 import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
 import { bookLastTrade, captureTimeSales, combineTapeRows, countNewRetainedTrades, filterTimeSales, timeSalesCsv, timeSalesHighlight, timeSalesMinuteBalance, timeSalesPage, timeSalesTotals, validTapeFilters } from "@/lib/orderflow/timeSales";
@@ -32,6 +35,8 @@ import { formatOrderflowAmount as number } from "@/lib/orderflow/formatAmount";
 const LIVE_TAPE_REFRESH_MS = 100;
 const emptyRevision = () => 0;
 export function OrderFlowPanel() {
+  const [pane, setPane] = useState<"tape" | "book">("tape");
+  const [tapeDialog, setTapeDialog] = useState<"settings" | "details" | null>(null);
   const [preferences, setPreferences] = useState(defaultTapePreferences);
   const { tapeView, milliseconds, combine, pauseOnHover, sizeDisplay, highlightAt, highlightMode, highlightMultiplier, side, unit, minimum, maximumValue } = preferences;
   useEffect(() => {
@@ -120,7 +125,7 @@ export function OrderFlowPanel() {
   const combined = useMemo(() => combine && !clusterInterval && snapshot
     ? combineTapeRows(snapshot.trades, new Set(matching)) : null, [combine, clusterInterval, matching, snapshot]);
   const displayedPage = useMemo(() => timeSalesPage(combined ?? matching, page), [combined, matching, page]);
-  const totals = useMemo(() => matching.length ? timeSalesTotals(matching) : null, [matching]);
+  const totals = useMemo(() => tapeDialog === "details" && matching.length ? timeSalesTotals(matching) : null, [matching, tapeDialog]);
   const minuteBalance = useMemo(() => snapshot ? timeSalesMinuteBalance(snapshot) : null, [snapshot]);
   const latest = snapshot?.trades[0], about = describeSymbol(symbol);
   const bookTrades = current.key === key ? current.value?.trades : undefined;
@@ -159,109 +164,141 @@ export function OrderFlowPanel() {
     const csv = clusterInterval ? timeSalesClustersCsv(snapshot, filters, clusterInterval) : timeSalesCsv(snapshot, filters);
     downloadFile(filename, csv, "text/csv;charset=utf-8");
   };
-  return <div className="orderflow-panel detailed-orderflow">
-    <ObservedOrderBook symbol={symbol} timeframe={timeframe} mode={mode} source={source} replay={replay}
-      replayReady={replayReady} simulated={simulated} through={through} depthKey={depthKey} trades={bookTrades}
-      currentContext={currentContext} drawPriceLevel={drawPriceLevel} />
-    <section className="trade-tape" aria-label="Time and sales" style={{
-      "--tape-buy": tapeStyle.bid,
-      "--tape-sell": tapeStyle.ask,
-      "--tape-font": `${tapeStyle.text}px`,
-      "--tape-row": `${tapeStyle.row}px`,
-    } as CSSProperties}>
-      <div className="orderflow-title"><strong>Time &amp; sales · {symbol}</strong><span>{replay ? "RECORDED REPLAY" : simulated ? "SIMULATED" : "OBSERVED EXECUTIONS"}</span></div>
-      <div className="tape-controls">
-        {!clusterInterval && <label><input type="checkbox" checked={milliseconds} onChange={e => updatePreferences({ milliseconds: e.target.checked })} /> Milliseconds</label>}
-        {!clusterInterval && <label><input type="checkbox" checked={combine} onChange={e => { updatePreferences({ combine: e.target.checked }); setPage(0); }} /> Combine nearby trades</label>}
-        {!replay && <label><input type="checkbox" checked={pauseOnHover} onChange={e => { updatePreferences({ pauseOnHover: e.target.checked }); setHoveredTape(null); }} /> Pause on hover</label>}
-        <label>View<select aria-label="Tape view" value={tapeView} onChange={e => {
-          updatePreferences({ tapeView: e.target.value as typeof tapeView });
+  const filtered = side !== "all" || Number(minimum) > 0 || Number(maximumValue) > 0;
+  return <div className="orderflow-dock">
+    <div className="orderflow-panel detailed-orderflow" data-pane={pane}>
+      <header className="flow-nav">
+        <div className="flow-switch" role="group" aria-label="Order flow views">
+          <button type="button" className="button" aria-pressed={pane === "tape"} onClick={() => setPane("tape")}>Time &amp; sales</button>
+          <button type="button" className="button" aria-pressed={pane === "book"} onClick={() => setPane("book")}>Order book</button>
+        </div>
+        <details className="flow-chart-tools">
+          <summary>Chart tools <ChevronDown size={14} aria-hidden="true"/></summary>
+          <div>
+            <button type="button" className="button small" aria-pressed={type === "footprint"} onClick={() => useChartStore.getState().set({ chartType: type === "footprint" ? "candles" : "footprint" })}>Footprint</button>
+            <button type="button" className="button small" aria-pressed={type === "tpo"} onClick={() => useChartStore.getState().set({ chartType: type === "tpo" ? "candles" : "tpo" })}>TPO profile</button>
+          </div>
+        </details>
+      </header>
+      <section className="trade-tape" aria-label="Time and sales" style={{
+        "--tape-buy": tapeStyle.bid,
+        "--tape-sell": tapeStyle.ask,
+        "--tape-font": `${tapeStyle.text}px`,
+        "--tape-row": `${tapeStyle.row}px`,
+      } as CSSProperties}>
+        <div className="orderflow-title"><strong>Time &amp; sales · {symbol}</strong></div>
+        <div className="flow-actions">
+          <button type="button" className="button small" aria-label="Tape settings" aria-haspopup="dialog" onClick={() => setTapeDialog("settings")}>
+            <SlidersHorizontal size={14} aria-hidden="true"/>{filtered ? "Filters on" : "Filters"}
+          </button>
+          {!replay && <button className="button small" type="button" disabled={!snapshot} onClick={() => {
+            setFrozen(paused ? null : { key, value: snapshot! });
+            setHoveredTape(null);
+            setPage(0);
+          }}>{paused ? "Resume tape" : "Pause tape"}</button>}
+          <button type="button" className="button small" aria-label="Tape details" aria-haspopup="dialog" onClick={() => setTapeDialog("details")}>
+            <CircleHelp size={14} aria-hidden="true"/> Details
+          </button>
+        </div>
+        {!valid && !tapeDialog && <p className="flow-status" role="alert">Check the tape filter limits.</p>}
+        {sourceError ? <p className="flow-status" role="status">{sourceError}</p> : <div className="flow-status tape-summary">
+          <span>{paused ? "Paused · " : hoverPaused ? "Held · " : ""}{replay ? "Recorded" : simulated ? "Simulation" : "Observed"} · {matching.length.toLocaleString("en-US")} trades</span>
+          {!replay && latest && <TapeTradeAge time={latest.time} />}
+        </div>}
+        {minuteBalance && <div className="tape-minute-balance">
+          <div className="depth-balance-labels"><span className="positive">Buy {(minuteBalance.buyShare * 100).toFixed(1)}% · {number(minuteBalance.buy)}</span><span className="negative">Sell {((1 - minuteBalance.buyShare) * 100).toFixed(1)}% · {number(minuteBalance.sell)}</span></div>
+          <div className="depth-balance-track" aria-hidden="true"><span style={{ width: `${minuteBalance.buyShare * 100}%` }}/></div>
+
+        </div>}
+        {(!replay || snapshot) && (clusterInterval ?
+          <div onPointerEnter={event => { if (event.pointerType === "mouse" && !replay && pauseOnHover && !paused && snapshot) setHoveredTape({ key, value: snapshot }); }} onPointerLeave={() => setHoveredTape(null)}><TapeClusterTable rows={clusters} page={page} onPage={setPage}/></div> : <>
+          <div className="filtered-tape-table" onPointerEnter={event => { if (event.pointerType === "mouse" && !replay && pauseOnHover && !paused && snapshot) setHoveredTape({ key, value: snapshot }); }} onPointerLeave={() => setHoveredTape(null)}><table aria-label="Filtered time and sales"><thead><tr><th>Time (UTC)</th><th>Price</th>{sizeDisplay !== "value" && <th><span className="tape-wide-label">Quantity</span><span className="tape-compact-label">{sizeDisplay === "both" ? "Size / value" : "Size"}</span></th>}{sizeDisplay !== "quantity" && <th className={sizeDisplay === "both" ? "tape-value-separate" : undefined}>Value</th>}<th>Side</th><th className="tape-print-count">Prints</th></tr></thead><tbody>
+            {displayedPage.trades.map(trade => {
+              const value = trade.price * trade.quantity;
+              const tier = highlight && Number.isFinite(value) ? value >= highlight.block ? "Block" : value >= highlight.large ? "Large" : null : null;
+              return <TapeTradeRow key={trade.id} trade={trade} quote={about.quote} tier={tier}
+                milliseconds={milliseconds} sizeDisplay={sizeDisplay} replay={replay} contextKey={key} drawTrade={drawTrade} />;
+            })}
+          </tbody></table></div>
+
+          {!matching.length && <p className="form-help">No retained executions match these filters. This does not mean zero market volume.</p>}
+          <div className="tape-pagination"><button className="button small" type="button" disabled={!displayedPage.page} onClick={() => setPage(displayedPage.page - 1)}>Previous trades</button><span>Page {displayedPage.page + 1} of {displayedPage.pages} · 100 / page</span><button className="button small" type="button" disabled={displayedPage.page + 1 >= displayedPage.pages} onClick={() => setPage(displayedPage.page + 1)}>Next trades</button></div>
+        </>)}
+        {paused && newWhilePaused > 0 && <button className="button small" type="button" onClick={() => {
+          setFrozen(null);
           setHoveredTape(null);
           setPage(0);
-        }}>
-          <option value="trades">Executions</option><option value="second">1s clusters</option><option value="minute">1m clusters</option>
-        </select></label>
-        <label>Side<select aria-label="Trade side filter" value={side} onChange={e => { updateFilters({ side: e.target.value as TimeSalesFilters["side"] }); }}><option value="all">All</option><option value="buy">Aggressor buys</option><option value="sell">Aggressor sells</option></select></label>
-        <label>Trade value preset ({about.quote || "quote"})<select value={unit === "price-times-quantity" && !Number(maximumValue) && ["0", "1000", "10000", "50000", "100000", "1000000"].includes(minimum) ? minimum : "custom"} onChange={e => {
-          updateFilters({ unit: "price-times-quantity", minimum: e.target.value, maximumValue: "" });
-        }}>
-          <option value="custom" disabled>Custom</option>
-          <option value="0">All sizes</option>
-          <option value="1000">1K+</option>
-          <option value="10000">10K+</option>
-          <option value="50000">50K+</option>
-          <option value="100000">100K+</option>
-          <option value="1000000">1M+</option>
-        </select></label>
-        <label>Minimum size<input aria-label="Minimum trade size" type="number" min="0" step="any" value={minimum} onChange={e => { updateFilters({ minimum: e.target.value }); }}/></label>
-        <label>Maximum value ({about.quote || "quote"})<input aria-label="Maximum trade value" type="number" min="0" step="any" placeholder="Unlimited" value={maximumValue} onChange={e => { updateFilters({ maximumValue: e.target.value }); }}/></label>
-        {!clusterInterval && <>
-          <label>Trade highlights<select value={highlightMode} onChange={e => updatePreferences({ highlightMode: e.target.value as typeof highlightMode })}><option value="off">Off</option><option value="fixed">Fixed</option><option value="auto">Automatic</option></select></label>
-          {highlightMode === "fixed" && <label>Highlight at ({about.quote || "quote"})<input aria-label="Highlight trade value threshold" type="number" min="0" step="any" placeholder="Off" value={highlightAt} onChange={e => updatePreferences({ highlightAt: e.target.value })} /></label>}
-          {highlightMode === "auto" && <label>Mean trade value multiplier<select value={highlightMultiplier} onChange={e => updatePreferences({ highlightMultiplier: Number(e.target.value) })}>{tapeHighlightMultipliers.map(n => <option key={n} value={n}>{n}×</option>)}</select></label>}
+        }}>Resume with {newWhilePaused.toLocaleString("en-US")} new retained {newWhilePaused === 1 ? "observation" : "observations"}</button>}
+
+      </section>
+      <ObservedOrderBook symbol={symbol} timeframe={timeframe} mode={mode} source={source} replay={replay}
+        replayReady={replayReady} simulated={simulated} through={through} depthKey={depthKey} trades={bookTrades}
+        currentContext={currentContext} drawPriceLevel={drawPriceLevel} />
+    </div>
+    {tapeDialog && createPortal(<Modal title={tapeDialog === "settings" ? "Tape filters & display" : "Tape details"} className="flow-settings-dialog" onClose={() => setTapeDialog(null)}>
+      <div className="form-body flow-settings-body">
+        {tapeDialog === "settings" ? <>
+          <div className="flow-option-fields">
+            {!clusterInterval && <label><input type="checkbox" checked={milliseconds} onChange={e => updatePreferences({ milliseconds: e.target.checked })} /> Milliseconds</label>}
+            {!clusterInterval && <label><input type="checkbox" checked={combine} onChange={e => { updatePreferences({ combine: e.target.checked }); setPage(0); }} /> Combine nearby trades</label>}
+            {!replay && <label><input type="checkbox" checked={pauseOnHover} onChange={e => { updatePreferences({ pauseOnHover: e.target.checked }); setHoveredTape(null); }} /> Pause on hover</label>}
+            <label>Trade grouping<select aria-label="Tape view" value={tapeView} onChange={e => {
+              updatePreferences({ tapeView: e.target.value as typeof tapeView });
+              setHoveredTape(null);
+              setPage(0);
+            }}>
+              <option value="trades">Executions</option><option value="second">1s clusters</option><option value="minute">1m clusters</option>
+            </select></label>
+            <label>Side<select aria-label="Trade side filter" value={side} onChange={e => { updateFilters({ side: e.target.value as TimeSalesFilters["side"] }); }}><option value="all">All</option><option value="buy">Aggressor buys</option><option value="sell">Aggressor sells</option></select></label>
+            <label>Trade value preset ({about.quote || "quote"})<select value={unit === "price-times-quantity" && !Number(maximumValue) && ["0", "1000", "10000", "50000", "100000", "1000000"].includes(minimum) ? minimum : "custom"} onChange={e => {
+              updateFilters({ unit: "price-times-quantity", minimum: e.target.value, maximumValue: "" });
+            }}>
+              <option value="custom" disabled>Custom</option>
+              <option value="0">All sizes</option>
+              <option value="1000">1K+</option>
+              <option value="10000">10K+</option>
+              <option value="50000">50K+</option>
+              <option value="100000">100K+</option>
+              <option value="1000000">1M+</option>
+            </select></label>
+            <label>Minimum size<input aria-label="Minimum trade size" type="number" min="0" step="any" value={minimum} onChange={e => { updateFilters({ minimum: e.target.value }); }}/></label>
+            <label>Maximum value ({about.quote || "quote"})<input aria-label="Maximum trade value" type="number" min="0" step="any" placeholder="Unlimited" value={maximumValue} onChange={e => { updateFilters({ maximumValue: e.target.value }); }}/></label>
+            {!clusterInterval && <>
+              <label>Trade highlights<select value={highlightMode} onChange={e => updatePreferences({ highlightMode: e.target.value as typeof highlightMode })}><option value="off">Off</option><option value="fixed">Fixed</option><option value="auto">Automatic</option></select></label>
+              {highlightMode === "fixed" && <label>Highlight at ({about.quote || "quote"})<input aria-label="Highlight trade value threshold" type="number" min="0" step="any" placeholder="Off" value={highlightAt} onChange={e => updatePreferences({ highlightAt: e.target.value })} /></label>}
+              {highlightMode === "auto" && <label>Mean trade value multiplier<select value={highlightMultiplier} onChange={e => updatePreferences({ highlightMultiplier: Number(e.target.value) })}>{tapeHighlightMultipliers.map(n => <option key={n} value={n}>{n}×</option>)}</select></label>}
+            </>}
+            <label>Filter unit<select aria-label="Trade size unit" value={unit} onChange={e => { updateFilters({ unit: e.target.value as TimeSalesFilters["unit"] }); }}><option value="quantity">Provider quantity</option><option value="price-times-quantity">Price × quantity</option></select></label>
+            <button type="button" className="button small" disabled={side === "all" && unit === "quantity" && minimum === "0" && maximumValue === ""} onClick={() => {
+              const { side, unit, minimum, maximumValue } = defaultTapePreferences;
+              updateFilters({ side, unit, minimum, maximumValue });
+            }}>Reset trade filters</button>
+            {!clusterInterval && <label>Size columns<select value={sizeDisplay} onChange={e => updatePreferences({ sizeDisplay: e.target.value as typeof sizeDisplay })}><option value="both">Quantity and value</option><option value="quantity">Quantity</option><option value="value">Price × quantity</option></select></label>}
+            <button className="button small" type="button" disabled={!snapshot || !valid} onClick={exportTape}>{paused ? "Export paused tape CSV" : clusterInterval ? "Export tape clusters CSV" : "Export filtered trades CSV"}</button>
+          </div>
+          {!valid && <p className="form-help" role="alert">Use finite, nonnegative limits. A maximum must be at least the minimum.</p>}
+        </> : <>
+          <p className="form-help">{tapeStatus}</p>
+          {!clusterInterval && highlightMode === "auto" && <p className="form-help">{highlight ? `Large ≥ ${number(highlight.large)} · Block ≥ ${number(highlight.block)} ${about.quote}` : "Automatic highlighting requires at least 30 usable observations."} Based on the unfiltered tape.</p>}
+          {minuteBalance && <p className="form-help">Observed price × quantity ({about.quote || "provider units"}) · Unfiltered 60s through {new Date(minuteBalance.through).toISOString()}</p>}
+          {clusterInterval && <p className="form-help">{clusters.length} observed UTC windows. Filters apply to executions before grouping. Delta is buy quantity minus sell quantity. Empty windows and missing periods remain unknown.</p>}
+          {combined && <p className="form-help">Consecutive matching trades in the original tape share a row when they have the same price and side and occur in the same millisecond on Binance or within 10 ms on other feeds and in simulation. Grouping is an estimate. CSV exports individual observations.</p>}
+          <p className="form-help">{replay ? "Recorded archive prefix: at most 100,000 selected observations. Use chart Replay controls to advance or pause. This is completed-candle review, not original-arrival or tick-by-tick playback." : "Rolling buffer: at most 5,000 observed executions, not full session history. Pausing freezes only this tape; collection continues."} CSV includes all filtered source rows, not just this page. Price × quantity is a raw product in provider units, not a verified contract turnover. All displayed times are UTC.</p>
+          {totals && (() => {
+            const buyNum = Number(totals.buyVolume), sellNum = Number(totals.sellVolume), totalNum = buyNum + sellNum;
+            const deltaPct = Number.isFinite(totalNum) && totalNum > 0 ? Number(totals.delta) / totalNum * 100 : null;
+            return <div className="flow-totals" aria-label="Totals across all matching executions">
+              <span className="positive">Buy quantity <strong>{totals.buyVolume}</strong> ({totals.buys} observations)</span>
+              <span className="negative">Sell quantity <strong>{totals.sellVolume}</strong> ({totals.sells} observations)</span>
+              <span>Quantity delta <strong>{totals.delta}</strong>{deltaPct !== null ? <> (<strong className={deltaPct > 0 ? "positive" : deltaPct < 0 ? "negative" : ""}>{deltaPct > 0 ? "+" : ""}{deltaPct.toFixed(1)}%</strong>)</> : null}</span>
+              <span>Weighted buy price <strong>{totals.buyAverage === null ? "—" : `${number(totals.buyAverage)} ${about.quote}`}</strong></span>
+              <span>Weighted sell price <strong>{totals.sellAverage === null ? "—" : `${number(totals.sellAverage)} ${about.quote}`}</strong></span>
+              <span>All matching executions · provider units</span>
+            </div>;
+          })()}
         </>}
-        <label>Filter unit<select aria-label="Trade size unit" value={unit} onChange={e => { updateFilters({ unit: e.target.value as TimeSalesFilters["unit"] }); }}><option value="quantity">Provider quantity</option><option value="price-times-quantity">Price × quantity</option></select></label>
-        <button type="button" className="button small" disabled={side === "all" && unit === "quantity" && minimum === "0" && maximumValue === ""} onClick={() => {
-          const { side, unit, minimum, maximumValue } = defaultTapePreferences;
-          updateFilters({ side, unit, minimum, maximumValue });
-        }}>Reset trade filters</button>
-        {!clusterInterval && <label>Size columns<select value={sizeDisplay} onChange={e => updatePreferences({ sizeDisplay: e.target.value as typeof sizeDisplay })}><option value="both">Quantity and value</option><option value="quantity">Quantity</option><option value="value">Price × quantity</option></select></label>}
-        {!replay && <button className="button small" type="button" disabled={!snapshot} onClick={() => {
-          setFrozen(paused ? null : { key, value: snapshot! });
-          setHoveredTape(null);
-          setPage(0);
-        }}>{paused ? "Resume tape" : "Pause tape"}</button>}
-        <button className="button small" type="button" disabled={!snapshot || !valid} onClick={exportTape}>{paused ? "Export paused tape CSV" : clusterInterval ? "Export tape clusters CSV" : "Export filtered trades CSV"}</button>
       </div>
-      {!valid && <p className="error-message screener-error" role="alert">Use finite, nonnegative limits. For price × quantity, an enabled maximum must be at least the minimum.</p>}
-      <p className="form-help" role="status">{tapeStatus}{!replay && !sourceError && (latest
-        ? <TapeTradeAge time={latest.time} /> : "Waiting for matching classified trades; this source may supply none.")}</p>
-      {!clusterInterval && highlightMode === "auto" && <p className="form-help">{highlight ? `Large ≥ ${number(highlight.large)} · Block ≥ ${number(highlight.block)} ${about.quote}` : "Automatic highlighting requires at least 30 usable observations."} Based on the unfiltered tape snapshot.</p>}
-      {minuteBalance && <div className="tape-minute-balance">
-        <div className="depth-balance-labels"><span className="positive">Buy {(minuteBalance.buyShare * 100).toFixed(1)}% · {number(minuteBalance.buy)}</span><span className="negative">Sell {((1 - minuteBalance.buyShare) * 100).toFixed(1)}% · {number(minuteBalance.sell)}</span></div>
-        <div className="depth-balance-track" aria-hidden="true"><span style={{ width: `${minuteBalance.buyShare * 100}%` }}/></div>
-        <p className="form-help">Observed price × quantity ({about.quote || "provider units"}) · Unfiltered 60s through {new Date(minuteBalance.through).toISOString()}</p>
-      </div>}
-      {hoverPaused && !paused && <p className="form-help" role="status">Tape paused while the pointer is over the list.</p>}
-      {totals && (() => {
-        const buyNum = Number(totals.buyVolume), sellNum = Number(totals.sellVolume), totalNum = buyNum + sellNum;
-        const deltaPct = Number.isFinite(totalNum) && totalNum > 0 ? Number(totals.delta) / totalNum * 100 : null;
-        return <div className="tape-controls" aria-label="Totals across all matching executions">
-          <span className="positive">Buy quantity <strong>{totals.buyVolume}</strong> ({totals.buys} observations)</span>
-          <span className="negative">Sell quantity <strong>{totals.sellVolume}</strong> ({totals.sells} observations)</span>
-          <span>Quantity delta <strong>{totals.delta}</strong>{deltaPct !== null ? <> (<strong className={deltaPct > 0 ? "positive" : deltaPct < 0 ? "negative" : ""}>{deltaPct > 0 ? "+" : ""}{deltaPct.toFixed(1)}%</strong>)</> : null}</span>
-          <span>Weighted buy price <strong>{totals.buyAverage === null ? "—" : `${number(totals.buyAverage)} ${about.quote}`}</strong></span>
-          <span>Weighted sell price <strong>{totals.sellAverage === null ? "—" : `${number(totals.sellAverage)} ${about.quote}`}</strong></span>
-          <span>All matching executions · provider units</span>
-        </div>;
-      })()}
-      {(!replay || snapshot) && (clusterInterval ? <>
-        <p className="form-help">{clusters.length} observed UTC windows. Filters apply to executions before grouping. Delta is buy quantity minus sell quantity. Empty windows and missing periods remain unknown.</p>
-        <div onPointerEnter={event => { if (event.pointerType === "mouse" && !replay && pauseOnHover && !paused && snapshot) setHoveredTape({ key, value: snapshot }); }} onPointerLeave={() => setHoveredTape(null)}><TapeClusterTable rows={clusters} page={page} onPage={setPage}/></div>
-      </> : <>
-        <div className="filtered-tape-table" onPointerEnter={event => { if (event.pointerType === "mouse" && !replay && pauseOnHover && !paused && snapshot) setHoveredTape({ key, value: snapshot }); }} onPointerLeave={() => setHoveredTape(null)}><table aria-label="Filtered time and sales"><thead><tr><th>UTC execution time</th><th>Price</th>{sizeDisplay !== "value" && <th>Quantity</th>}{sizeDisplay !== "quantity" && <th>Price × quantity</th>}<th>Aggressor</th><th>Underlying prints</th></tr></thead><tbody>
-          {displayedPage.trades.map(trade => {
-            const value = trade.price * trade.quantity;
-            const tier = highlight && Number.isFinite(value) ? value >= highlight.block ? "Block" : value >= highlight.large ? "Large" : null : null;
-            return <TapeTradeRow key={trade.id} trade={trade} quote={about.quote} tier={tier}
-              milliseconds={milliseconds} sizeDisplay={sizeDisplay} replay={replay} contextKey={key} drawTrade={drawTrade} />;
-          })}
-        </tbody></table></div>
-        {combined && <p className="form-help">Consecutive matching trades in the original tape share a row when they have the same price and side and occur in the same millisecond on Binance or within 10 ms on other feeds and in simulation. Grouping is an estimate. CSV exports individual observations.</p>}
-        {!matching.length && <p className="form-help">No retained executions match these filters. This does not mean zero market volume.</p>}
-        <div className="tape-pagination"><button className="button small" type="button" disabled={!displayedPage.page} onClick={() => setPage(displayedPage.page - 1)}>Previous trades</button><span>Page {displayedPage.page + 1} of {displayedPage.pages} · 100 per page</span><button className="button small" type="button" disabled={displayedPage.page + 1 >= displayedPage.pages} onClick={() => setPage(displayedPage.page + 1)}>Next trades</button></div>
-      </>)}
-      {paused && newWhilePaused > 0 && <button className="button small" type="button" onClick={() => {
-        setFrozen(null);
-        setHoveredTape(null);
-        setPage(0);
-      }}>Resume with {newWhilePaused.toLocaleString("en-US")} new retained {newWhilePaused === 1 ? "observation" : "observations"}</button>}
-      <p className="form-help">{replay ? "Recorded archive prefix: at most 100,000 selected observations. Use chart Replay controls to advance or pause. This is completed-candle review, not original-arrival or tick-by-tick playback." : "Rolling buffer: at most 5,000 observed executions, not full session history. Pausing freezes only this tape; collection continues."} CSV includes all filtered source rows, not just this page. Price × quantity is a raw product in provider units, not a verified contract turnover. All displayed times are UTC.</p>
-    </section>
-    <section className="orderflow-actions"><strong>See inside the candle</strong><p>Footprint and CVD use classified observations. TPO uses candle-derived price opportunities.</p>
-      <div><button className={`button small ${type === "footprint" ? "primary" : ""}`} onClick={() => useChartStore.getState().set({ chartType: type === "footprint" ? "candles" : "footprint" })}>Footprint</button><button className={`button small ${type === "tpo" ? "primary" : ""}`} onClick={() => useChartStore.getState().set({ chartType: type === "tpo" ? "candles" : "tpo" })}>TPO profile</button></div>
-      <small>Native Footprint retains up to 100,000 executions per market and evicts whole candles. Explicit archive selections can restore observed historical trades. Missing execution history remains unknown; simulation is separate.</small>
-    </section>
+    </Modal>, document.getElementById("native-chart-dialog-host") ?? document.body)}
   </div>;
 }
 
@@ -290,13 +327,16 @@ const TapeTradeRow = memo(function TapeTradeRow({
       {actions => <button type="button" className="button small" aria-label={`Draw trade price ${trade.price} ${quote}`}
         onClick={draw} {...actions}>{String(trade.price)}</button>}
     </PriceLevelMenu></td>
-    {sizeDisplay !== "value" && <td>{number(trade.quantity)}</td>}
-    {sizeDisplay !== "quantity" && <td>{Number.isFinite(value) ? number(value) : "—"}</td>}
+    {sizeDisplay !== "value" && <td>{number(trade.quantity)}
+      {sizeDisplay === "both" && <small className="tape-compact-label" title={`Notional in ${quote}`}>{Number.isFinite(value) ? number(value) : "—"}</small>}
+    </td>}
+    {sizeDisplay !== "quantity" && <td className={sizeDisplay === "both" ? "tape-value-separate" : undefined}>{Number.isFinite(value) ? number(value) : "—"}</td>}
     <td className={side}>{trade.side === "buy" ? "Buy" : "Sell"}
       {(trade.observations ?? 0) > 1 && <small> · {trade.observations} observations</small>}
       {tier && <span className="tape-highlight-label"> {tier}</span>}
+      {trade.tradeCount !== undefined && <small className="tape-compact-label">{trade.tradeCount} {trade.tradeCount === 1 ? "print" : "prints"}</small>}
     </td>
-    <td>{trade.tradeCount ?? "—"}</td>
+    <td className="tape-print-count">{trade.tradeCount ?? "—"}</td>
   </tr>;
 });
 
@@ -306,7 +346,7 @@ function TapeTradeAge({ time }: { time: number }) {
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
-  return <>Last observed {new Date(time).toISOString()} · {Math.max(0, Math.floor((now - time) / 1000))}s ago.</>;
+  return <time dateTime={new Date(time).toISOString()} title={new Date(time).toISOString()}>{Math.max(0, Math.floor((now - time) / 1000))}s ago</time>;
 }
 
 interface ObservedOrderBookProps {
@@ -425,68 +465,50 @@ const ObservedOrderBook = memo(function ObservedOrderBook({
   };
   return (
     <section className="orderbook" aria-label="Observed order book">
-      {canCombineBooks && <label><input type="checkbox" checked={combineBooks} onChange={event => {
-        if (!combinedBase) return;
-        const workspace = useWorkspaceStore.getState();
-        const settings = workspace.domPreferences.book ?? defaultBookView();
-        const markets = (settings.combinedMarkets ?? []).filter(market => market !== combinedBase);
-        if (event.target.checked) markets.push(combinedBase);
-        workspace.setDomPreferences({ book: { ...settings, combinedMarkets: markets } });
-      }} /> Compare combined Binance and Kraken depth</label>}
-      {canCombineBooks && <label><input type="checkbox" checked={compareVenue} onChange={event => setCompareVenue(event.target.checked)} />
-        Show {binanceChart ? "Kraken" : "Binance"} depth separately
-      </label>}
-      {canCombineBooks && compareVenue && !pausedDepth && <section aria-label="Secondary venue order book">
-        <strong>{binanceChart ? "Kraken" : "Binance"} {krakenPair} depth</strong>
-        {comparisonReason || !comparisonBook ? <p role="status">{comparisonReason}</p>
-          : <BookView key={comparisonSymbol} book={comparisonBook} symbol={comparisonSymbol} base={combinedBase}
-            quote="USDT" contextKey={comparisonSymbol} live />}
-      </section>}
-      {combinedDepth && <section aria-label="Combined order book">
-        <strong>Combined {krakenPair} depth</strong>
-        {combinedDepth.value ? <>
-          <p className="form-help">
-            {combinedDepth.value.tick} USDT base increment · Received locally (UTC) ·{" "}
-            {combinedDepth.value.sources.map(({ symbol: market, time, bidLevels, askLevels }, index) => {
-              const timestamp = new Date(time).toISOString();
-              return <span key={market}>{index > 0 && " · "}
-                {market === binanceSymbol ? "Binance" : "Kraken"}{" "}
-                <time dateTime={timestamp} title={timestamp}>{timestamp.slice(11, 23)}</time>
-                {" "}({(Math.max(0, now - time) / 1000).toFixed(1)} s ago; {bidLevels} bid / {askLevels} ask levels received)
-              </span>;
-            })}{" · "}
-            {Math.abs(combinedDepth.value.sources[0].time - combinedDepth.value.sources[1].time).toLocaleString("en-US")} ms between receipts
-          </p>
-          <BookView key={depthKey} book={combinedDepth.value} symbol={symbol} base={combinedBase} quote="USDT" contextKey={depthKey} live={false} fixedTick={combinedDepth.value.tick} observedTop={combinedDepth.value.observedTop} />
-          <button type="button" className="button small" onClick={() => {
-            const now = Date.now();
-            const value = combinedDepth.value;
-            if (!value || !currentContext(null) || value.sources.some(source => depthTimestampStatus(source.time, now))) return;
-            downloadFile(`combined-depth-${combinedBase}-USDT.csv`, combinedBookCsv(value), "text/csv;charset=utf-8");
-          }}>Export combined depth CSV</button>
-        </> : <p role="status">{combinedDepth.error}</p>}
-      </section>}
       <div className="orderflow-title"><strong>Depth of market</strong><span>{depthReason ? "UNAVAILABLE" : replay ? "RECORDED TOP LEVELS" : pausedDepth ? "PAUSED SNAPSHOT" : "OBSERVED TOP LEVELS"}</span></div>
-      {!replay && !simulated && <button className="button small" type="button" disabled={!pausedDepth && !!depthReason} onClick={() => {
-        if (pausedDepth) {
-          setFrozenDepth(null);
-          return;
-        }
-        const capturedAt = Date.now();
-        if (!book || !currentContext(null) || depthBookStatus(book, { symbol, replay, simulation: simulated, now: capturedAt })) return;
-        const lastTrade = bookTrades && bookLastTrade(bookTrades, book.time);
-        setFrozenDepth({ key: depthKey, capturedAt, lastTrade, book: {
-          ...book, bids: book.bids.map(level => ({ ...level })), asks: book.asks.map(level => ({ ...level })),
-        } });
-      }}>{pausedDepth ? "Resume depth view" : "Pause depth view"}</button>}
-      {!replay && !simulated && <button className="button small" type="button" disabled={!recordingDepth && !!depthReason} onClick={() => {
-        replayDepth.recording = recordingDepth ? null : symbol;
-      }}>{recordingDepth ? "Pause depth capture" : "Capture depth for Replay"}</button>}
+      <div className="flow-actions">
+        {!replay && !simulated && <button className="button small" type="button" disabled={!pausedDepth && !!depthReason} onClick={() => {
+          if (pausedDepth) {
+            setFrozenDepth(null);
+            return;
+          }
+          const capturedAt = Date.now();
+          if (!book || !currentContext(null) || depthBookStatus(book, { symbol, replay, simulation: simulated, now: capturedAt })) return;
+          const lastTrade = bookTrades && bookLastTrade(bookTrades, book.time);
+          setFrozenDepth({ key: depthKey, capturedAt, lastTrade, book: {
+            ...book, bids: book.bids.map(level => ({ ...level })), asks: book.asks.map(level => ({ ...level })),
+          } });
+        }}>{pausedDepth ? "Resume depth view" : "Pause depth view"}</button>}
+        <details className="flow-book-actions">
+          <summary>Book options <ChevronDown size={14} aria-hidden="true"/></summary>
+          <div>
+            {canCombineBooks && <label><input type="checkbox" checked={combineBooks} onChange={event => {
+              if (!combinedBase) return;
+              const workspace = useWorkspaceStore.getState();
+              const settings = workspace.domPreferences.book ?? defaultBookView();
+              const markets = (settings.combinedMarkets ?? []).filter(market => market !== combinedBase);
+              if (event.target.checked) markets.push(combinedBase);
+              workspace.setDomPreferences({ book: { ...settings, combinedMarkets: markets } });
+            }} /> Compare combined Binance and Kraken depth</label>}
+            {canCombineBooks && <label><input type="checkbox" checked={compareVenue} onChange={event => setCompareVenue(event.target.checked)} />
+              Show {binanceChart ? "Kraken" : "Binance"} depth separately
+            </label>}
+            {!replay && !simulated && <button className="button small" type="button" disabled={!recordingDepth && !!depthReason} onClick={() => {
+              replayDepth.recording = recordingDepth ? null : symbol;
+            }}>{recordingDepth ? "Pause depth capture" : "Capture depth for Replay"}</button>}
+            {metrics && <label>Balance depth <select aria-label="Depth balance levels" value={depthLevels} onChange={event => setDepthLevels(Number(event.target.value))}>
+              <option value={1}>Top 1</option><option value={3}>Top 3</option><option value={6}>Top 6</option>
+            </select></label>}
+            {!depthReason && <button className="button small" type="button" onClick={exportDepth}>Export depth snapshot CSV</button>}
+            <p className="form-help">Depth capture saves up to one book per second locally for 10 minutes. Replay uses samples before the completed candle boundary.</p>
+            {recordingDepth && <p className="form-help" role="status">Depth capture is active.</p>}
+            {replayDepth.storageError && <p className="form-help" role="status">{replayDepth.storageError}</p>}
+          </div>
+        </details>
+        {recordingDepth && <span className="flow-status">Recording depth</span>}
+      </div>
       {depthReason ? <p className="depth-empty" role="status">{depthReason}</p> : <>
         {metrics && <div className="depth-summary">
-          <label>Depth balance <select aria-label="Depth balance levels" value={depthLevels} onChange={event => setDepthLevels(Number(event.target.value))}>
-            <option value={1}>Top 1</option><option value={3}>Top 3</option><option value={6}>Top 6</option>
-          </select></label>
           <div className="depth-balance-track" aria-hidden="true"><span style={{ width: `${metrics.bidShare * 100}%` }}/></div>
           <div className="depth-balance-labels">
             <span className="positive">Bid {(metrics.bidShare * 100).toFixed(1)}%</span>
@@ -521,15 +543,42 @@ const ObservedOrderBook = memo(function ObservedOrderBook({
             style: { lineColor: color, fillColor: color, fillOpacity: .15 },
           });
         }}/>
-        <button className="button small" type="button" onClick={exportDepth}>Export depth snapshot CSV</button>
         <p className="form-help">
           {pausedDepth && `Paused at ${new Date(pausedDepth.capturedAt).toISOString()}. `}
           {recordedDepth ? `Received ${new Date(recordedDepth.observedAt).toISOString()}. Snapshot ${new Date(recordedDepth.exchangeTime).toISOString()}. ` : `Snapshot ${new Date((pausedDepth?.book ?? book)!.time).toISOString()}. `}
           Observed top levels only.
         </p>
       </>}
-      <p className="form-help">Capture saves up to one book per second locally for 10 minutes. Allow a few seconds for recent samples to save before reloading. Replay uses samples before the completed candle boundary.</p>
-      {replayDepth.storageError && <p className="form-help" role="status">{replayDepth.storageError}</p>}
+      {canCombineBooks && compareVenue && !pausedDepth && <section aria-label="Secondary venue order book">
+        <strong>{binanceChart ? "Kraken" : "Binance"} {krakenPair} depth</strong>
+        {comparisonReason || !comparisonBook ? <p role="status">{comparisonReason}</p>
+          : <BookView key={comparisonSymbol} book={comparisonBook} symbol={comparisonSymbol} base={combinedBase}
+            quote="USDT" contextKey={comparisonSymbol} live />}
+      </section>}
+      {combinedDepth && <section aria-label="Combined order book">
+        <strong>Combined {krakenPair} depth</strong>
+        {combinedDepth.value ? <>
+          <p className="form-help">
+            {combinedDepth.value.tick} USDT base increment · Received locally (UTC) ·{" "}
+            {combinedDepth.value.sources.map(({ symbol: market, time, bidLevels, askLevels }, index) => {
+              const timestamp = new Date(time).toISOString();
+              return <span key={market}>{index > 0 && " · "}
+                {market === binanceSymbol ? "Binance" : "Kraken"}{" "}
+                <time dateTime={timestamp} title={timestamp}>{timestamp.slice(11, 23)}</time>
+                {" "}({(Math.max(0, now - time) / 1000).toFixed(1)} s ago; {bidLevels} bid / {askLevels} ask levels received)
+              </span>;
+            })}{" · "}
+            {Math.abs(combinedDepth.value.sources[0].time - combinedDepth.value.sources[1].time).toLocaleString("en-US")} ms between receipts
+          </p>
+          <BookView key={depthKey} book={combinedDepth.value} symbol={symbol} base={combinedBase} quote="USDT" contextKey={depthKey} live={false} fixedTick={combinedDepth.value.tick} observedTop={combinedDepth.value.observedTop} />
+          <button type="button" className="button small" onClick={() => {
+            const now = Date.now();
+            const value = combinedDepth.value;
+            if (!value || !currentContext(null) || value.sources.some(source => depthTimestampStatus(source.time, now))) return;
+            downloadFile(`combined-depth-${combinedBase}-USDT.csv`, combinedBookCsv(value), "text/csv;charset=utf-8");
+          }}>Export combined depth CSV</button>
+        </> : <p role="status">{combinedDepth.error}</p>}
+      </section>}
     </section>
   );
 });

@@ -319,6 +319,122 @@
 .goto-date-modal { width: min(440px,95vw); }
 .goto-date-modal .panel-tabs { padding: 0 18px; }
 .goto-date-fields { display: grid; grid-template-columns: 1.5fr 1fr; gap: 12px; }
+
+/* The dock owns the height. Each active market view has one scrolling area. */
+.bottom-panel.expanded:is([data-tab="orderflow"], [data-tab="dom"]) > .bottom-panel-content { overflow: hidden; }
+.bottom-panel[data-tab="orderflow"]:has(.orderflow-dock) > .bottom-panel-content { height: var(--panel-height, 370px); }
+.orderflow-dock { container-type: inline-size; height: 100%; min-height: 0; }
+.orderflow-dock > .detailed-orderflow {
+  height: 100%; min-height: 0; padding: 0; gap: 0;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+}
+.flow-nav {
+  grid-column: 1 / -1; display: flex; justify-content: flex-end; align-items: center;
+  gap: 8px; padding: 4px 12px; border-bottom: 1px solid var(--border);
+}
+.flow-switch { display: none; }
+.flow-chart-tools { position: relative; margin-left: auto; }
+:is(.flow-chart-tools, .flow-book-actions, .book-display-settings) > summary {
+  display: flex; align-items: center; gap: 5px; width: fit-content; cursor: pointer;
+  min-height: 28px; color: var(--text); font-size: 11px; list-style: none; padding: 0 6px;
+}
+:is(.flow-chart-tools, .flow-book-actions, .book-display-settings) > summary::-webkit-details-marker { display: none; }
+.flow-chart-tools > div {
+  display: flex; flex-direction: column; gap: 4px; position: absolute; z-index: 3; inset: calc(100% + 4px) 0 auto auto;
+  min-width: 126px; padding: 5px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface);
+  box-shadow: 0 6px 16px #0004;
+}
+.detailed-orderflow > :is(.trade-tape, .orderbook) {
+  min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain;
+  padding: 9px 12px; border: 0;
+}
+.detailed-orderflow > .trade-tape { border-inline-end: 1px solid var(--border); container: tape / inline-size; }
+.detailed-orderflow .orderflow-title { margin: 0 0 6px; }
+:is(.detailed-orderflow, .dom-heading) .orderflow-title strong { font-size: 13px; font-weight: 650; }
+:is(.detailed-orderflow, .dom-heading) .orderflow-title > span { font-size: 10px; color: var(--muted); }
+.flow-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; }
+.flow-actions .button { display: inline-flex; align-items: center; justify-content: center; gap: 4px; white-space: nowrap; }
+:is(.flow-switch, .flow-chart-tools, .flow-actions) .button[aria-pressed="true"] {
+  background: var(--tv-hover); color: var(--text); border-color: var(--accent);
+}
+.flow-status { margin: 6px 0; font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+.tape-summary { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 10px; font-variant-numeric: tabular-nums; }
+.detailed-orderflow .tape-minute-balance { margin-block: 6px; }
+.detailed-orderflow .tape-minute-balance .depth-balance-labels { font-size: 11px; }
+.filtered-tape-table th { position: sticky; top: -9px; z-index: 1; background: var(--surface); color: var(--muted); font-weight: 500; }
+.filtered-tape-table :is(td, th) { overflow: hidden; text-overflow: ellipsis; }
+.filtered-tape-table td button { max-width: 100%; overflow: hidden; text-overflow: ellipsis; padding-inline: 4px; }
+.filtered-tape-table td small { color: var(--muted); font-size: 9px; }
+.detailed-orderflow .tape-cluster-table table { min-width: 760px; }
+.tape-compact-label { display: none; }
+.tape-pagination { justify-content: space-between; }
+.depth-empty { color: var(--muted); font-size: 12px; line-height: 1.5; padding-top: 8px; }
+.flow-book-actions > div, .book-display-settings[open] { padding-block: 4px; }
+.flow-book-actions[open] { flex-basis: 100%; }
+.flow-book-actions > div { display: grid; gap: 7px; min-width: 0; }
+.flow-book-actions label { font-size: 11px; color: var(--muted); }
+.flow-book-actions button { justify-self: start; }
+.book-display-settings { margin-top: 6px; border-top: 1px solid var(--border); }
+.book-price .button {
+  max-width: 100%; height: var(--book-row); min-height: 0; padding-inline: 4px;
+  overflow: hidden; text-overflow: ellipsis; font: inherit;
+}
+.flow-settings-dialog .flow-settings-body { display: grid; gap: 10px; overflow: auto; max-height: min(72dvh, 620px); }
+.flow-option-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: end; gap: 10px; }
+.flow-option-fields label { display: grid; gap: 4px; min-width: 0; font-size: 11px; color: var(--muted); }
+.flow-option-fields label:has(input[type="checkbox"]) { display: flex; align-items: center; min-height: 36px; }
+:is(.flow-option-fields, .flow-book-actions, .dom-paper-tools) :is(select, input:not([type="checkbox"])) {
+  min-width: 0; max-width: 100%; padding: 5px 7px; border: 1px solid var(--border); border-radius: 4px;
+  background: var(--surface); color: var(--text);
+}
+.flow-option-fields .button { min-width: 0; overflow-wrap: anywhere; }
+.flow-totals { display: grid; gap: 6px; color: var(--muted); font-size: 12px; }
+.dom-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+.dom-heading .orderflow-title { margin: 0; }
+.dom-heading .flow-icon-button { min-width: 32px; padding-inline: 5px; }
+.dom-panel > .flow-status { padding-inline: 10px; }
+.dom-paper-tools { padding: 6px 10px; border-bottom: 1px solid var(--border); max-height: 55%; overflow: auto; }
+.dom-paper-tools .paper-execution-status { margin: 4px 0; }
+.dom-paper-tools label { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; }
+.dom-paper-tools input[type="number"] { width: 80px; }
+.dom-paper-tools .flow-actions + .flow-actions { margin-top: 5px; }
+.flow-settings-dialog .dom-column-list { position: static; min-width: 0; max-width: 100%; max-height: none; padding: 6px 0; box-shadow: none; border: 0; }
+.flow-settings-dialog .dom-column-list label { display: flex; align-items: center; gap: 5px; }
+.dom-book-only .dom-row { min-width: 0; }
+.dom-book-only .dom-current-price { color: var(--text); background: var(--tv-hover); font-weight: 700; }
+@container (max-width: 760px) {
+  .orderflow-dock > .detailed-orderflow { grid-template-columns: minmax(0, 1fr); }
+  .flow-switch { display: flex; align-items: center; gap: 3px; }
+  .flow-nav { justify-content: space-between; padding-inline: 7px; }
+  .detailed-orderflow > .trade-tape { border: 0; }
+  .detailed-orderflow[data-pane="tape"] > .orderbook,
+  .detailed-orderflow[data-pane="book"] > .trade-tape { display: none; }
+}
+@container tape (max-width: 510px) {
+  .tape-wide-label, .tape-value-separate, .tape-print-count { display: none; }
+  .tape-compact-label { display: block; }
+  .filtered-tape-table:not(.tape-cluster-table) th:first-child { width: 27%; }
+  .filtered-tape-table:not(.tape-cluster-table) th:nth-child(2) { width: 28%; }
+  .tape-pagination { gap: 4px; }
+}
+@media (max-width: 768px), (max-width: 1366px) and (pointer: coarse) {
+  .bottom-panel.expanded:is([data-tab="orderflow"], [data-tab="dom"]) > .bottom-panel-content {
+    height: clamp(200px, var(--panel-height, 42dvh), max(200px, 55dvh));
+  }
+  :is(.flow-switch, .flow-chart-tools, .flow-actions, .flow-book-actions, .book-display-settings, .tape-pagination, .flow-settings-dialog) .button,
+  :is(.flow-chart-tools, .flow-book-actions, .book-display-settings, .flow-settings-dialog details) > summary,
+  .dom-paper-tools .working-order-controls > button { min-width: 36px; min-height: 36px; }
+  .flow-settings-dialog .modal-header > .icon-button { min-width: 44px; min-height: 44px; }
+  :is(.flow-settings-dialog, .book-display-settings, .flow-book-actions, .dom-paper-tools) :is(input:not([type="checkbox"]), select) { min-height: 36px; }
+}
+@media (max-width: 768px), (pointer: coarse) {
+  .filtered-tape-table td button, .book-price .button { min-width: 36px; min-height: 36px; }
+  .book-view-row:has(.book-price .button) { min-height: 37px; }
+}
+@media (pointer: coarse) {
+  .dom-executions .dom-order-cell .dom-orders { min-height: 36px; }
+}
 .goto-date-fields label { min-width: 0; }
 .goto-date-fields input { width: 100%; min-width: 0; }
 .desktop-chart-tools { display: flex; flex-shrink: 0; align-items: center; }

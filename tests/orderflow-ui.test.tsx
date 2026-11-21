@@ -148,8 +148,20 @@ describe("OrderFlowPanel & FootprintInspector UI regression", () => {
     render(<OrderFlowPanel />);
     expect(screen.getByText(/Time & sales · HL:BTC/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Pause tape" })).toBeTruthy();
+    expect(screen.queryByLabelText("Trade side filter")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Tape settings" }));
+    const settings = screen.getByRole("dialog", { name: "Tape filters & display" });
+    fireEvent.change(within(settings).getByLabelText("Trade side filter"), { target: { value: "buy" } });
+    expect(within(settings).getByRole("button", { name: "Export filtered trades CSV" })).toBeTruthy();
+    fireEvent.click(within(settings).getByRole("button", { name: "Close dialog" }));
+    expect(within(screen.getByRole("table", { name: "Filtered time and sales" })).getAllByRole("row")).toHaveLength(4);
+    fireEvent.click(screen.getByRole("button", { name: "Tape details" }));
+    const details = screen.getByRole("dialog", { name: "Tape details" });
+    expect(within(details).getByLabelText("Totals across all matching executions")).toBeTruthy();
+    fireEvent.click(within(details).getByRole("button", { name: "Close dialog" }));
 
     // Toggle Footprint chartType off -> candles
+    fireEvent.click(screen.getByText("Chart tools"));
     fireEvent.click(screen.getByRole("button", { name: "Footprint" }));
     expect(useChartStore.getState().chartType).toBe("candles");
 

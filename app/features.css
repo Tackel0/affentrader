@@ -959,7 +959,7 @@
   position: relative;
   font-family: ui-monospace, monospace;
 }
-.dom-size:hover {
+button.dom-size:enabled:hover {
   background: var(--tv-hover);
 }
 .dom-orders {

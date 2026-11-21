@@ -1167,6 +1167,7 @@ async function run() {
             }
           };
           const NativeWebSocket = window.WebSocket;
+          const binanceSockets = new Set();
           class InertWebSocket extends EventTarget {
             static CONNECTING = 0;
             static OPEN = 1;
@@ -1188,12 +1189,28 @@ async function run() {
             constructor(url) {
               super();
               this.url = String(url);
+              if (this.url.includes('binance.vision/stream?')) {
+                binanceSockets.add(this);
+                queueMicrotask(() => {
+                  if (this.readyState === 1) this.onopen?.(new Event('open'));
+                });
+              }
             }
             send() {}
             close() {
               this.readyState = 3;
+              if (binanceSockets.delete(this)) queueMicrotask(() => this.onclose?.(new Event('close')));
             }
           }
+          window.__publishMarketFixture = () => {
+            const socket = [...binanceSockets].find(value => value.readyState === 1 && value.url.includes('btcusdt@depth10'));
+            if (!socket?.onmessage) return false;
+            const time = Date.now();
+            const emit = (stream, data) => socket.onmessage({data: JSON.stringify({stream, data})});
+            for (let i = 0; i < 10; i++) emit('btcusdt@aggTrade', {e:'aggTrade',s:'BTCUSDT',a:3000+i,T:time+i-10,p:'91850.00',q:'0.12',m:i%2===0,f:3000+i,l:3000+i});
+            emit('btcusdt@depth10', {bids: [['91849.99','2'],['91849.98','4'],['91849.97','1']], asks: [['91850.01','2'],['91850.02','3'],['91850.03','1']]});
+            return true;
+          };
           window.WebSocket = function(url, protocols) {
             const s = String(url || "");
             const isLocal = /^wss?:\\/\\/(127\\.0\\.0\\.1|localhost)(:|\\/|$)/i.test(s);
@@ -1390,6 +1407,101 @@ async function run() {
       sessionResumeChecked = true;
     }
 
+    const verifyOrderflowDock = async (vp) => {
+      activeLabel = `${vp.name}:/+orderflow`;
+      const chartHeight = (await cdp.send("Runtime.evaluate", {
+        expression: 'document.querySelector(".chart-grid").clientHeight',
+        returnByValue: true,
+      })).result?.value;
+      const openedOrderflow = await cdp.send("Runtime.evaluate", {
+        expression: `(() => {
+          const btn = document.querySelector('.workspace-panel-strip button[data-panel="orderflow"]');
+          if (!btn) return false;
+          if (!btn.classList.contains("active")) btn.click();
+          return true;
+        })()`,
+        returnByValue: true,
+      });
+      if (openedOrderflow?.result?.value !== true) {
+        throw new Error(`[${vp.name}] Could not locate BottomPanel Order flow tab`);
+      }
+      await waitForPagePredicate(
+        cdp,
+        '!!document.querySelector(\'.bottom-panel.expanded[data-tab="orderflow"] .detailed-orderflow\')',
+        `${vp.name} BottomPanel Order flow loaded`,
+      );
+      await settleUi(cdp, 300);
+      if (vp.mobile) {
+        const openHeight = (await cdp.send("Runtime.evaluate", {
+          expression: 'document.querySelector(".chart-grid").clientHeight',
+          returnByValue: true,
+        })).result?.value;
+        if (!chartHeight || openHeight !== chartHeight) throw new Error(`[${vp.name}] Order flow resized the chart from ${chartHeight} to ${openHeight}`);
+      }
+      recordAudit(vp, "/ + BottomPanel(orderflow)", await inspectViewportDom(cdp, vp.mobile));
+      if (vp.width === 390 && !opts.liveApis) {
+        activeLabel = "mobile orderflow and DOM controls";
+        await waitForPagePredicate(cdp, 'window.__publishMarketFixture()', "exchange fixture arrives");
+        await waitForPagePredicate(cdp, `(() => {
+          const tape = document.querySelector('.trade-tape'), row = tape?.querySelector('tbody tr'), dock = tape?.closest('.bottom-panel-content');
+          return row && dock && row.getBoundingClientRect().bottom <= dock.getBoundingClientRect().bottom && tape.scrollWidth <= tape.clientWidth;
+        })()`, "trade rows are visible without opening settings or scrolling sideways");
+        await tapWorkspaceTarget(cdp, '.trade-tape [aria-label="Tape settings"]', 36);
+        await waitForPagePredicate(cdp, '!!document.querySelector(\'.flow-settings-dialog [aria-label="Trade side filter"]\')', "tape filters open on demand");
+        recordAudit(vp, "/ tape filters", await inspectViewportDom(cdp, true));
+        await tapWorkspaceTarget(cdp, '.flow-settings-dialog [aria-label="Close dialog"]', 44);
+        await tapWorkspaceTarget(cdp, '.flow-switch button:nth-child(2)', 36);
+        await waitForPagePredicate(cdp, 'window.__publishMarketFixture()', "refresh the displayed order book");
+        await waitForPagePredicate(cdp, `getComputedStyle(document.querySelector('.trade-tape')).display === 'none' && !!document.querySelector('.orderbook .book-view-row')`, "the order book gets the full phone width");
+        recordAudit(vp, "/ order book view", await inspectViewportDom(cdp, true));
+        await tapWorkspaceTarget(cdp, '.flow-switch button:first-child', 36);
+      }
+      await cdp.send("Runtime.evaluate", {
+        expression: 'document.querySelector(\'.bottom-panel button[aria-label="Collapse bottom panel"]\').click()',
+      });
+      await waitForPagePredicate(
+        cdp,
+        `(() => {
+          const dock = document.querySelector('.bottom-panel[data-tab="orderflow"]:not(.expanded)');
+          return !!dock && dock.offsetHeight <= 40;
+        })()`,
+        `${vp.name} Order flow collapses to its toolbar`,
+      );
+
+      if (vp.width === 390 && !opts.liveApis) {
+        await cdp.send("Runtime.evaluate", { expression: `document.querySelector('.workspace-panel-strip button[data-panel="dom"]').click()` });
+        await waitForPagePredicate(cdp, 'window.__publishMarketFixture()', "refresh book depth for the DOM");
+        await waitForPagePredicate(cdp, `document.querySelectorAll('.dom-ladder [role="columnheader"]').length === 3`, "DOM opens with the Bid, Price and Ask columns");
+        const table = await cdp.send("Runtime.evaluate", { expression: `(() => {
+          const ladder = document.querySelector('.dom-ladder');
+          return Array.from(ladder.querySelectorAll('[role="columnheader"]')).map(node => node.textContent).join(',') === 'Bid size,Price,Ask size' && ladder.scrollWidth <= ladder.clientWidth;
+        })()`, returnByValue: true });
+        if (!table.result.value) throw new Error("Compact DOM ladder does not fit the viewport");
+        recordAudit(vp, "/ DOM ladder", await inspectViewportDom(cdp, true));
+        await tapWorkspaceTarget(cdp, '.dom-heading [aria-label="DOM settings"]', 36);
+        await waitForPagePredicate(cdp, `!!document.querySelector('.flow-settings-dialog [aria-label="DOM ladder view"]')`, "DOM settings show compact and configured views");
+        recordAudit(vp, "/ DOM settings", await inspectViewportDom(cdp, true));
+        const selectDomView = async (value) => cdp.send("Runtime.evaluate", { expression: `(() => {
+          const select = document.querySelector('.flow-settings-dialog [aria-label="DOM ladder view"]');
+          select.value = ${JSON.stringify(value)};
+          select.dispatchEvent(new Event('change', {bubbles:true}));
+        })()` });
+        await selectDomView("configured");
+        await tapWorkspaceTarget(cdp, '.flow-settings-dialog [aria-label="Close dialog"]', 44);
+        await waitForPagePredicate(cdp, 'window.__publishMarketFixture()', "refresh the configured ladder");
+        await waitForPagePredicate(cdp, `document.querySelectorAll('.dom-ladder [role="columnheader"]').length > 3`, "configured execution columns are still available");
+        await tapWorkspaceTarget(cdp, '.dom-heading [aria-label="DOM settings"]', 36);
+        await waitForPagePredicate(cdp, `!!document.querySelector('.flow-settings-dialog [aria-label="DOM ladder view"]')`, "reopen DOM settings");
+        await selectDomView("book");
+        await tapWorkspaceTarget(cdp, '.flow-settings-dialog [aria-label="Close dialog"]', 44);
+        await tapWorkspaceTarget(cdp, '.dom-paper-toggle', 36);
+        await waitForPagePredicate(cdp, 'window.__publishMarketFixture()', "refresh the locked paper ladder");
+        await waitForPagePredicate(cdp, `!!document.querySelector('.dom-paper-tools button[aria-pressed="false"]') && !!document.querySelector('.dom-ladder span.dom-size') && !document.querySelector('.dom-ladder button.dom-size')`, "paper trading opens with ladder actions locked");
+        await tapWorkspaceTarget(cdp, '.dom-paper-toggle', 36);
+        await cdp.send("Runtime.evaluate", { expression: 'document.querySelector(\'.bottom-panel button[aria-label="Collapse bottom panel"]\').click()' });
+      }
+    };
+
     // Step 3: Sweep all 4 viewports across /, BottomPanel tabs, and /terminal 8 modules
     for (const vp of VIEWPORTS) {
       await setViewport(vp);
@@ -1526,6 +1638,8 @@ async function run() {
         })()`, "Bybit, Hyperliquid and NASDAQ results are visible and ranked by current turnover");
         recordAudit(vp, "/ universal symbol search", await inspectViewportDom(cdp, true));
         await tapWorkspaceTarget(cdp, '.search-modal [aria-label="Close dialog"]', 36);
+        await waitForPagePredicate(cdp, '!document.querySelector(".search-modal")', "symbol search closes");
+        await verifyOrderflowDock(vp);
         activeLabel = "phone drawings overlay";
         const widthBefore = (await cdp.send("Runtime.evaluate", {
           expression: 'document.querySelector(".chart-grid").clientWidth',
@@ -1567,49 +1681,7 @@ async function run() {
         await waitForPagePredicate(cdp, '!document.querySelector(".right-sidebar")', "mobile sidebar closes");
       }
 
-      // 3b: / + open BottomPanel (Order flow)
-      activeLabel = `${vp.name}:/+orderflow`;
-      const chartHeight = (await cdp.send("Runtime.evaluate", {
-        expression: 'document.querySelector(".chart-grid").clientHeight',
-        returnByValue: true,
-      })).result?.value;
-      const openedOrderflow = await cdp.send("Runtime.evaluate", {
-        expression: `(() => {
-          const btn = document.querySelector('.workspace-panel-strip button[data-panel="orderflow"]');
-          if (!btn) return false;
-          if (!btn.classList.contains("active")) btn.click();
-          return true;
-        })()`,
-        returnByValue: true,
-      });
-      if (openedOrderflow?.result?.value !== true) {
-        throw new Error(`[${vp.name}] Could not locate BottomPanel Order flow tab`);
-      }
-      await waitForPagePredicate(
-        cdp,
-        '!!document.querySelector(\'.bottom-panel.expanded[data-tab="orderflow"] .detailed-orderflow\')',
-        `${vp.name} BottomPanel Order flow loaded`,
-      );
-      await settleUi(cdp, 300);
-      if (vp.mobile) {
-        const openHeight = (await cdp.send("Runtime.evaluate", {
-          expression: 'document.querySelector(".chart-grid").clientHeight',
-          returnByValue: true,
-        })).result?.value;
-        if (!chartHeight || openHeight !== chartHeight) throw new Error(`[${vp.name}] Order flow resized the chart from ${chartHeight} to ${openHeight}`);
-      }
-      recordAudit(vp, "/ + BottomPanel(orderflow)", await inspectViewportDom(cdp, vp.mobile));
-      await cdp.send("Runtime.evaluate", {
-        expression: 'document.querySelector(\'.bottom-panel button[aria-label="Collapse bottom panel"]\').click()',
-      });
-      await waitForPagePredicate(
-        cdp,
-        `(() => {
-          const dock = document.querySelector('.bottom-panel[data-tab="orderflow"]:not(.expanded)');
-          return !!dock && dock.offsetHeight <= 40;
-        })()`,
-        `${vp.name} Order flow collapses to its toolbar`,
-      );
+      if (vp.width !== 390 || opts.liveApis) await verifyOrderflowDock(vp);
 
       // 3c: / + open BottomPanel (AffenTerminal embedded)
       activeLabel = `${vp.name}:/+terminal`;

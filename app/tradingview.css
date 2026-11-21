@@ -1711,26 +1711,14 @@ body {
 .tpo-alert-actions{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
 /* The inspector scrolls as a document; flex shrinking can collapse its table to zero. */
 .footprint-inspector .form-body { display: block; }
-/* Orderflow inspection needs enough height for controls and a bounded tape. */
-.bottom-panel[data-tab="orderflow"] .bottom-panel-content{height:360px;overflow:auto}
-.detailed-orderflow{height:auto;min-height:340px;grid-template-columns:minmax(0,.8fr) minmax(0,1.6fr) minmax(0,.6fr)}
-.detailed-orderflow .orderflow-actions>div{display:flex;flex-wrap:wrap;gap:6px}
-.detailed-orderflow .form-help,.detailed-orderflow small{font-size:11px;line-height:1.5;overflow-wrap:anywhere}
-.detailed-orderflow .orderflow-title>span{font-size:9px;display:block}
-.tape-controls{display:flex;flex-wrap:wrap;gap:8px;align-items:end;margin-bottom:8px}
 .depth-summary{display:grid;gap:4px;margin:8px 0;font-size:11px}
-.depth-summary select{background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:3px}
 .depth-balance-track{height:4px;overflow:hidden;border-radius:2px;background:#ef5350}
 .depth-balance-track span{display:block;height:100%;background:#26a69a}
 .depth-balance-labels{display:flex;justify-content:space-between;gap:4px;flex-wrap:wrap}
-.tape-controls label{display:grid;gap:3px;font-size:10px;min-width:0}
-.tape-controls input,.tape-controls select{width:130px;max-width:100%;background:var(--surface);color:var(--text);border:1px solid var(--border);padding:5px;border-radius:3px}
-.filtered-tape-table{max-height:190px;overflow:auto}
-.filtered-tape-table table{width:100%;min-width:390px;border-collapse:collapse;font-size:11px;font-variant-numeric:tabular-nums}
+.filtered-tape-table table{width:100%;table-layout:fixed;border-collapse:collapse;font-size:11px;font-variant-numeric:tabular-nums}
 .filtered-tape-table th,.filtered-tape-table td{padding:5px;text-align:right;border-bottom:1px solid var(--border);white-space:nowrap}
 .filtered-tape-table th:first-child,.filtered-tape-table td:first-child{text-align:left}
 .tape-pagination{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:10px;margin-top:8px}
-@media(max-width:1000px){.detailed-orderflow{grid-template-columns:minmax(0,1fr)}.detailed-orderflow .orderbook,.detailed-orderflow .trade-tape{border-right:0;padding-right:0}.detailed-orderflow .orderflow-actions{display:block}}
 @media (max-width: 768px), (pointer: coarse) {
   .bottom-panel-tabs .icon-button,
   .toast > .icon-button,

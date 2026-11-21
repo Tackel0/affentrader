@@ -5,10 +5,12 @@ function storage(){const disk=new Map<string,string>();vi.stubGlobal("navigator"
 describe("persisted DOM view preferences",()=>{
   it("validates only complete view settings and rejects order/runtime data and malformed column layouts",()=>{
     expect(validDomPreferences(defaultDomPreferences())).toBe(true);
-    for(const patch of [{unlocked:true},{order:{side:"buy"}},{follow:"chase"},{delay:0},{executionUnit:"usd"},{groups:{"KRK:BTC/USD":2}}])expect(validDomPreferences({...defaultDomPreferences(),...patch})).toBe(false);
+    for(const patch of [{unlocked:true},{order:{side:"buy"}},{follow:"chase"},{delay:0},{executionUnit:"usd"},{view:"unknown"},{groups:{"KRK:BTC/USD":2}}])expect(validDomPreferences({...defaultDomPreferences(),...patch})).toBe(false);
     const duplicate=defaultDomPreferences();duplicate.columns.order[0]="pnl";expect(validDomPreferences(duplicate)).toBe(false);
     const hidden=defaultDomPreferences();hidden.columns.visible.bid=false;expect(validDomPreferences(hidden)).toBe(false);
     expect(readDomPreferences({unlocked:true})).toEqual(defaultDomPreferences());
+    const legacy=defaultDomPreferences();delete legacy.view;legacy.columns.visible.volume=true;
+    expect(readDomPreferences(legacy)).toMatchObject({view:"book",columns:legacy.columns});
   });
   it("keeps market groups distinct, bounds them at 128 and removes default entries without mutating old state",()=>{
     const initial=defaultDomPreferences();let prefs=setDomGrouping(initial,"KRK:BTC/USD",5);prefs=setDomGrouping(prefs,"BTCUSDT",10);
@@ -22,7 +24,7 @@ describe("persisted DOM view preferences",()=>{
     const disk=storage();vi.resetModules();
     const {useWorkspaceStore}=await import("@/stores/useWorkspaceStore"),{hotStorage}=await import("@/lib/debouncedStorage");
     const columns=defaultDomPreferences().columns;columns.visible.volume=true;columns.order.reverse();
-    useWorkspaceStore.getState().setDomPreferences({columns,follow:"timed",delay:30000,executionUnit:"quote"});useWorkspaceStore.getState().setDomGroup("KRK:BTC/USD",10);hotStorage.flush();
+    useWorkspaceStore.getState().setDomPreferences({columns,follow:"timed",delay:30000,executionUnit:"quote",view:"configured"});useWorkspaceStore.getState().setDomGroup("KRK:BTC/USD",10);hotStorage.flush();
     const saved=JSON.parse(disk.get("affentrader-premium-v1")!).state.domPreferences;expect(saved.follow).toBe("timed");expect(saved.groups["KRK:BTC/USD"]).toBe(10);expect(saved.unlocked).toBeUndefined();
     vi.resetModules();const reloaded=(await import("@/stores/useWorkspaceStore")).useWorkspaceStore.getState();expect(reloaded.domPreferences).toEqual(saved);
     (await import("@/lib/debouncedStorage")).hotStorage.discard();

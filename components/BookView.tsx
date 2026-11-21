@@ -80,17 +80,6 @@ export function BookView({ book, symbol, base, quote, contextKey, live, lastTrad
   const overlap = fixedTick !== undefined && top !== null && top.spread <= 0;
   const venueName = (market: string) => market === `${base}${quote}` ? "Binance" : market.startsWith("KRK:") ? "Kraken" : market;
   return <div className="book-view" style={style}>
-    <div className="book-controls">
-      <label>Grouping<select aria-label="Book grouping" value={group} onChange={e => { setHover(null); useWorkspaceStore.getState().setDomGroup(symbol, Number(e.target.value)); }}>{DOM_GROUPS.map(g => <option key={g} value={g}>{g}× tick</option>)}</select></label>
-      <label>Unit<select aria-label="Book size unit" value={preferences.executionUnit} onChange={e => useWorkspaceStore.getState().setDomPreferences({ executionUnit: e.target.value as "base" | "quote" })}><option value="base">{base}</option><option value="quote">{quote}</option></select></label>
-      <label>Depth shows<select aria-label="Book depth shows" value={settings.bars} onChange={e => update({ bars: e.target.value as BookViewSettings["bars"] })}><option value="cumulative">Cumulative</option><option value="level">Per level</option></select></label>
-      <label>Style<select aria-label="Book depth style" value={settings.style} onChange={e => update({ style: e.target.value as BookViewSettings["style"] })}><option value="bars">Bars</option><option value="area">Area</option><option value="outline">Area + line</option><option value="line">Line</option></select></label>
-      <label>Rows per side<select aria-label="Book rows per side" value={levels} onChange={e => {
-        const rows = BOOK_ROW_LIMITS.find(limit => String(limit) === e.target.value);
-        if (rows !== undefined) { setHover(null); update({ rows }); }
-      }}>{BOOK_ROW_LIMITS.map(n => <option key={n}>{n}</option>)}</select></label>
-    </div>
-    <p className="form-help">Grouping {number(step)} {quote} · {choice.source}{venue.error && ` · ${venue.error}`}</p>
     {result.error ? <p role="status">{result.error}</p> : model && <>
       <div role="table" aria-label="Book depth" onPointerLeave={event => { if (event.pointerType !== "touch") setHover(null); }} onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget)) { setHover(null); setFocused(null); } }} onKeyDown={event => {
         const { key, target } = event;
@@ -118,7 +107,22 @@ export function BookView({ book, symbol, base, quote, contextKey, live, lastTrad
         {inspected.contributions && <> · At this level {inspected.contributions.map(({ symbol: market, quantity }) =>
           `${venueName(market)} ${number(quantity)} ${base}`).join(" · ")}</>}
       </> : model.bids.length || model.asks.length ? <>Bid {(model.bidShare * 100).toFixed(1)}% · Ask {((1 - model.bidShare) * 100).toFixed(1)}% · visible base quantity</> : "No depth levels in this snapshot."}</div>
-      <p className="form-help">Hover or focus a price row to inspect from the best level. Average uses grouped prices and observed quantities only; it is an estimate. Missing depth remains unknown. DOM colors, zoom, grouping and size unit are shared; waiting DOM sizes retain provider units.</p>
+
     </>}
+    <details className="book-display-settings">
+      <summary>Depth display</summary>
+      <div className="book-controls">
+        <label>Grouping<select aria-label="Book grouping" value={group} onChange={e => { setHover(null); useWorkspaceStore.getState().setDomGroup(symbol, Number(e.target.value)); }}>{DOM_GROUPS.map(g => <option key={g} value={g}>{g}× tick</option>)}</select></label>
+        <label>Unit<select aria-label="Book size unit" value={preferences.executionUnit} onChange={e => useWorkspaceStore.getState().setDomPreferences({ executionUnit: e.target.value as "base" | "quote" })}><option value="base">{base}</option><option value="quote">{quote}</option></select></label>
+        <label>Depth shows<select aria-label="Book depth shows" value={settings.bars} onChange={e => update({ bars: e.target.value as BookViewSettings["bars"] })}><option value="cumulative">Cumulative</option><option value="level">Per level</option></select></label>
+        <label>Style<select aria-label="Book depth style" value={settings.style} onChange={e => update({ style: e.target.value as BookViewSettings["style"] })}><option value="bars">Bars</option><option value="area">Area</option><option value="outline">Area + line</option><option value="line">Line</option></select></label>
+        <label>Rows per side<select aria-label="Book rows per side" value={levels} onChange={e => {
+          const rows = BOOK_ROW_LIMITS.find(limit => String(limit) === e.target.value);
+          if (rows !== undefined) { setHover(null); update({ rows }); }
+        }}>{BOOK_ROW_LIMITS.map(n => <option key={n}>{n}</option>)}</select></label>
+      </div>
+      <p className="form-help">Grouping {number(step)} {quote} · {choice.source}{venue.error && ` · ${venue.error}`}</p>
+      <p className="form-help">Hover or focus a price row to inspect from the best level. Average uses grouped prices and observed quantities only; it is an estimate. Missing depth remains unknown. DOM colors, zoom, grouping and size unit are shared; waiting DOM sizes retain provider units.</p>
+    </details>
   </div>;
 }
