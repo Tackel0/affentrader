@@ -3,6 +3,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   categoryLabel,
   opportunitiesToCsv,
+  mergeOpportunityGroups,
+  opportunityEntryDistance,
+  opportunityEntryState,
+  opportunityPlan,
+  opportunityShareSize,
   SUBTYPE_LABELS,
   type FundamentalSnapshot,
   type OpportunityCategory,
@@ -26,6 +31,7 @@ const pct = (n: number | null | undefined) => (Number.isFinite(n) ? `${n! >= 0 ?
 const distPct = (target: number, current: number) =>
   Number.isFinite(target) && Number.isFinite(current) && current > 0 ? ((target - current) / current) * 100 : NaN;
 const fixed = (n: number | null | undefined, digits = 2) => (Number.isFinite(n) ? n!.toFixed(digits) : "—");
+const RESULTS_PAGE_SIZE = 16;
 
 function OpportunityMiniChart({ opportunity }: { opportunity: TradeOpportunity }) {
   const bars = opportunity.chart;
@@ -131,9 +137,19 @@ export function OpportunitiesHub({
   const [categoryFilter, setCategoryFilter] = useState<"all" | OpportunityCategory>("all");
   const [subTypeFilter, setSubTypeFilter] = useState<"all" | OpportunitySubType>("all");
   const [minScore, setMinScore] = useState(55);
-  const [sortBy, setSortBy] = useState<"score" | "rr" | "rs" | "upside">("score");
+  const [sortBy, setSortBy] = useState<"score" | "rr" | "rs" | "upside" | "entry">("score");
   const [result, setResult] = useState<OpportunityScanResult | null>(null);
-  const [requestedPage, setRequestedPage] = useState(0);
+  const [query, setQuery] = useState("");
+  const [entryFilter, setEntryFilter] = useState("all");
+  const [minReward, setMinReward] = useState(0);
+  const [maxEntryDistance, setMaxEntryDistance] = useState(0);
+  const [requireFilings, setRequireFilings] = useState(false);
+  const [riskBudget, setRiskBudget] = useState("");
+  const [resultPage, setResultPage] = useState(0);
+  const [scanKey, setScanKey] = useState("");
+  const [stopped, setStopped] = useState(false);
+  const detailRef = useRef<HTMLElement>(null);
+  const resultsRef = useRef<HTMLElement>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -152,78 +168,98 @@ export function OpportunitiesHub({
   ];
   const watchTickers = useMemo(() => getWatchTickersForMarket(market), [watchlist, market]);
 
-  const runScan = async (targetMarket = market, targetScope = scope, targetPage = 0) => {
+  const contextKey = (targetMarket: string, targetScope: typeof scope, tickers: string[]) =>
+    JSON.stringify([targetMarket, targetScope, targetScope === "watchlist" ? watchlist?.id : null, targetScope === "watchlist" ? tickers : []]);
+  const currentKey = contextKey(market, scope, watchTickers);
+  const canContinue = !!result && scanKey === currentKey && (result.page ?? 0) + 1 < (result.pages ?? 1);
+
+  const runScan = async (targetMarket = market, targetScope = scope, full = true, resume = false) => {
     abortRef.current?.abort();
-    const targetWatchTickers = getWatchTickersForMarket(targetMarket);
-    const watchPages = Math.ceil(targetWatchTickers.length / STOCK_BASE_PAGE_SIZE);
-    const page = targetScope === "watchlist" && targetPage >= watchPages ? 0 : targetPage;
-    setRequestedPage(page);
-    if (targetScope === "watchlist" && !targetWatchTickers.length) {
-      setLoading(false);
-      setResult(null);
-      setSelectedId(null);
-      setError("Keine Watchlist-Ticker für diesen Markt in der aktiven Watchlist vorhanden.");
-      return;
-    }
+    const tickers = getWatchTickersForMarket(targetMarket);
+    const custom = targetScope === "watchlist";
+    const watchPages = Math.ceil(tickers.length / STOCK_BASE_PAGE_SIZE);
+    const key = contextKey(targetMarket, targetScope, tickers);
+    let combined = resume && scanKey === key ? result : null;
     const controller = new AbortController();
     abortRef.current = controller;
-    setLoading(true);
+    setScanKey(key);
+    if (!combined) {
+      setResult(null);
+      setSelectedId(null);
+      setResultPage(0);
+    }
+    setStopped(false);
     setError("");
-    setResult(null);
-    setSelectedId(null);
+    if (custom && !watchPages) {
+      setLoading(false);
+      setError("Die aktive Watchlist enthält keine Aktien für diesen Markt.");
+      return;
+    }
+    setLoading(true);
     try {
-      const response = await (targetScope === "watchlist"
-        ? fetch("/api/terminal-opportunities", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ market: targetMarket, tickers: targetWatchTickers.slice(page * STOCK_BASE_PAGE_SIZE, (page + 1) * STOCK_BASE_PAGE_SIZE) }),
-            signal: controller.signal,
-          })
-        : fetch(`/api/terminal-opportunities?${new URLSearchParams({ market: targetMarket, page: String(page) })}`, {
-            signal: controller.signal,
-          }));
-      const body = (await response.json()) as OpportunityScanResult & { error?: string };
-      if (!response.ok) throw new Error(body.error ?? "Opportunity scan unavailable.");
-      if (!controller.signal.aborted) {
+      for (let page = combined ? (combined.page ?? 0) + 1 : 0; !combined || page < (combined.pages ?? 1); page++) {
+        const start = page * STOCK_BASE_PAGE_SIZE;
+        const response = await (custom
+          ? fetch("/api/terminal-opportunities", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ market: targetMarket, tickers: tickers.slice(start, start + STOCK_BASE_PAGE_SIZE) }),
+              signal: controller.signal,
+            })
+          : fetch(`/api/terminal-opportunities?${new URLSearchParams({ market: targetMarket, page: String(page) })}`, {
+              signal: controller.signal,
+            }));
+        const body = (await response.json()) as OpportunityScanResult & { error?: string };
+        if (controller.signal.aborted) return;
+        if (!response.ok) throw new Error(body.error ?? "Scan vorübergehend nicht verfügbar.");
         const normalized: OpportunityScanResult = {
           ...body,
-          benchmark: body.benchmark ?? STOCK_BASE_MARKETS.find(m => m.id === (body.market ?? targetMarket))?.benchmark ?? "Index",
+          market: body.market ?? targetMarket,
+          benchmark: body.benchmark ?? STOCK_BASE_MARKETS.find(item => item.id === targetMarket)?.benchmarkLabel ?? "Index",
           benchmarkSession: body.benchmarkSession ?? "—",
+          generatedAt: Number.isFinite(body.generatedAt) ? body.generatedAt : Date.now(),
           evaluated: Number.isFinite(body.evaluated) ? body.evaluated : 0,
           universe: Number.isFinite(body.universe) ? body.universe : 0,
           opportunities: Array.isArray(body.opportunities) ? body.opportunities : [],
           unavailable: Array.isArray(body.unavailable) ? body.unavailable : [],
           dataSources: Array.isArray(body.dataSources) ? body.dataSources : [],
-          ...(targetScope === "watchlist" ? { page, pages: watchPages } : {}),
+          page: custom ? page : body.page ?? page,
+          pages: custom ? watchPages : body.pages ?? 1,
+          totalUniverse: custom ? tickers.length : body.totalUniverse,
         };
-        setResult(normalized);
-        const first = normalized.opportunities[0] ?? null;
-        setSelectedId(first?.id ?? null);
+        combined = mergeOpportunityGroups(combined, normalized);
+        setResult(combined);
+        if (!full) break;
       }
     } catch (err) {
-      if (!controller.signal.aborted) {
-        setError(err instanceof Error ? err.message : "Opportunity scan unavailable.");
-      }
+      if (!controller.signal.aborted) setError(err instanceof Error ? err.message : "Scan vorübergehend nicht verfügbar.");
     } finally {
       if (!controller.signal.aborted) setLoading(false);
     }
   };
 
   useEffect(() => {
-    void runScan(market, scope);
+    void runScan(market, scope, false);
     return () => abortRef.current?.abort();
   }, []);
 
   const filtered = useMemo(() => {
+    const term = query.trim().toLocaleLowerCase("de-DE");
     const list = (result?.opportunities ?? []).filter(item => {
+      if (term && ![item.ticker, item.name, item.sector].some(text => text?.toLocaleLowerCase("de-DE").includes(term))) return false;
+      if (entryFilter !== "all" && opportunityEntryState(item.levels) !== entryFilter) return false;
+      if (minReward > 0 && (opportunityPlan(item.levels)?.reward ?? 0) < minReward) return false;
+      if (maxEntryDistance > 0 && (opportunityEntryDistance(item.levels) ?? Infinity) > maxEntryDistance) return false;
+      if (requireFilings && !item.fundamentals?.recentInsiderFilings?.length) return false;
       if (categoryFilter !== "all" && item.category !== categoryFilter) return false;
       if (subTypeFilter !== "all" && item.subType !== subTypeFilter) return false;
       if (item.score < minScore) return false;
       return true;
     });
     return [...list].sort((a, b) => {
-      const rrA = Number.isFinite(a.levels.riskReward) ? a.levels.riskReward : -Infinity;
-      const rrB = Number.isFinite(b.levels.riskReward) ? b.levels.riskReward : -Infinity;
+      const rrA = opportunityPlan(a.levels)?.reward ?? -Infinity;
+      const rrB = opportunityPlan(b.levels)?.reward ?? -Infinity;
+      if (sortBy === "entry") return (opportunityEntryDistance(a.levels) ?? Infinity) - (opportunityEntryDistance(b.levels) ?? Infinity) || b.score - a.score;
       if (sortBy === "rr") return rrB - rrA || b.score - a.score;
       if (sortBy === "rs") {
         const rsA = Number.isFinite(a.technicals.relativeStrengthPct) ? a.technicals.relativeStrengthPct : -Infinity;
@@ -239,11 +275,15 @@ export function OpportunitiesHub({
       }
       return b.score - a.score || rrB - rrA;
     });
-  }, [result, categoryFilter, subTypeFilter, minScore, sortBy]);
+  }, [result, query, entryFilter, minReward, maxEntryDistance, requireFilings, categoryFilter, subTypeFilter, minScore, sortBy]);
 
+  useEffect(() => setResultPage(0), [query, entryFilter, minReward, maxEntryDistance, requireFilings, categoryFilter, subTypeFilter, minScore, sortBy]);
+  const resultPages = Math.max(1, Math.ceil(filtered.length / RESULTS_PAGE_SIZE));
+  const visibleResultPage = Math.min(resultPage, resultPages - 1);
+  const pageRows = filtered.slice(visibleResultPage * RESULTS_PAGE_SIZE, (visibleResultPage + 1) * RESULTS_PAGE_SIZE);
   const selected = useMemo(
-    () => filtered.find(item => item.id === selectedId) ?? filtered[0] ?? null,
-    [filtered, selectedId],
+    () => filtered.find(item => item.id === selectedId) ?? filtered[visibleResultPage * RESULTS_PAGE_SIZE] ?? null,
+    [filtered, selectedId, visibleResultPage],
   );
 
   useEffect(() => {
@@ -251,259 +291,191 @@ export function OpportunitiesHub({
     if (selected && onSelectOpportunity) {
       onSelectOpportunity(selected, selected.fundamentals);
     }
-  }, [selected?.id]);
+  }, [selected]);
+  useEffect(() => setRiskBudget(""), [selected?.id, selected?.currency]);
 
   const selectRow = (row: TradeOpportunity) => {
     setSelectedId(row.id);
-    useChartStore.getState().set({ symbol: row.symbol, timeframe: "1D" });
-    onSelectOpportunity?.(row, row.fundamentals);
+    const detail = detailRef.current;
+    const narrow = resultsRef.current?.parentElement?.clientWidth;
+    if (detail && narrow && narrow <= 760) {
+      detail.focus({ preventScroll: true });
+      detail.scrollIntoView?.({ block: "start" });
+    }
   };
 
   const benchmarkTicker = STOCK_BASE_MARKETS.find(m => m.id === (result?.market ?? market))?.benchmark;
 
-  const inlineLabelStyle = { flexDirection: "row", alignItems: "center", gap: 4 } as const;
+  const plan = selected && opportunityPlan(selected.levels);
+  const size = plan && riskBudget.trim() ? opportunityShareSize(plan, Number(riskBudget)) : null;
+  const setupState = selected ? opportunityEntryState(selected.levels) : "invalid";
+  const canPrepare = !!plan && setupState !== "invalid" && setupState !== "target" &&
+    scanKey === currentKey && (!riskBudget.trim() || size !== null);
+  const stateLabels = {
+    zone: "In Einstiegszone",
+    below: "Unter Einstiegszone",
+    above: "Über Einstiegszone",
+    invalid: "Stop erreicht / ungültig",
+    target: "Ziel 1 erreicht",
+  } as const;
 
   return (
     <div className="screener-view opportunities-hub" aria-label="Multi-Strategy Trade-Möglichkeiten Scanner">
-      <div className="screener-toolbar" style={{ gap: "4px 6px", padding: "3px 6px" }}>
-        <label style={inlineLabelStyle}>
-          Markt
-          <select
-            aria-label="Opportunity market"
-            value={market}
-            onChange={e => {
-              const nextMarket = e.target.value;
-              setMarket(nextMarket);
-              void runScan(nextMarket, scope);
-            }}
-          >
-            {STOCK_BASE_MARKETS.map(m => (
-              <option key={m.id} value={m.id}>
-                {m.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label style={inlineLabelStyle}>
-          Universum
-          <select
-            aria-label="Opportunity universe"
-            value={scope}
-            onChange={e => {
-              const nextScope = e.target.value as "curated" | "watchlist";
-              setScope(nextScope);
-              void runScan(market, nextScope);
-            }}
-          >
-            <option value="curated">Curated</option>
+      <header className="opportunity-controls">
+        <div className="opportunity-scan-controls">
+          <label>Markt<select aria-label="Opportunity market" value={market} onChange={event => {
+            setMarket(event.target.value);
+            void runScan(event.target.value, scope, false);
+          }}>
+            {STOCK_BASE_MARKETS.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}
+          </select></label>
+          <label>Universum<select aria-label="Opportunity universe" value={scope} onChange={event => {
+            const next = event.target.value as typeof scope;
+            setScope(next);
+            void runScan(market, next, false);
+          }}>
+            <option value="curated">Aktienuniversum</option>
             <option value="watchlist">Watchlist ({watchTickers.length})</option>
-          </select>
-        </label>
-        <label style={inlineLabelStyle}>
-          Kategorie
-          <select
-            aria-label="Strategy category"
-            value={categoryFilter}
-            onChange={e => setCategoryFilter(e.target.value as "all" | OpportunityCategory)}
-          >
-            <option value="all">All Categories</option>
-            <option value="structural-bottom">Cat A · Bottom</option>
-            <option value="value-garp">Cat B · Value/GARP</option>
-            <option value="high-conviction">Cat C · VCP/Insider</option>
-          </select>
-        </label>
-        <label style={inlineLabelStyle}>
-          Setup
-          <select
-            aria-label="Setup subtype"
-            value={subTypeFilter}
-            onChange={e => setSubTypeFilter(e.target.value as "all" | OpportunitySubType)}
-          >
-            <option value="all">All Patterns</option>
-            {Object.entries(SUBTYPE_LABELS).map(([id, label]) => (
-              <option key={id} value={id}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label style={inlineLabelStyle}>
-          <span className="mono">Min {minScore}</span>
-          <input
-            type="range"
-            min={50}
-            max={90}
-            step={5}
-            value={minScore}
-            style={{ width: 60, height: 18, padding: 0 }}
-            onChange={e => setMinScore(Number(e.target.value))}
-          />
-        </label>
-        <label style={inlineLabelStyle}>
-          Sort
-          <select value={sortBy} onChange={e => setSortBy(e.target.value as typeof sortBy)}>
-            <option value="score">Score (0–100)</option>
-            <option value="rr">R:R</option>
-            <option value="rs">Rel. Strength</option>
-            <option value="upside">Target 1 Upside</option>
-          </select>
-        </label>
-        <button
-          type="button"
-          className="button small primary"
-          disabled={loading || (scope === "watchlist" && !watchTickers.length)}
-          onClick={() => void runScan(market, scope, requestedPage)}
-        >
-          {loading ? "Scanne Setups…" : error && requestedPage > 0 ? `Gruppe ${requestedPage + 1} erneut scannen` : "Scan Trade-Möglichkeiten"}
-        </button>
-        <button
-          type="button"
-          className="button small"
-          title="Export CSV"
-          disabled={!result || !filtered.length}
-          onClick={() => result &&
-            downloadFile(
-              `affenterminal-opportunities-${result.market}-${result.benchmarkSession}-group-${(result.page ?? 0) + 1}.csv`,
-              opportunitiesToCsv(filtered, result),
-              "text/csv;charset=utf-8",
-            )
-          }
-        >
-          CSV
-        </button>
-      </div>
-
-      {!result && (
-        <div className="terminal-telemetry-chip" role="status">
-          <span className="mono">STRATEGY:</span> Multi-Factor Alpha · Wyckoff Structure · Value/GARP · VCP &amp; SEC Form 4 Insider Clusters
+          </select></label>
+          {loading ? <button className="button" type="button" onClick={() => {
+            abortRef.current?.abort();
+            setLoading(false);
+            setStopped(true);
+          }}>Scan stoppen</button> : <button className="button primary" type="button"
+            disabled={scope === "watchlist" && !watchTickers.length}
+            onClick={() => void runScan(market, scope, true, canContinue)}>
+            {canContinue ? "Gesamtscan fortsetzen" : "Scan Trade-Möglichkeiten"}
+          </button>}
+          {!loading && canContinue && <button className="button" type="button" onClick={() => void runScan(market, scope)}>Neu scannen</button>}
         </div>
-      )}
+        <div className="opportunity-filters">
+          <label className="opportunity-search">Treffersuche<input type="search" value={query} placeholder="Ticker, Name oder Sektor" onChange={event => setQuery(event.target.value)} /></label>
+          <label>Schlusskurs<select value={entryFilter} onChange={event => setEntryFilter(event.target.value)}>
+            <option value="all">Alle Kurslagen</option>
+            {Object.entries(stateLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+          </select></label>
+          <label>Sortieren<select value={sortBy} onChange={event => setSortBy(event.target.value as typeof sortBy)}>
+            <option value="score">Setup-Score</option><option value="rr">CRV am Einstieg</option>
+            <option value="rs">Relative Stärke</option><option value="entry">Nähe zum Einstieg</option><option value="upside">Abstand zu Ziel 1</option>
+          </select></label>
+          <details className="opportunity-advanced">
+            <summary>Weitere Filter</summary>
+            <div className="opportunity-filters">
+              <label>Kategorie<select aria-label="Strategy category" value={categoryFilter} onChange={event => setCategoryFilter(event.target.value as typeof categoryFilter)}>
+                <option value="all">Alle Kategorien</option><option value="structural-bottom">A · Struktur</option>
+                <option value="value-garp">B · Value/GARP</option><option value="high-conviction">C · VCP/Insider</option>
+              </select></label>
+              <label>Setup<select aria-label="Setup subtype" value={subTypeFilter} onChange={event => setSubTypeFilter(event.target.value as typeof subTypeFilter)}>
+                <option value="all">Alle Muster</option>
+                {Object.entries(SUBTYPE_LABELS).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+              </select></label>
+              <label>Min. Score<select value={minScore} onChange={event => setMinScore(Number(event.target.value))}>
+                <option value={0}>Alle</option>
+                {[50, 55, 60, 65, 70, 75, 80, 85, 90].map(score => <option key={score} value={score}>{score}</option>)}
+              </select></label>
+              <label>Min. CRV<select value={minReward} onChange={event => setMinReward(Number(event.target.value))}>
+                <option value={0}>Alle</option>
+                {[1.5, 2, 2.5, 3, 4].map(reward => <option key={reward} value={reward}>{reward} R</option>)}
+              </select></label>
+              <label>Max. Einstiegsabstand<select value={maxEntryDistance} onChange={event => setMaxEntryDistance(Number(event.target.value))}>
+                <option value={0}>Alle</option>
+                {[1, 2, 3, 5].map(distance => <option key={distance} value={distance}>{distance} %</option>)}
+              </select></label>
+              <label>Insider-Meldungen<select value={requireFilings ? "with" : "all"} onChange={event => setRequireFilings(event.target.value === "with")}>
+                <option value="all">Alle</option><option value="with">Mit Einzelmeldungen</option>
+              </select></label>
+            </div>
+          </details>
+        </div>
+      </header>
 
-      {loading && (
-        <p className="form-help" role="status" style={{ margin: "2px 0" }}>
-          Scanning market structure, volume divergence, relative strength &amp; SEC Form 4 filings…
+      <div className="opportunity-progress">
+        <p role="status">
+          {result ? <>
+            <strong>{filtered.length} von {result.opportunities.length} Setups</strong> · {result.evaluated}/{result.totalUniverse ?? result.universe} Aktien ausgewertet
+            {(result.pages ?? 1) > 1 && <> · <span>Gruppe {(result.page ?? 0) + 1} von {result.pages}</span></>}
+            <span className="opportunity-data-date"> · {result.benchmark} bis {result.benchmarkSession} · Tagesdaten</span>
+          </> : loading ? "Erste Gruppe wird geprüft…" : "Long-Setups auf abgeschlossenen Tageskerzen"}
+          {loading && result && " · Weitere Gruppen werden geprüft…"}
+          {stopped && " · Angehalten"}
         </p>
-      )}
+        {result && <button type="button" className="button small" disabled={!filtered.length} onClick={() =>
+          downloadFile(`affenterminal-opportunities-${result.market}-${result.benchmarkSession}.csv`, opportunitiesToCsv(filtered, result, true), "text/csv;charset=utf-8")
+        }>CSV</button>}
+      </div>
       {error && <p className="error-message screener-error" role="alert">{error}</p>}
-
-      {result && (
-        <div className="screener-toolbar" style={{ gap: "3px 6px", padding: "3px 6px" }}>
-          <span className="screener-count mono" role="status">
-            <strong>{result.benchmark ?? benchmarkTicker ?? "Index"}</strong> ({result.benchmarkSession ?? "—"}) · {result.evaluated ?? 0}/{result.universe ?? 0} ·{" "}
-            <strong>{filtered.length}</strong> Trade-Setups aktiv{result.excluded ? ` · ${result.excluded} ex-eq` : ""}
-            {Array.isArray(result.dataSources) && result.dataSources.length ? ` · ${result.dataSources.join(" + ")}` : ""}
-          </span>
-          {(result.pages ?? 1) > 1 && <>
-            <button type="button" className="button small" disabled={!result.page} onClick={() => void runScan(market, scope, (result.page ?? 0) - 1)}>Vorherige Gruppe</button>
-            <span className="mono">Gruppe {(result.page ?? 0) + 1} von {result.pages}</span>
-            <button type="button" className="button small" disabled={(result.page ?? 0) + 1 >= result.pages!} onClick={() => void runScan(market, scope, (result.page ?? 0) + 1)}>Nächste Gruppe</button>
-          </>}
-        </div>
-      )}
-      {!!result?.unavailable?.length && <details className="form-help">
-        <summary>{result.unavailable.length} Symbole ohne auswertbare Daten</summary>
+      {result && scanKey !== currentKey && <p className="form-help" role="status">Die Watchlist hat sich geändert. Starte einen neuen Scan für die aktuelle Auswahl.</p>}
+      {result && <details className="opportunity-coverage">
+        <summary>Datenbasis · {result.unavailable.length} ohne auswertbare Daten</summary>
+        <p>{result.dataSources.join(" · ") || "Datenquellen nicht übermittelt"}{result.excluded ? ` · ${result.excluded} Nicht-Aktien ausgeschlossen` : ""}</p>
         <ul>{result.unavailable.map(({ symbol, reason }) => <li key={symbol}>{symbol} · {reason}</li>)}</ul>
       </details>}
 
-      {!!filtered.length && (
-        <div className="stock-base-results table-scroll">
-          <table className="data-table" aria-label="Trade-Möglichkeiten Trefferliste">
-            <thead>
-              <tr>
-                <th>Ticker</th>
-                <th>Kategorie</th>
-                <th>Setup-Muster</th>
-                <th>Score</th>
-                <th>Kurs</th>
-                <th>Entry-Zone</th>
-                <th>Stop / Invalidierung</th>
-                <th>Ziel 1 / Ziel 2</th>
-                <th>CRV (R:R)</th>
-                <th>RS vs. {result?.benchmark ?? "Index"}</th>
-                <th>KGV / FCF-Yield</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map(row => {
-                const isSelected = selected?.id === row.id;
-                const stopDist = distPct(row.levels.invalidation, row.levels.lastClose);
-                const t1Dist = distPct(row.levels.target1, row.levels.lastClose);
-                return (
-                  <tr
-                    key={row.id}
-                    className={isSelected ? "selected-row" : undefined}
-                    onClick={() => selectRow(row)}
-                    style={{ cursor: "pointer" }}
-                  >
-                    <td>
-                      <button
-                        type="button"
-                        className="button small"
-                        aria-pressed={isSelected}
-                        onClick={e => {
-                          e.stopPropagation();
-                          selectRow(row);
-                        }}
-                        title={`${row.name} (${row.sector})`}
-                      >
-                        <strong>{row.ticker}</strong>
-                      </button>{" "}
-                      <small className="muted">{row.sector}</small>
-                    </td>
-                    <td>{categoryLabel(row.category)}</td>
-                    <td>{row.setupLabel}</td>
-                    <td className="mono">
-                      <strong className={row.score >= 78 ? "positive" : ""}>{row.score}/100</strong>
-                    </td>
-                    <td className="mono">
-                      {formatPrice(row.levels.lastClose)} {row.currency}
-                    </td>
-                    <td className="mono">
-                      {formatPrice(row.levels.entryZone[0])} – {formatPrice(row.levels.entryZone[1])}
-                    </td>
-                    <td className="mono negative">
-                      {formatPrice(row.levels.invalidation)} ({pct(stopDist)})
-                    </td>
-                    <td className="mono positive">
-                      {formatPrice(row.levels.target1)} ({pct(t1Dist)}) / {formatPrice(row.levels.target2)}
-                    </td>
-                    <td className="mono">
-                      <strong>{fixed(row.levels.riskReward, 2)}R</strong>
-                    </td>
-                    <td className={`mono ${row.technicals.relativeStrengthPct >= 0 ? "positive" : "negative"}`}>
-                      {pct(row.technicals.relativeStrengthPct)}
-                    </td>
-                    <td className="mono">
-                      {Number.isFinite(row.fundamentals?.forwardPe) && row.fundamentals!.forwardPe! > 0
-                        ? `${fixed(row.fundamentals?.forwardPe, 1)}×`
-                        : "—"}{" "}
-                      /{" "}
-                      {Number.isFinite(row.fundamentals?.fcfYieldPct) && row.fundamentals!.fcfYieldPct !== 0
-                        ? `${fixed(row.fundamentals?.fcfYieldPct, 1)}%`
-                        : "—"}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {!loading && result && !filtered.length && (
-        <p className="form-help">Keine Trade-Möglichkeiten für diese Filterkombination gefunden. Reduziere den Mindest-Score oder wähle „Alle 3 Setup-Kategorien“.</p>
-      )}
+      <div className="opportunity-workspace">
+        <section ref={resultsRef} tabIndex={-1} className="opportunity-results" aria-label="Scan-Ergebnisse">
+          {!!filtered.length && <table className="data-table" aria-label="Trade-Möglichkeiten Trefferliste">
+            <thead><tr><th scope="col">Aktie &amp; Setup</th><th scope="col">Kurslage</th><th scope="col">Score</th><th scope="col">CRV</th><th scope="col" className="opportunity-wide-cell">RS</th></tr></thead>
+            <tbody>{pageRows.map(row => {
+              const isSelected = selected?.id === row.id;
+              const state = opportunityEntryState(row.levels);
+              return <tr key={row.id} className={isSelected ? "selected-row" : undefined} onClick={() => selectRow(row)}>
+                <td><button type="button" className="button opportunity-row-button" aria-pressed={isSelected} aria-label={`${row.ticker} · ${row.setupLabel}`}
+                  onClick={event => { event.stopPropagation(); selectRow(row); }} title={`${row.name} · ${row.sector}`}>
+                  <strong>{row.ticker}</strong><small>{row.setupLabel}</small>
+                </button></td>
+                <td><span className={`opportunity-entry-state ${state === "zone" ? "positive" : state === "invalid" ? "negative" : ""}`}>{stateLabels[state]}</span><small className="mono">{formatPrice(row.levels.lastClose)} {row.currency}</small></td>
+                <td className="mono">{row.score}</td>
+                <td className="mono">{fixed(opportunityPlan(row.levels)?.reward, 1)} R</td>
+                <td className="mono opportunity-wide-cell">{pct(row.technicals.relativeStrengthPct)}</td>
+              </tr>;
+            })}</tbody>
+          </table>}
+          {resultPages > 1 && <nav className="opportunity-pagination" aria-label="Trefferseiten">
+            <button type="button" className="button small" disabled={visibleResultPage === 0} onClick={() => { setSelectedId(null); setResultPage(visibleResultPage - 1); }}>Zurück</button>
+            <span>Seite {visibleResultPage + 1} von {resultPages}</span>
+            <button type="button" className="button small" disabled={visibleResultPage + 1 === resultPages} onClick={() => { setSelectedId(null); setResultPage(visibleResultPage + 1); }}>Weiter</button>
+          </nav>}
+          {!loading && result && !filtered.length && <p className="form-help">
+            {result.opportunities.length ? "Keine Treffer für diese Filter." : result.evaluated
+              ? "Die geprüften Aktien liefern aktuell keine Setups." : "Der Scan hat keine auswertbaren Aktiendaten erhalten."}
+          </p>}
+        </section>
 
       {selected && (
-        <section className="stock-base-evidence" aria-label="Ausgewähltes Trade-Setup im Detail">
+        <section ref={detailRef} tabIndex={-1} className="stock-base-evidence opportunity-detail" aria-label="Ausgewähltes Trade-Setup im Detail">
+          <button className="button small opportunity-back" type="button" onClick={() => {
+            resultsRef.current?.focus({ preventScroll: true });
+            resultsRef.current?.scrollIntoView?.({ block: "start" });
+          }}>Zur Trefferliste</button>
+          <header className="opportunity-detail-heading">
+            <div><h3>{selected.ticker} <span>{selected.name}</span></h3><p>{selected.setupLabel} · {categoryLabel(selected.category)}</p>
+              <p>Schluss {formatPrice(selected.levels.lastClose)} {selected.currency} · {stateLabels[setupState]}</p></div>
+            <div><strong>{selected.score}/100</strong><small>{selected.session} · Long</small></div>
+          </header>
+          {plan && <section className="opportunity-risk" aria-label="Risikoplan">
+            <dl>
+              <div><dt>Limit-Mitte</dt><dd className="mono">{formatPrice(plan.entry)} {selected.currency}</dd></div>
+              <div><dt>Stop</dt><dd className="mono negative">{formatPrice(plan.stop)}</dd></div>
+              <div><dt>Ziel 1 / Ziel 2</dt><dd className="mono positive">{formatPrice(plan.target1)} / {formatPrice(plan.target2)}</dd></div>
+              <div><dt>CRV bis Ziel 1</dt><dd className="mono">{fixed(plan.reward, 2)} R</dd></div>
+            </dl>
+            <label>Risikobudget ({selected.currency})<input type="number" inputMode="decimal" min="0" step="any" placeholder="Optional" value={riskBudget}
+              onChange={event => setRiskBudget(event.target.value)} /></label>
+            {size && <p role="status"><strong>{size.quantity} Aktien</strong> · Einsatz {formatPrice(size.capital)} · Stop-Risiko {formatPrice(size.risk)} {selected.currency}</p>}
+            {riskBudget.trim() && !size && <p className="form-help" role="status">Das Budget muss das Stop-Risiko mindestens einer Aktie abdecken.</p>}
+            <p className="form-help">Bruttorechnung zum Limit. Gebühren, Slippage und Kurslücken können den tatsächlichen Verlust verändern.</p>
+          </section>}
+          {(setupState === "invalid" || setupState === "target") &&
+            <p className="form-help">Ein Paper-Entwurf steht für aktive Setups mit gültigem Stop und Ziel zur Verfügung.</p>}
           <div className="screener-toolbar">
-            <strong>
-              {selected.ticker} · {selected.name} · {selected.setupLabel} · Score {selected.score}/100
-            </strong>
             <button
               type="button"
               className="button small primary"
-              onClick={() => useChartStore.getState().set({ symbol: selected.symbol, timeframe: "1D" })}
+              onClick={() => {
+                const action = { symbol: selected.symbol, timeframe: "1D" } as const;
+                useChartStore.getState().set(action);
+                broadcastWorkspaceAction(action);
+              }}
             >
               In Haupt-Chart laden ({selected.ticker})
             </button>
@@ -552,30 +524,15 @@ export function OpportunitiesHub({
             <button
               type="button"
               className="button small"
+              disabled={!canPrepare}
               onClick={() => {
-                const rawMid = (selected.levels.entryZone[0] + selected.levels.entryZone[1]) / 2;
-                const entryMid =
-                  Number.isFinite(rawMid) && rawMid > 0
-                    ? rawMid >= 1
-                      ? Math.round(rawMid * 100) / 100
-                      : Number(rawMid.toPrecision(6))
-                    : selected.levels.lastClose;
+                if (!plan || !canPrepare) return;
+                const { entry: entryMid, target1: tp1, target2: tp2, stop: sl } = plan;
                 const currentQty = usePaperStore.getState().ticket.quantity;
-                const qty = Number.isFinite(currentQty) && currentQty > 0 ? currentQty : 0.01;
-                const tp1 = selected.levels.target1;
-                const tp2 = selected.levels.target2;
-                const sl = selected.levels.invalidation;
-                const leg1Qty = Number((qty / 2).toPrecision(8));
+                const qty = size?.quantity ?? (Number.isFinite(currentQty) && currentQty > 0 ? currentQty : 0.01);
+                const leg1Qty = size ? Math.floor(qty / 2) : Number((qty / 2).toPrecision(8));
                 const leg2Qty = qty - leg1Qty;
-                const validTp1 = Number.isFinite(tp1) && tp1 > entryMid;
-                const validSl = Number.isFinite(sl) && sl > 0 && sl < entryMid;
-                const hasTwoTargets =
-                  validTp1 &&
-                  Number.isFinite(tp2) &&
-                  tp2 > tp1 &&
-                  validSl &&
-                  leg1Qty >= 1e-12 &&
-                  leg2Qty >= 1e-12;
+                const hasTwoTargets = tp2 > tp1 && leg1Qty >= 1e-12 && leg2Qty >= 1e-12;
                 usePaperStore.getState().setTicket(
                   hasTwoTargets
                     ? {
@@ -596,8 +553,8 @@ export function OpportunitiesHub({
                         type: "limit",
                         quantity: qty,
                         price: entryMid,
-                        stopLoss: validSl ? sl : undefined,
-                        takeProfit: validTp1 ? tp1 : undefined,
+                        stopLoss: sl,
+                        takeProfit: tp1,
                         exitLevels: undefined,
                         reduceOnly: false,
                       },
@@ -609,10 +566,10 @@ export function OpportunitiesHub({
                   bottomTab: "trading",
                 });
                 const toastPayload = {
-                  title: hasTwoTargets || validSl || validTp1 ? "Bracket-Order vorbereitet" : "Limit-Order vorbereitet",
+                  title: "Paper-Bracket vorbereitet",
                   message: hasTwoTargets
-                    ? `${selected.ticker}: Limit ${formatPrice(entryMid)} · Stop ${formatPrice(sl)} · TP1 (50%) ${formatPrice(tp1)} · TP2 (50%) ${formatPrice(tp2)}`
-                    : `${selected.ticker}: Limit ${formatPrice(entryMid)}${validSl ? ` · Stop ${formatPrice(sl)}` : ""}${validTp1 ? ` · TP ${formatPrice(tp1)}` : ""}`,
+                    ? `${selected.ticker}: Limit ${formatPrice(entryMid)} · Stop ${formatPrice(sl)} · TP1 (${leg1Qty} Stk.) ${formatPrice(tp1)} · TP2 (${leg2Qty} Stk.) ${formatPrice(tp2)}`
+                    : `${selected.ticker}: Limit ${formatPrice(entryMid)} · Stop ${formatPrice(sl)} · TP ${formatPrice(tp1)}`,
                   tone: "success" as const,
                 };
                 broadcastWorkspaceAction({
@@ -625,7 +582,7 @@ export function OpportunitiesHub({
                 useChartStore.getState().toast(toastPayload.title, toastPayload.message, toastPayload.tone);
               }}
             >
-              Bracket-Order vorbereiten
+              Bracket-Order vorbereiten (Paper)
             </button>
             {watchlist && (
               <button
@@ -662,7 +619,7 @@ export function OpportunitiesHub({
           <OpportunityMiniChart opportunity={selected} />
 
           <div>
-            <strong>Warum ist das ein Setup? (Evidenz & Begründung)</strong>
+            <strong>Auslöser und Bestätigung</strong>
             <ul className="form-help">
               {(selected.whySetup ?? []).map((reason, idx) => (
                 <li key={idx}>{reason}</li>
@@ -670,30 +627,14 @@ export function OpportunitiesHub({
             </ul>
           </div>
 
-          <dl aria-label="Setup Key-Levels und Indikatoren">
+          <dl aria-label="Setup-Indikatoren und Fundamentaldaten">
             <div>
-              <dt>Entry-Zone</dt>
-              <dd className="mono">
-                {formatPrice(selected.levels.entryZone[0])} – {formatPrice(selected.levels.entryZone[1])} {selected.currency}
-              </dd>
+              <dt>Relative Stärke vs. {result?.benchmark ?? "Index"}</dt>
+              <dd className="mono">{pct(selected.technicals.relativeStrengthPct)}</dd>
             </div>
             <div>
-              <dt>Invalidierung / Stop-Loss</dt>
-              <dd className="mono negative">
-                {formatPrice(selected.levels.invalidation)} {selected.currency} ({pct(distPct(selected.levels.invalidation, selected.levels.lastClose))})
-              </dd>
-            </div>
-            <div>
-              <dt>Kursziel 1 / Kursziel 2</dt>
-              <dd className="mono positive">
-                T1: {formatPrice(selected.levels.target1)} ({pct(distPct(selected.levels.target1, selected.levels.lastClose))}) · T2: {formatPrice(selected.levels.target2)}
-              </dd>
-            </div>
-            <div>
-              <dt>Chance-Risiko-Verhältnis (CRV)</dt>
-              <dd className="mono">
-                <strong>{fixed(selected.levels.riskReward, 2)} : 1</strong>
-              </dd>
+              <dt>Forward-KGV / FCF-Rendite</dt>
+              <dd className="mono">{fixed(selected.fundamentals?.forwardPe, 1)}× / {fixed(selected.fundamentals?.fcfYieldPct, 1)}%</dd>
             </div>
             <div>
               <dt>EMA 20 / EMA 50 / 20d-VWAP</dt>
@@ -724,8 +665,18 @@ export function OpportunitiesHub({
             </div>
           </dl>
 
+          <details className="opportunity-insider">
+            <summary>Insider-Meldungen {selected.fundamentals?.recentInsiderFilings?.length ? `· ${selected.fundamentals.recentInsiderFilings.length}` : ""}</summary>
+            {selected.fundamentals?.recentInsiderFilings?.length ? <ul>
+              {selected.fundamentals.recentInsiderFilings.map((filing, index) => <li key={`${filing.date}-${filing.insider}-${index}`}>
+                <strong>{filing.date} · {filing.insider}</strong><small>{filing.role} · {filing.form} · {filing.shares.toLocaleString("de-DE")} Aktien · {formatPrice(filing.valueUsd)} USD</small>
+              </li>)}
+            </ul> : <p className="form-help">Für dieses Setup liegen im Scan keine einzelnen Insider-Meldungen vor.</p>}
+            {!!selected.fundamentals?.dataSources?.length && <p className="form-help">{selected.fundamentals.dataSources.join(" · ")}</p>}
+          </details>
           <details>
-            <summary>Setup-Score Aufschlüsselung · {selected.score}/100 Punkte</summary>
+            <summary>Setup-Score · {selected.score}/100 Punkte</summary>
+            <p className="form-help">Punkte aus erfüllten Kriterien des jeweiligen Setup-Modells.</p>
             <dl>
               {Object.entries(selected.scoreBreakdown ?? {}).map(([label, pts]) => (
                 <div key={label}>
@@ -737,6 +688,7 @@ export function OpportunitiesHub({
           </details>
         </section>
       )}
+      </div>
     </div>
   );
 }

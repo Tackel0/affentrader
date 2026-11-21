@@ -1760,6 +1760,21 @@ async function run() {
         }
         await settleUi(cdp, 350);
         recordAudit(vp, `/terminal(${mod.key})`, await inspectViewportDom(cdp, vp.mobile));
+        if (vp.width === 390 && mod.key === "OPPS" && !opts.liveApis) {
+          activeLabel = "mobile opportunity research and risk";
+          await waitForPagePredicate(cdp, `!!document.querySelector(".opportunity-row-button")`, "the scanner shows a completed daily setup");
+          await cdp.send("Runtime.evaluate", {
+            expression: 'document.querySelector(".opportunity-row-button").scrollIntoView({ block: "center" })',
+          });
+          await settleUi(cdp, 150);
+          await tapWorkspaceTarget(cdp, ".opportunity-row-button", 36);
+          await cdp.send("Runtime.evaluate", {
+            expression: 'document.querySelector(".opportunity-risk input").focus()',
+          });
+          await cdp.send("Input.insertText", { text: "25" });
+          await waitForPagePredicate(cdp, `document.querySelector(".opportunity-risk")?.textContent.includes("2 Aktien")`, "the planned risk rounds down to two whole shares");
+          recordAudit(vp, "/terminal(OPPS risk)", await inspectViewportDom(cdp, true));
+        }
       }
     }
 

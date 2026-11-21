@@ -18,7 +18,7 @@ export async function GET(request: Request) {
   }
   try {
     return Response.json(
-      await scanTradeOpportunities(params.get("market") ?? "us", page),
+      await scanTradeOpportunities(params.get("market") ?? "us", page, undefined, undefined, undefined, undefined, request.signal),
     );
   } catch (error) {
     if (error instanceof InvalidOpportunityScan) {

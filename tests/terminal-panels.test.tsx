@@ -351,16 +351,19 @@ describe("Analytical Terminal Sub-Panels", () => {
       const { container } = render(<OpportunitiesHub onSelectOpportunity={onSelectOpportunity} />);
 
       await waitFor(() => {
-        expect(container.textContent).toContain("2 Trade-Setups aktiv");
+        expect(container.textContent).toContain("2 von 2 Setups");
       });
       expect(container.textContent).toContain("NVDA");
       expect(container.textContent).toContain("MU");
 
-      // Click MU row -> syncs useChartStore and calls onSelectOpportunity
-      const muButton = within(container).getByRole("button", { name: /^MU$/i });
+      // Opening research does not change the chart until the chart action is used.
+      const priorSymbol = useChartStore.getState().symbol;
+      const muButton = within(container).getByRole("button", { name: /^MU\b/i });
       await act(async () => {
         fireEvent.click(muButton);
       });
+      expect(useChartStore.getState().symbol).toBe(priorSymbol);
+      fireEvent.click(within(container).getByRole("button", { name: "In Haupt-Chart laden (MU)" }));
       expect(useChartStore.getState().symbol).toBe("YF:MU");
       expect(onSelectOpportunity).toHaveBeenCalledWith(expect.objectContaining({ ticker: "MU" }), mu.fundamentals);
 
@@ -378,20 +381,29 @@ describe("Analytical Terminal Sub-Panels", () => {
         { quantity: 0.005, takeProfit: 136, stopLoss: 92 },
       ]);
 
+      const budget = within(container).getByLabelText("Risikobudget (USD)");
+      fireEvent.change(budget, { target: { value: "26" } });
+      expect(within(container).getByText("3 Aktien")).toBeTruthy();
+      fireEvent.click(bracketBtn);
+      expect(usePaperStore.getState().ticket.exitLevels).toEqual([
+        { quantity: 1, takeProfit: 124, stopLoss: 92 },
+        { quantity: 2, takeProfit: 136, stopLoss: 92 },
+      ]);
+
       // Filter by category value-garp -> keeps only MU
       const catSelect = within(container).getByLabelText("Strategy category") as HTMLSelectElement;
       await act(async () => {
         fireEvent.change(catSelect, { target: { value: "value-garp" } });
       });
-      expect(container.textContent).toContain("1 Trade-Setups aktiv");
+      expect(container.textContent).toContain("1 von 2 Setups");
       expect(container.textContent).toContain("MU");
 
       // Raise min score to 90 -> empty filter message
-      const rangeInput = container.querySelector('input[type="range"]') as HTMLInputElement;
+      const rangeInput = within(container).getByLabelText("Min. Score");
       await act(async () => {
         fireEvent.change(rangeInput, { target: { value: "90" } });
       });
-      expect(container.textContent).toContain("Keine Trade-Möglichkeiten für diese Filterkombination gefunden");
+      expect(container.textContent).toContain("Keine Treffer für diese Filter.");
 
       // Rescan triggers API failure alert
       const rescanBtn = within(container).getByRole("button", { name: /Scan Trade-Möglichkeiten/i });

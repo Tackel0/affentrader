@@ -28,23 +28,26 @@ describe("AffenTerminalWindow Shell & Telemetry", () => {
   // Tier 1: Feature Coverage (Happy Paths)
   // ==========================================
   describe("Tier 1: Feature Coverage", () => {
-    it("loads the next and previous opportunity groups by their page number", async () => {
+    it("retains completed groups when an opportunity scan fails and resumes the same page", async () => {
       let pageOneRequests = 0;
       const request = vi.spyOn(globalThis, "fetch").mockImplementation(async input => {
         const page = Number(new URL(String(input), "http://localhost").searchParams.get("page"));
         if (page === 1 && ++pageOneRequests === 1) return Response.json({ error: "Temporarily unavailable" }, { status: 503 });
         return Response.json({ market: "us", benchmark: "S&P 500", benchmarkSession: "2026-11-13", page, pages: 2,
-          evaluated: 0, universe: 0, dataSources: [], opportunities: [], unavailable: [] });
+          evaluated: page === 0 ? 24 : 8, universe: page === 0 ? 24 : 8, totalUniverse: 32,
+          dataSources: [], opportunities: [], unavailable: [] });
       });
       render(<OpportunitiesHub />);
       await screen.findByText("Gruppe 1 von 2");
-      fireEvent.click(screen.getByRole("button", { name: "Nächste Gruppe" }));
-      fireEvent.click(await screen.findByRole("button", { name: "Gruppe 2 erneut scannen" }));
+      fireEvent.click(screen.getByRole("button", { name: "Gesamtscan fortsetzen" }));
+      expect((await screen.findByRole("alert")).textContent).toContain("Temporarily unavailable");
+      expect(screen.getByText(/24\/32 Aktien ausgewertet/)).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Gesamtscan fortsetzen" }));
       await screen.findByText("Gruppe 2 von 2");
       expect(pageOneRequests).toBe(2);
       expect(request.mock.calls.some(([input]) => String(input).includes("/api/terminal-opportunities?market=us&page=1"))).toBe(true);
-      fireEvent.click(screen.getByRole("button", { name: "Vorherige Gruppe" }));
-      await screen.findByText("Gruppe 1 von 2");
+      expect(screen.getByText(/32\/32 Aktien ausgewertet/)).toBeTruthy();
+      expect(request.mock.calls.filter(([input]) => String(input).includes("page=0"))).toHaveLength(1);
       request.mockRestore();
     });
 

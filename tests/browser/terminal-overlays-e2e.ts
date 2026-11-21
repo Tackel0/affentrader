@@ -643,8 +643,8 @@ async function runTerminalRouteE2E(): Promise<TerminalRouteResult> {
   if (!oppsBtn) throw new Error("Trade-Möglichkeiten tab button missing in AffenTerminalWindow");
   oppsBtn.click();
   const switchedViewTextLen = await waitFor(() => {
-    const txt = termRoot.textContent ?? "";
-    return txt.includes("Trade-Setups aktiv") ? txt.length : null;
+    const progress = termRoot.querySelector(".opportunity-progress [role=status]")?.textContent ?? "";
+    return progress.includes("Aktien ausgewertet") ? termRoot.textContent?.length ?? 0 : null;
   }, "AffenTerminalWindow Opportunities tab switch");
 
   // Switch into OSINT tab inside ResearchTerminal and confirm d3-geo paths mount inside the terminal pane

@@ -136,7 +136,7 @@ describe("ResearchTerminal Command Bar", () => {
       });
 
       // Terminal status message should remain absent
-      const statusMsg = container.querySelector("p.form-help[role='status']");
+      const statusMsg = container.querySelector(".terminal-status");
       expect(statusMsg).toBeNull();
     });
 

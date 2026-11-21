@@ -392,7 +392,7 @@ describe("Mobile PWA & Touch UI regressions", () => {
     expect(validateExitLevels(usePaperStore.getState().ticket.exitLevels, nextQty)).toBeNull();
   });
 
-  it("preserves sub-$1 entry precision and omits inverted invalidation in OpportunitiesHub", async () => {
+  it("blocks paper drafts with an inverted invalidation in OpportunitiesHub", async () => {
     const payload: OpportunityScanResult = {
       market: "us",
       benchmark: "SPY",
@@ -457,12 +457,8 @@ describe("Mobile PWA & Touch UI regressions", () => {
 
     const { container } = render(<OpportunitiesHub />);
     await waitFor(() => expect(container.textContent).toContain("PENN"));
-    fireEvent.click(within(container).getByRole("button", { name: /Bracket-Order vorbereiten/i }));
-    const ticket = usePaperStore.getState().ticket;
-    expect(ticket.price).toBeCloseTo(0.4222, 6);
-    expect(ticket.takeProfit).toBe(0.55);
-    expect(ticket.stopLoss).toBeUndefined();
-    expect(ticket.exitLevels).toBeUndefined();
+    const bracket = within(container).getByRole<HTMLButtonElement>("button", { name: /Bracket-Order vorbereiten/i });
+    expect(bracket.disabled).toBe(true);
   });
 
   it("renders AffenTerminalWindow, OpportunitiesHub, and NewsPanel gracefully when macro crossAssets, scan arrays, or news symbols are missing", async () => {
@@ -483,10 +479,10 @@ describe("Mobile PWA & Touch UI regressions", () => {
     const win = render(<AffenTerminalWindow initialView="help" />);
     await waitFor(() => expect(win.container.textContent).toContain("62"));
     fireEvent.click(within(win.container).getByRole("button", { name: "Trade-Möglichkeiten" }));
-    await waitFor(() => expect(win.container.textContent).toContain("Trade-Setups aktiv"));
+    await waitFor(() => expect(win.container.textContent).toContain("0 von 0 Setups"));
     fireEvent.click(within(win.container).getByRole("button", { name: "Commands" }));
     fireEvent.click(within(win.container).getByRole("button", { name: "Trade-Möglichkeiten" }));
-    expect(win.container.textContent).toContain("Trade-Setups aktiv");
+    expect(win.container.textContent).toContain("0 von 0 Setups");
     expect(vi.mocked(global.fetch).mock.calls.filter(([url]) => String(url).includes("/api/terminal-opportunities"))).toHaveLength(1);
 
     const news = render(<NewsPanel />);

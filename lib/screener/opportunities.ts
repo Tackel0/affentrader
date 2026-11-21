@@ -87,6 +87,42 @@ export interface OpportunityKeyLevels {
   riskReward: number;
 }
 
+export function opportunityPlan(levels: OpportunityKeyLevels) {
+  const [low, high] = levels.entryZone;
+  const { invalidation: stop, target1 } = levels;
+  if (![low, high, stop, target1].every(value => Number.isFinite(value) && value > 0) ||
+    !(stop < low && low <= high && high < target1)) return null;
+  const target2 = Number.isFinite(levels.target2) && levels.target2 > target1 ? levels.target2 : target1;
+  const midpoint = low + (high - low) / 2;
+  const rounded = midpoint >= 1 ? Math.round(midpoint * 100) / 100 : Number(midpoint.toPrecision(6));
+  const entry = Math.min(high, Math.max(low, rounded));
+  const risk = entry - stop;
+  const reward = (target1 - entry) / risk;
+  return Number.isFinite(reward) && risk > 0 ? { entry, stop, target1, target2, risk, reward } : null;
+}
+
+export function opportunityEntryState(levels: OpportunityKeyLevels) {
+  if (!opportunityPlan(levels) || !Number.isFinite(levels.lastClose) || levels.lastClose <= levels.invalidation) return "invalid";
+  if (levels.lastClose >= levels.target1) return "target";
+  if (levels.lastClose < levels.entryZone[0]) return "below";
+  return levels.lastClose > levels.entryZone[1] ? "above" : "zone";
+}
+
+export function opportunityEntryDistance(levels: OpportunityKeyLevels) {
+  const { lastClose, entryZone: [low, high] } = levels;
+  if (![lastClose, low, high].every(value => Number.isFinite(value) && value > 0) || low > high) return null;
+  return Math.max(0, low - lastClose, lastClose - high) / lastClose * 100;
+}
+
+export function opportunityShareSize(plan: Pick<NonNullable<ReturnType<typeof opportunityPlan>>, "risk" | "entry">, budget: number) {
+  if (!Number.isFinite(budget) || budget <= 0 || !(plan.risk > 0)) return null;
+  let quantity = Math.floor(budget / plan.risk);
+  if (!Number.isSafeInteger(quantity) || quantity < 1) return null;
+  if (quantity * plan.risk > budget) quantity--;
+  const capital = quantity * plan.entry;
+  return quantity >= 1 && Number.isFinite(capital) ? { quantity, capital, risk: quantity * plan.risk } : null;
+}
+
 export interface OpportunityTechnicals {
   rsi14: number;
   ema20: number;
@@ -139,15 +175,38 @@ export interface OpportunityScanResult {
   market: string;
   benchmark: string;
   benchmarkSession: string;
+  benchmarkRevision?: string;
   generatedAt: number;
   evaluated: number;
   excluded?: number;
   universe: number;
+  totalUniverse?: number;
   page?: number;
   pages?: number;
   dataSources: string[];
   opportunities: TradeOpportunity[];
   unavailable: { symbol: string; reason: string }[];
+}
+
+export function mergeOpportunityGroups(previous: OpportunityScanResult | null, next: OpportunityScanResult): OpportunityScanResult {
+  if ((next.page ?? 0) !== (previous ? (previous.page ?? 0) + 1 : 0) || previous && (
+    previous.market !== next.market || previous.benchmark !== next.benchmark ||
+    previous.benchmarkSession !== next.benchmarkSession || previous.benchmarkRevision !== next.benchmarkRevision ||
+    previous.pages !== next.pages || previous.totalUniverse !== next.totalUniverse
+  )) throw new Error("Marktdaten oder Scan-Universum haben sich geändert. Starte einen neuen Scan.");
+  if (!previous) return next;
+  const opportunities = new Map(previous.opportunities.map(item => [item.id, item]));
+  for (const item of next.opportunities) opportunities.set(item.id, item);
+  return {
+    ...next,
+    generatedAt: Math.min(previous.generatedAt, next.generatedAt),
+    evaluated: previous.evaluated + next.evaluated,
+    excluded: (previous.excluded ?? 0) + (next.excluded ?? 0),
+    universe: previous.universe + next.universe,
+    dataSources: [...new Set([...previous.dataSources, ...next.dataSources])],
+    opportunities: [...opportunities.values()],
+    unavailable: [...previous.unavailable, ...next.unavailable],
+  };
 }
 
 const CATEGORY_LABELS: Record<OpportunityCategory, string> = {
@@ -949,7 +1008,7 @@ const encodeCsvCell = (value: string | number) =>
     : csvEscape(value);
 
 /** Export opportunities to RFC-4180 CSV with formula-injection protection. */
-export function opportunitiesToCsv(rows: readonly TradeOpportunity[], scan?: OpportunityScanResult): string {
+export function opportunitiesToCsv(rows: readonly TradeOpportunity[], scan?: OpportunityScanResult, combined = false): string {
   const header = [
     "symbol",
     "ticker",
@@ -978,6 +1037,7 @@ export function opportunitiesToCsv(rows: readonly TradeOpportunity[], scan?: Opp
     "rationale",
     "first_low_session", "first_low_price", "retest_session", "retest_low_price", "neckline", "local_swing_high",
     "benchmark", "benchmark_session", "scan_group", "scan_groups", "group_evaluated", "group_symbols", "group_unavailable", "group_excluded",
+    ...(combined ? ["groups_processed", "universe_total", "evaluated_total", "attempted_total", "unavailable_total", "excluded_total"] : []),
   ];
   const lines = [header.join(",")];
   for (const row of rows) {
@@ -1010,8 +1070,11 @@ export function opportunitiesToCsv(rows: readonly TradeOpportunity[], scan?: Opp
         row.whySetup.join(" | "),
         row.structure?.firstLow.session ?? "", row.structure?.firstLow.price ?? "", row.structure?.retest.session ?? "",
         row.structure?.retest.price ?? "", row.structure?.neckline ?? "", row.structure?.localSwingHigh ?? "",
-        scan?.benchmark ?? "", scan?.benchmarkSession ?? "", scan ? (scan.page ?? 0) + 1 : "", scan?.pages ?? "",
-        scan?.evaluated ?? "", scan?.universe ?? "", scan?.unavailable?.length ?? "", scan?.excluded ?? "",
+        scan?.benchmark ?? "", scan?.benchmarkSession ?? "", scan && !combined ? (scan.page ?? 0) + 1 : "", scan?.pages ?? "",
+        !combined ? scan?.evaluated ?? "" : "", !combined ? scan?.universe ?? "" : "",
+        !combined ? scan?.unavailable?.length ?? "" : "", !combined ? scan?.excluded ?? "" : "",
+        ...(combined && scan ? [(scan.page ?? 0) + 1, scan.totalUniverse ?? "", scan.evaluated,
+          scan.universe, scan.unavailable.length, scan.excluded ?? 0] : combined ? ["", "", "", "", "", ""] : []),
       ]
         .map(encodeCsvCell)
         .join(","),

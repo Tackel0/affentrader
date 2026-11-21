@@ -646,11 +646,11 @@ ${rawFeatures}
     await evalJs(`window.__testHarness.clickElementText("Trade-M")`);
     await new Promise((r) => setTimeout(r, 400));
 
-    // 3. "Trade-Setups aktiv"
-    const hasTradeSetupsAktiv = await evalJs(`window.__testHarness.hasVisibleText("Trade-Setups aktiv")`);
-    if (!hasTradeSetupsAktiv) throw new Error("DOM string 'Trade-Setups aktiv' is missing or not visible");
-    domStrings.tradeSetupsAktiv = { visible: hasTradeSetupsAktiv };
-    console.log(`[Browser] PASS: String 'Trade-Setups aktiv' exists and is visible`);
+    // 3. Scan coverage
+    const hasScanCoverage = await evalJs(`window.__testHarness.hasVisibleText("Aktien ausgewertet")`);
+    if (!hasScanCoverage) throw new Error("Opportunity scan coverage is missing or not visible");
+    domStrings.scanCoverage = { visible: hasScanCoverage };
+    console.log(`[Browser] PASS: Opportunity scan coverage is visible`);
 
     // 4. "OSINT" tab button
     const hasOsint = await evalJs(`window.__testHarness.hasVisibleText("OSINT")`);

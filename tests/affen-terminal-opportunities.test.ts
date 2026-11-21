@@ -7,6 +7,10 @@ import {
   detectStructuralBottomOpportunity,
   detectValueGarpOpportunity,
   evaluateTickerOpportunities,
+  mergeOpportunityGroups,
+  opportunityEntryState,
+  opportunityPlan,
+  opportunityShareSize,
   opportunitiesToCsv,
   type FundamentalSnapshot,
 } from "@/lib/screener/opportunities";
@@ -95,6 +99,33 @@ describe("AffenTerminal command bar parser", () => {
 });
 
 describe("Multi-Strategy Trade-Möglichkeiten Engine", () => {
+  it("sizes whole shares against the actual limit and refuses invalid setup levels", () => {
+    const levels = { lastClose: 0.425, entryZone: [0.4220, 0.4224] as [number, number],
+      invalidation: 0.4, target1: 0.55, target2: 0.6, riskReward: 4 };
+    const plan = opportunityPlan(levels)!;
+    expect(plan.entry).toBe(0.4222);
+    expect(opportunityEntryState(levels)).toBe("above");
+    expect(opportunityEntryState({ ...levels, lastClose: 0.4224 })).toBe("zone");
+    expect(opportunityEntryState({ ...levels, lastClose: 0.55 })).toBe("target");
+    expect(opportunityEntryState({ ...levels, lastClose: 0.4 })).toBe("invalid");
+    expect(opportunityPlan({ ...levels, invalidation: 0.43 })).toBeNull();
+    expect(opportunityShareSize(plan, 1)?.quantity).toBe(45);
+    expect(opportunityShareSize(plan, 0.01)).toBeNull();
+    expect(opportunityShareSize(plan, Infinity)).toBeNull();
+  });
+
+  it("keeps scan totals and rejects pages from a revised benchmark", () => {
+    const first = { market: "us", benchmark: "S&P 500", benchmarkSession: "2026-11-20", benchmarkRevision: "a",
+      generatedAt: 1000, page: 0, pages: 2, universe: 24, totalUniverse: 31, evaluated: 23, excluded: 1,
+      dataSources: ["Yahoo"], opportunities: [], unavailable: [] };
+    const next = { ...first, generatedAt: 2000, page: 1, universe: 7, evaluated: 6, excluded: 0,
+      dataSources: ["Yahoo", "SEC"], unavailable: [{ symbol: "YF:AAPL", reason: "Missing day." }] };
+    expect(mergeOpportunityGroups(first, next)).toMatchObject({ page: 1, evaluated: 29, universe: 31,
+      generatedAt: 1000, dataSources: ["Yahoo", "SEC"], excluded: 1, unavailable: next.unavailable });
+    expect(() => mergeOpportunityGroups(first, { ...next, benchmarkRevision: "b" })).toThrow(/Marktdaten/);
+    expect(() => mergeOpportunityGroups(first, { ...next, page: 0 })).toThrow(/Marktdaten/);
+  });
+
   const meta = {
     symbol: "YF:QCOM",
     ticker: "QCOM",

@@ -118,6 +118,15 @@ Outputs filterable trade setups with a **Setup-Score (0–100)**, transparent po
 
 *(Every landed fix/feature is verified directly against modified source files; global test/build counts are only updated after `@qa-verifier` completes the full post-edit verification gate.)*
 
+### Pass 2026-11-21 — Research and Plan Trades from the Terminal Scanner
+
+- **Cause.** `OpportunitiesHub` replaced each result group and coupled row selection to the main chart. A wide table put scan coverage, entry levels, evidence and paper drafting in separate parts of the interaction.
+- **Scan.** `mergeOpportunityGroups` combines sequential groups and checks the market, benchmark revision, session and universe size. The view starts with a bounded preview and can continue across the universe, stop, or retry the next group while retaining completed results. The API passes the request cancellation signal upstream. The coverage view distinguishes processed symbols, usable histories, exclusions and data gaps. CSV exports the filtered results with cumulative coverage.
+- **Research.** The results and detail sit side by side when the pane is wide enough. Narrow panes use a compact, paginated table with a path back from the selected setup. Filters cover ticker, name, sector, setup, relative location of the daily close, distance to entry, minimum reward-to-risk and individual insider filings. Opening a setup leaves the chart in place until the chart action is selected. Disclosed data sources and available filing rows are attached to the setup.
+- **Paper planning.** The risk calculator uses the limit midpoint and the structural stop, rounds the resulting share count down and carries it into the existing paper ticket. Invalid stops block drafting. Target and stop levels, currency and the completed daily session stay visible. Tests cover failed group recovery, benchmark changes, sub-dollar precision, invalid stops and odd-lot target quantities.
+- **Verification.** Fast-forward pull, Next.js type generation, typecheck, all 2,818 tests, production build and Chrome Terminal E2E passed. The viewport audit passed 67 scenarios and checked 2,834 mobile controls with zero horizontal document overflow. The standalone preview merged two groups in a 48-stock fixture at 390, 820 and 1440 pixels. A real market request evaluated all 24 stocks in the first US group and returned one setup, with HTTP 200 in 4.2 seconds. No Next.js upgrade notice appeared.
+- **Earlier deployment verified.** GitHub Actions run 44959567521 deployed `8c750403` as `affenterminal--r20261121230427-8c750403`. All five live endpoints returned HTTP 200 and the login timestamp matched.
+
 ### Pass 2026-11-21 — Suspend Hidden Orderflow Work and Compact DOM Projections
 
 - **Cause.** The narrow Orderflow dock hid one pane with CSS while both still processed live updates. The compact DOM ladder regrouped session executions even when it only displayed Bid, Price and Ask.

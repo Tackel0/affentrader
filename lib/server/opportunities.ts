@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { adjustForDividends, type YahooChart } from "@/lib/market/yahoo";
 import {
   completedStockDays,
@@ -253,10 +254,12 @@ export async function scanTradeOpportunities(
     market: market.id,
     benchmark: market.benchmarkLabel,
     benchmarkSession: benchmark.at(-1)!.session,
+    benchmarkRevision: createHash("sha256").update(JSON.stringify(benchmark.map(bar => [bar.session, bar.close]))).digest("hex"),
     generatedAt: now,
     evaluated,
     excluded,
     universe: selected.length,
+    totalUniverse: tickers.length,
     page,
     pages,
     dataSources: [...sourcesUsed],
