@@ -34,8 +34,8 @@ it("releases a dormant layer's backing buffer and restores the last Vela sizing 
 
     active = false;
     layer.render(args);
-    canvas.width = 640;
-    canvas.height = 360;
+    layer.resizeBacking?.(640, 360);
+    expect(size()).toEqual([0, 0]);
     layer.render(args);
     expect(size()).toEqual([0, 0]);
     expect(acquire).toHaveBeenCalledTimes(1);
@@ -43,6 +43,8 @@ it("releases a dormant layer's backing buffer and restores the last Vela sizing 
     layer.render(args);
     expect(size()).toEqual([640, 360]);
     expect(paint).toHaveBeenCalledTimes(2);
+    layer.resizeBacking?.(800, 480);
+    expect(size()).toEqual([800, 480]);
   } finally {
     layer.destroy();
     unbind();

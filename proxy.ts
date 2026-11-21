@@ -128,7 +128,7 @@ export async function proxy(request: NextRequest) {
   if (path === "/login") {
     const next = safeReturnPath(request.nextUrl.searchParams.get("next"));
     if (request.method === "GET" || request.method === "HEAD") {
-      return authenticated ? NextResponse.redirect(externalUrl(request, next), 303) : login(next);
+      return authenticated ? NextResponse.redirect(externalUrl(request, next), { status: 303, headers: privateHeaders }) : login(next);
     }
     if (request.method !== "POST") return new NextResponse("Method not allowed", { status: 405, headers: { ...privateHeaders, Allow: "GET, HEAD, POST" } });
     if (!sameOrigin(request)) return login(next, "Diese Anfrage wurde abgelehnt. Bitte öffne die Anmeldung erneut.", 403);

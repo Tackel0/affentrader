@@ -38,6 +38,11 @@ export function canvasLayer(
 ) {
   let canvas: HTMLCanvasElement | undefined, lastArgs: RendererLayerArgs | null = null;
   let parkedSize: { width: number; height: number } | undefined;
+  const setBackingSize = (width: number, height: number) => {
+    if (!canvas) return;
+    if (canvas.width !== width) canvas.width = width;
+    if (canvas.height !== height) canvas.height = height;
+  };
   const entry = { id: layerId, canvas: () => canvas, repaint: () => { if (lastArgs) render(lastArgs); } };
   const render = (args: RendererLayerArgs) => {
     lastArgs = args;
@@ -46,16 +51,14 @@ export function canvasLayer(
     if (hasContent && (!cell || !hasContent(args, cell))) {
       if (canvas.width > 0 && canvas.height > 0) {
         parkedSize = { width: canvas.width, height: canvas.height };
-        canvas.width = 0;
-        canvas.height = 0;
+        setBackingSize(0, 0);
       }
       return;
     }
     if (parkedSize) {
       // A Vela resize may already have supplied new dimensions while this layer was idle.
       if (canvas.width === 0 && canvas.height === 0) {
-        canvas.width = parkedSize.width;
-        canvas.height = parkedSize.height;
+        setBackingSize(parkedSize.width, parkedSize.height);
       }
       parkedSize = undefined;
     }
@@ -78,8 +81,16 @@ export function canvasLayer(
   return {
     mount: (element: HTMLCanvasElement) => {
       canvas = element;
+      if (hasContent) {
+        parkedSize = { width: element.width, height: element.height };
+        setBackingSize(0, 0);
+      }
       liveLayers.add(entry);
     },
+    resizeBacking: hasContent ? (width: number, height: number) => {
+      if (parkedSize) parkedSize = { width, height };
+      else setBackingSize(width, height);
+    } : undefined,
     render,
     destroy: () => {
       liveLayers.delete(entry); canvas = undefined; lastArgs = null; parkedSize = undefined;

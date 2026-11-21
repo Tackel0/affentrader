@@ -1,7 +1,7 @@
 import { createHmac, randomBytes, scrypt, timingSafeEqual } from "node:crypto";
 
 export const SITE_COOKIE = "affentrader-site-session";
-export const SESSION_DAYS = 7;
+export const SESSION_DAYS = 30;
 export const SESSION_SECONDS = SESSION_DAYS * 24 * 60 * 60;
 export interface SiteAccessConfig { passwordHash: string; secret: string }
 

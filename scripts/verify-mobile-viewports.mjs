@@ -1377,8 +1377,8 @@ async function run() {
       const { cookies } = await cdp.send("Network.getCookies", { urls: [baseUrl] });
       const session = cookies.find(cookie => cookie.name === "affentrader-site-session");
       if (!session?.httpOnly || session.session || session.sameSite !== "Lax"
-        || session.expires < Date.now() / 1000 + 6 * 86400) {
-        throw new Error("The browser did not retain a persistent, HttpOnly, seven-day Lax session");
+        || session.expires < Date.now() / 1000 + 29 * 86400) {
+        throw new Error("The browser did not retain a persistent, HttpOnly, 30-day Lax session");
       }
       const destination = `${baseUrl}/terminal?view=opps`;
       await cdp.send("Page.navigate", { url: externalSessionLink });
@@ -1666,7 +1666,7 @@ async function run() {
         const canvases = [...document.querySelectorAll(".vela-container canvas")]
           .filter(canvas => canvas.width > 0 && canvas.clientWidth > 0);
         return devicePixelRatio === 3 && canvases.length > 0 && canvases.every(canvas =>
-          Math.abs(canvas.width - canvas.clientWidth * 1.5) <= 2);
+          Math.abs(canvas.width - canvas.clientWidth * 1.25) <= 2);
       })()`, `${vp.name} Vela canvas drawing density is capped on DPR-3 touch screens`);
       await tapWorkspaceTarget(cdp, 'nav.utility-rail [aria-label="Chart"]');
       await waitForPagePredicate(cdp, 'document.querySelector(\'nav.utility-rail [aria-label="Chart"]\')?.getAttribute("aria-pressed") === "true"', "Chart is active");
@@ -1943,7 +1943,7 @@ async function run() {
           phoneChartFocusChecked,
           tabletChartFocusViewports,
           compactNavigationViewports: COMPACT_NAV_VIEWPORTS.map(v => v.name),
-          compactCanvasDensity: 1.5,
+          compactCanvasDensity: 1.25,
           pwaShortcutsChecked,
           pwaScreenshotsChecked,
           maxDocOverflowRatio: Math.max(...results.map((r) => r.docScrollWidth / Math.max(1, r.innerWidth))),

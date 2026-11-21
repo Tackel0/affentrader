@@ -12,6 +12,34 @@ const canvasPatches = [
   ["canvas.width = bw;\n      canvas.height = bh;", `/* Affentrader: retain the current backing buffer when its size is unchanged. */
       if (canvas.width !== bw) canvas.width = bw;
       if (canvas.height !== bh) canvas.height = bh;`],
+  ["for (const l of this.extLayers) size(l.canvas);", `for (const l of this.extLayers) {
+      if (l.instance.resizeBacking) {
+        l.instance.resizeBacking(bw, bh);
+        l.canvas.style.width = \`\${pw}px\`;
+        l.canvas.style.height = \`\${ph}px\`;
+      } else size(l.canvas);
+    }`],
+  [`const canvas = this.createPlotCanvas();
+    canvas.width = this.dataCanvas.width;
+    canvas.height = this.dataCanvas.height;
+    canvas.style.width = this.dataCanvas.style.width || "100%";
+    canvas.style.height = this.dataCanvas.style.height || "100%";
+    const entry = { def: base.def, instance: base.def.create(), canvas, channel, owner: model.id };
+    this.extLayers.push(entry);
+    this.plot.insertBefore(canvas, this.chromeCanvas);
+    entry.instance.mount(canvas);`, `const canvas = this.createPlotCanvas();
+    const instance = base.def.create();
+    if (!instance.resizeBacking) {
+      canvas.width = this.dataCanvas.width;
+      canvas.height = this.dataCanvas.height;
+    }
+    canvas.style.width = this.dataCanvas.style.width || "100%";
+    canvas.style.height = this.dataCanvas.style.height || "100%";
+    const entry = { def: base.def, instance, canvas, channel, owner: model.id };
+    this.extLayers.push(entry);
+    this.plot.insertBefore(canvas, this.chromeCanvas);
+    entry.instance.mount(canvas);
+    entry.instance.resizeBacking?.(this.dataCanvas.width, this.dataCanvas.height);`],
   // Release the drawing buffers promptly when changing charts or layouts.
   ["this.wrapper?.remove();\n  }\n  // ── price data", `/* Affentrader: free detached plot backing buffers before garbage collection. */
     for (const canvas of this.plot?.querySelectorAll("canvas") ?? []) {
@@ -38,7 +66,7 @@ for (const name of await fs.readdir(dist)) {
   if (oldCount + newCount !== 1) throw new Error(`Unexpected chart density anchor in ${name}.`);
   // The standalone build nests the renderer two spaces deeper than the ESM build.
   const indent = name.startsWith("vela.") ? "  " : "";
-  const indentLines = value => value.replaceAll("\n", `\n${indent}`);
+  const indentLines = value => value.replaceAll("\n", `\n${indent}`).replace("size(l.canvas);", indent ? "size3(l.canvas);" : "size(l.canvas);");
   let next = oldCount ? source.replace(originalDpr, adaptedDpr) : source;
   for (const [original, adapted] of canvasPatches) {
     const before = indentLines(original);

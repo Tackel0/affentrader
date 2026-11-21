@@ -118,6 +118,20 @@ function verifyStudyNoticeCanvases() {
   renderer.mount(host, DARK_THEME);
   const sizedCanvases = () => [...host.querySelectorAll("canvas")].filter(canvas => canvas.width && canvas.height);
   try {
+    renderer.resize();
+    const idle = new Set([...host.querySelectorAll("canvas")].filter(canvas => canvas.width === 0 && canvas.height === 0));
+    if (!idle.size) throw new Error("Chart did not park any inactive canvases");
+    const property = Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, "width")!;
+    let allocations = 0;
+    Object.defineProperty(HTMLCanvasElement.prototype, "width", { ...property, set(this: HTMLCanvasElement, width: number) {
+      if (width > 0 && idle.has(this)) allocations++;
+      property.set!.call(this, width);
+    } });
+    try {
+      host.style.width = "475px";
+      renderer.resize();
+    } finally { Object.defineProperty(HTMLCanvasElement.prototype, "width", property); }
+    if (allocations) throw new Error(`Resize restored ${allocations} inactive chart canvas buffers`);
     const initial = new Set(sizedCanvases());
     for (const id of [...Object.values(countIds), "af-cvd", "af-volume-delta"]) {
       const message = `Source coverage for ${id}`;

@@ -28,7 +28,7 @@ describe("private site access", () => {
   it("rejects forged, expired, future and password-rotated sessions", () => {
     const now = 1_800_000_000_000, token = createSiteSession(settings, now);
     expect(validSiteSession(token, settings, now)).toBe(true);
-    expect(validSiteSession(token, settings, now + 6 * 24 * 60 * 60 * 1000)).toBe(true);
+    expect(validSiteSession(token, settings, now + 29 * 24 * 60 * 60 * 1000)).toBe(true);
     expect(validSiteSession(token, settings, now + SESSION_SECONDS * 1000)).toBe(false);
     expect(validSiteSession(token, settings, now - 1000)).toBe(false);
     expect(validSiteSession(token.slice(0, -1) + (token.endsWith("0") ? "1" : "0"), settings, now)).toBe(false);
@@ -76,10 +76,15 @@ describe("private site access", () => {
     expect(response.status).toBe(303);
     expect(response.headers.get("set-cookie")).toMatch(/HttpOnly/i);
     expect(response.headers.get("set-cookie")).toMatch(/SameSite=lax/i);
-    expect(response.cookies.get(SITE_COOKIE)?.maxAge).toBe(7 * 24 * 60 * 60);
+    expect(response.cookies.get(SITE_COOKIE)?.maxAge).toBe(30 * 24 * 60 * 60);
+    expect(Number(response.cookies.get(SITE_COOKIE)?.expires)).toBeGreaterThan(Date.now() + 29 * 24 * 60 * 60 * 1000);
     const token = response.cookies.get(SITE_COOKIE)!.value;
     const admitted = await proxy(request("/api/alerts", { headers: { cookie: `${SITE_COOKIE}=${token}` } }));
     expect(admitted.headers.get("x-middleware-next")).toBe("1");
+    const signedInLogin = await proxy(request("/login?next=%2Fterminal", { headers: { cookie: `${SITE_COOKIE}=${token}` } }));
+    expect(signedInLogin.headers.get("location")).toBe("http://localhost:3000/terminal");
+    expect(signedInLogin.headers.get("cache-control")).toContain("no-store");
+    expect(signedInLogin.headers.has("set-cookie")).toBe(false);
     const logout = await proxy(request("/logout", { method: "POST", headers: { origin: "http://localhost:3000" } }));
     expect(logout.cookies.get(SITE_COOKIE)?.maxAge).toBe(0);
     expect((await proxy(request("/logout"))).status).toBe(405);
