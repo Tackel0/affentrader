@@ -2,10 +2,10 @@ import type { InstrumentType } from "./symbolId";
 
 export type MarketTab = "crypto" | "perps" | "stock" | "etf" | "index" | "forex";
 
-/** Futures and other perpetual markets come from Hyperliquid, which is free and real time. */
+/** Instrument filters for the shared symbol search. */
 export const MARKET_TABS: { id: MarketTab; label: string }[] = [
   { id: "crypto", label: "Crypto" },
-  { id: "perps", label: "Futures · Hyperliquid" },
+  { id: "perps", label: "Perpetuals" },
   { id: "stock", label: "Stocks" },
   { id: "etf", label: "ETFs" },
   { id: "index", label: "Indices" },

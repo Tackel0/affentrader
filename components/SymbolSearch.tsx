@@ -14,42 +14,60 @@ import {
   TYPE_FOR_TAB,
   type MarketTab,
 } from "@/lib/markets";
-import { displayTicker, registerSymbolInfo, symbolInfo, yahooSymbol, iexSymbol, sipSymbol, IEX_TICKER, type InstrumentType } from "@/lib/symbolId";
+import { bybitSymbol, displayTicker, isYahooTicker, registerSymbolInfo, symbolInfo, spotQuoteCurrency, tickerOf, yahooSymbol, iexSymbol, sipSymbol, IEX_TICKER } from "@/lib/symbolId";
 import { useAlpacaStore } from "@/stores/useAlpacaStore";
 import { hyperliquidCatalog } from "@/hooks/useHyperliquidCatalog";
 import type { HyperliquidAsset } from "@/lib/market/hyperliquid";
 import { yahooSearch } from "@/lib/market/yahooClient";
+import { loadBybitCatalog } from "@/lib/market/bybitClient";
+import { searchMarketSnapshots, type SearchMarketSnapshots } from "@/lib/market/searchMarketSnapshots";
+import { rankedSearchRows, searchVenue, type SearchRow as Row } from "@/lib/market/symbolSearch";
+import type { YahooSearchHit } from "@/lib/market/yahoo";
 import type { AssetCategory, MarketSymbol } from "@/types/trading";
 import { Modal, AssetBadge } from "./ui";
 
-interface Row {
-  symbol: string;
-  base: string;
-  name: string;
-  venue: string;
-  quote: string;
+type SearchMarket = MarketTab | "all";
+const SEARCH_TABS = [{ id: "all", label: "All markets" } as const, ...MARKET_TABS];
+const STABLE_QUOTE = /(?:USDT|USDC)$/;
+const DEFAULT_KRAKEN_PAIRS = ["BTC/USD", "ETH/USD", "SOL/USD"];
+const BYBIT_PERPS = "bybit-linear";
+
+function yahooRow(hit: YahooSearchHit): Row {
+  return {
+    symbol: yahooSymbol(hit.symbol),
+    base: displayTicker(yahooSymbol(hit.symbol)),
+    name: hit.name,
+    venue: [hit.exchange, "Yahoo Finance"].filter(Boolean).join(" · "),
+    quote: exchangeOfTicker(hit.symbol).currency,
+    type: hit.type,
+    realTime: false,
+  };
 }
 
 export function SymbolSearch() {
   const [equityFeed, setEquityFeed] = useState<"yahoo" | "iex" | "sip">("yahoo");
   const open = useChartStore((s) => s.searchOpen),
     target = useChartStore((s) => s.searchTarget);
+  const alpacaEnabled = useAlpacaStore(state => state.enabled);
   const feed = equityFeed === "sip" && target === "watchlist" ? "yahoo" : equityFeed;
-  const alpaca = (market: MarketTab) => feed !== "yahoo" && (market === "stock" || market === "etf");
+  const alpaca = (market: SearchMarket) => feed !== "yahoo" && (market === "stock" || market === "etf");
   const equitySymbol = feed === "sip" ? sipSymbol : iexSymbol;
-  const equityVenue = feed === "sip" ? "SIP · Alpaca · delayed" : "IEX · Alpaca";
+  const equityVenue = feed === "sip" ? "SIP · Alpaca" : "IEX · Alpaca";
   const watchSymbols = useWatchlistStore((state) => open && target === "watchlist"
     ? state.lists.find((list) => list.id === state.activeId)?.symbols
     : undefined);
   const [query, setQuery] = useState(""),
     [debounced, setDebounced] = useState(""),
     [category, setCategory] = useState<AssetCategory>("All"),
-    [market, setMarket] = useState<MarketTab>("crypto"),
+    [market, setMarket] = useState<SearchMarket>("all"),
     [catalog, setCatalog] = useState<MarketSymbol[]>(SYMBOLS),
-    [remote, setRemote] = useState<Row[]>([]),
+    [remote, setRemote] = useState<{ query: string; hits: YahooSearchHit[] }>({ query: "", hits: [] }),
     [exchange, setExchange] = useState("all"),
     [dex, setDex] = useState("all"),
     [perps, setPerps] = useState<HyperliquidAsset[]>([]),
+    [snapshots, setSnapshots] = useState<SearchMarketSnapshots>(),
+    [bybit, setBybit] = useState<Awaited<ReturnType<typeof loadBybitCatalog>>>([]),
+    [bybitUnavailable, setBybitUnavailable] = useState(false),
     [perpsError, setPerpsError] = useState(""),
     [loading, setLoading] = useState(false);
   const close = useCallback(
@@ -65,6 +83,7 @@ export function SymbolSearch() {
     if (!open) return;
     setQuery("");
     setDebounced("");
+    setMarket("all");
     let cancelled = false;
     setLoading(true);
     void loadSymbolCatalog()
@@ -78,112 +97,124 @@ export function SymbolSearch() {
       cancelled = true;
     };
   }, [open]);
-  // Hyperliquid perpetuals: one catalog request, filtered locally.
+  const hasQuery = Boolean(debounced.trim());
+  const needsPerps = market === "perps" || (market === "all" && hasQuery);
   useEffect(() => {
-    if (!open || market !== "perps") return;
+    if (!open || !needsPerps) return;
     let cancelled = false;
-    setLoading(true);
     setPerpsError("");
     void hyperliquidCatalog()
-      .then((assets) => !cancelled && setPerps(assets))
-      .catch((error) => !cancelled && setPerpsError(error instanceof Error ? error.message : String(error)))
-      .finally(() => !cancelled && setLoading(false));
-    return () => {
-      cancelled = true;
-    };
-  }, [open, market]);
-  // Stocks, ETFs, indices and forex come from Yahoo Finance search, or curated suggestions.
+      .then(assets => { if (!cancelled) setPerps(assets); })
+      .catch(() => { if (!cancelled) setPerpsError("Hyperliquid is temporarily unavailable."); });
+    return () => { cancelled = true; };
+  }, [open, needsPerps]);
+  const needsSnapshots = hasQuery && (market === "all" || market === "crypto");
   useEffect(() => {
-    if (!open || market === "crypto" || market === "perps") return;
-    const wanted: InstrumentType = TYPE_FOR_TAB[market];
-    const listed =
-      market === "stock" || market === "etf"
-        ? exchange === "all"
-          ? POPULAR[market]
-          : exchange === "us"
-            ? POPULAR[market]
-            : (POPULAR_BY_EXCHANGE[exchange] ?? [])
-        : POPULAR[market];
-    const popular = listed.map((p) => ({
-      symbol: yahooSymbol(p.ticker),
-      base: displayTicker(yahooSymbol(p.ticker)),
-      name: p.name,
-      venue: p.exchange,
-      quote: p.currency,
-    }));
-    if (!debounced.trim()) {
-      setRemote(popular);
-      return;
-    }
+    if (!open || !needsSnapshots) return;
     let cancelled = false;
-    setLoading(true);
-    void yahooSearch(debounced)
-      .then((hits) => {
-        if (cancelled) return;
-        setRemote(
-          hits
-            .filter((h) => h.type === wanted || (wanted === "stock" && h.type === "other"))
-            .filter((h) => exchange === "all" || (market !== "stock" && market !== "etf") || exchangeOfTicker(h.symbol).id === exchange)
-            .map((h) => ({
-              symbol: yahooSymbol(h.symbol),
-              base: displayTicker(yahooSymbol(h.symbol)),
-              name: h.name,
-              venue: h.exchange,
-              quote: exchangeOfTicker(h.symbol).currency,
-            })),
-        );
-      })
-      .finally(() => !cancelled && setLoading(false));
-    return () => {
-      cancelled = true;
-    };
-  }, [open, market, debounced, exchange]);
-  const perpRows = useMemo<Row[]>(() => {
-    const text = debounced.trim().toLowerCase();
-    return perps
-      .filter((a) => dex === "all" || (dex === "main" ? a.dex === "" : a.dex === dex))
-      .filter((a) => !text || `${a.coin} ${a.name} ${a.dexName}`.toLowerCase().includes(text))
-      .slice(0, 150)
-      .map((a) => ({
-        symbol: a.symbol,
-        base: a.name,
-        name: `${a.name} perpetual · up to ${a.maxLeverage}x`,
-        venue: a.dex ? `Hyperliquid · ${a.dexName}` : "Hyperliquid",
-        quote: "USD",
-      }));
-  }, [perps, dex, debounced]);
-  const dexes = useMemo(() => [...new Map(perps.filter((a) => a.dex).map((a) => [a.dex, a.dexName])).entries()], [perps]);
-  const crypto = useMemo<Row[]>(
-    () =>
-      catalog
-        .filter(
-          (s) =>
-            (category === "All" || s.category === category) &&
-            `${s.symbol} ${s.name}`
-              .toLowerCase()
-              .includes(debounced.toLowerCase()),
-        )
-        .slice(0, 60)
-        .map((s) => ({ symbol: s.symbol, base: s.base, name: s.name, venue: "crypto · Binance", quote: "USDT" })),
-    [catalog, category, debounced],
+    void searchMarketSnapshots().then(value => { if (!cancelled) setSnapshots(value); });
+    return () => { cancelled = true; };
+  }, [open, needsSnapshots]);
+  const needsBybit = needsSnapshots || market === "perps";
+  useEffect(() => {
+    if (!open || !needsBybit) return;
+    let cancelled = false;
+    setBybitUnavailable(false);
+    void loadBybitCatalog().then(value => {
+      if (cancelled) return;
+      setBybit(value);
+      setBybitUnavailable(!value.length);
+    });
+    return () => { cancelled = true; };
+  }, [open, needsBybit]);
+
+  const searchYahoo = market !== "crypto" && market !== "perps";
+  useEffect(() => {
+    const text = debounced.trim();
+    if (!open || !searchYahoo || !text) return;
+    const abort = new AbortController();
+    void yahooSearch(text, (input, init) => fetch(input, { ...init, signal: init?.signal
+      ? AbortSignal.any([init.signal, abort.signal]) : abort.signal }))
+      .then(hits => { if (!abort.signal.aborted) setRemote({ query: text, hits }); })
+      .catch(() => { if (!abort.signal.aborted) setRemote({ query: text, hits: [] }); });
+    return () => abort.abort();
+  }, [open, searchYahoo, debounced]);
+
+  const perpRows = useMemo<Row[]>(() => perps
+    .filter(a => market !== "perps" || dex === "all" || (dex === "main" ? !a.dex : a.dex === dex))
+    .map(a => ({
+      symbol: a.symbol, base: a.name, name: `${a.name} perpetual`,
+      venue: a.dex ? `Hyperliquid · ${a.dexName} · Perp` : "Hyperliquid · Perp",
+      quote: "USD", type: "future", realTime: true, price: a.mark, turnover: a.volume,
+    })), [perps, dex, market]);
+  const dexes = useMemo(() => [...new Map(perps.filter(a => a.dex).map(a => [a.dex, a.dexName])).entries()], [perps]);
+  const crypto = useMemo<Row[]>(() => catalog
+    .filter(s => market !== "crypto" || category === "All" || s.category === category)
+    .map(s => ({
+      symbol: s.symbol, base: s.base, name: s.name, venue: "Binance · Spot", quote: "USDT",
+      realTime: true, ...snapshots?.binance.get(s.symbol),
+    })), [catalog, category, market, snapshots]);
+  const krakenRows = useMemo<Row[]>(() => (market !== "crypto" || category === "All" ? [
+    ...new Set([...DEFAULT_KRAKEN_PAIRS, ...(snapshots?.kraken.keys() ?? [])]),
+  ].map(pair => {
+    const [base, quote] = pair.split("/");
+    return { symbol: `KRK:${pair}`, base, name: `${base} / ${quote}`, venue: "Kraken · Spot", quote,
+      realTime: true, ...snapshots?.kraken.get(pair) };
+  }) : []), [category, market, snapshots]);
+  const bybitRows = useMemo<Row[]>(() => bybit
+    .filter(({ category: kind }) => market === "all" || (market === "crypto" && kind === "spot" && category === "All")
+      || (market === "perps" && kind === "linear" && (dex === "all" || dex === BYBIT_PERPS)))
+    .map(({ ticker, category: kind }) => ({
+      symbol: bybitSymbol(kind, ticker.pair), base: ticker.pair.replace(STABLE_QUOTE, ""),
+      name: ticker.pair, venue: kind === "spot" ? "Bybit · Spot" : "Bybit · Perp",
+      quote: spotQuoteCurrency(ticker.pair), type: kind === "spot" ? "crypto" : "future",
+      price: ticker.price, turnover: ticker.turnover, realTime: true,
+    })), [bybit, category, dex, market]);
+
+  const listings = useMemo<Row[]>(() => {
+    if (market === "crypto" || market === "perps") return [];
+    const listings = market === "all" ? Object.entries(POPULAR).flatMap(([kind, rows]) =>
+      rows.map(row => ({ ...row, type: TYPE_FOR_TAB[kind as keyof typeof TYPE_FOR_TAB] }))) :
+      ((market === "stock" || market === "etf") && exchange !== "all" && exchange !== "us" ?
+        POPULAR_BY_EXCHANGE[exchange] ?? [] : POPULAR[market])
+        .map(row => ({ ...row, type: TYPE_FOR_TAB[market] }));
+    const hits = remote.query === debounced.trim() ? remote.hits : [];
+    return [
+      ...listings.map(row => ({ ...yahooRow({ ...row, symbol: row.ticker }), quote: row.currency })),
+      ...hits.filter(hit => isYahooTicker(hit.symbol)).map(yahooRow),
+    ].filter(row => (market === "all" || row.type === TYPE_FOR_TAB[market] || (market === "stock" && row.type === "other"))
+      && (market === "all" || exchange === "all" || (market !== "stock" && market !== "etf")
+        || exchangeOfTicker(tickerOf(row.symbol)).id === exchange));
+  }, [market, exchange, remote, debounced]);
+
+  const equityRows = alpaca(market) || (market === "all" && alpacaEnabled)
+    ? listings.filter(row => IEX_TICKER.test(row.base) && row.quote === "USD" && (row.type === "stock" || row.type === "etf"))
+      .map(row => ({ ...row, symbol: market === "all" ? iexSymbol(row.base) : equitySymbol(row.base),
+        venue: market === "all" ? "IEX · Alpaca" : equityVenue, realTime: market === "all" || feed === "iex" }))
+    : [];
+  const direct = alpaca(market) && IEX_TICKER.test(debounced.trim().toUpperCase()) ? {
+    symbol: equitySymbol(debounced), base: debounced.trim().toUpperCase(),
+    name: "US ticker · availability requires provider confirmation", venue: equityVenue, quote: "USD",
+  } : null;
+  const results = !open ? [] : rankedSearchRows(
+    market === "all" ? [...crypto, ...krakenRows, ...perpRows, ...bybitRows, ...listings, ...equityRows] :
+    market === "crypto" ? [...crypto, ...krakenRows, ...bybitRows] :
+    market === "perps" ? [...perpRows, ...bybitRows] :
+    alpaca(market) ? [...(direct ? [direct] : []), ...equityRows] : listings,
+    query.trim(), 150,
   );
-  const equityRows = alpaca(market) ? remote.filter(row => IEX_TICKER.test(row.base) && row.quote === "USD").map(row => ({ ...row, symbol: equitySymbol(row.base), venue: equityVenue })) : remote;
-  const direct = alpaca(market) && IEX_TICKER.test(debounced.trim().toUpperCase()) ? { symbol: equitySymbol(debounced), base: debounced.trim().toUpperCase(), name: "US ticker · availability requires provider confirmation", venue: equityVenue, quote: "USD" } : null;
-  const krakenRows: Row[] = category === "All" ? ["BTC", "ETH", "SOL"]
-    .map(base => ({ symbol: `KRK:${base}/USD`, base, name: `${base} / USD`, venue: "crypto · Kraken", quote: "USD" }))
-    .filter(row => `${row.symbol} ${row.venue}`.toLowerCase().includes(debounced.toLowerCase())) : [];
-  const results = market === "crypto" ? [...crypto, ...krakenRows] : market === "perps" ? perpRows : direct && !equityRows.some(row => row.symbol === direct.symbol) ? [direct, ...equityRows] : equityRows;
+  const searching = loading || (searchYahoo && hasQuery && remote.query !== debounced.trim());
   const choose = (row: Row) => {
-    if (alpaca(market) && row.name !== direct?.name) registerSymbolInfo({ symbol: row.symbol, name: row.name, exchange: equityVenue, currency: "USD", type: market === "etf" ? "etf" : "stock", delayed: feed === "sip", timezone: "America/New_York" });
+    if ((row.symbol.startsWith("IEX:") || row.symbol.startsWith("SIP:")) && row.name !== direct?.name) registerSymbolInfo({ symbol: row.symbol, name: row.name, exchange: row.venue, currency: "USD", type: row.type ?? "stock", delayed: row.symbol.startsWith("SIP:"), timezone: "America/New_York" });
     if (row.symbol.startsWith("YF:") && !symbolInfo(row.symbol)) {
-      const wanted = market === "crypto" || market === "perps" ? "stock" : TYPE_FOR_TAB[market];
+      const wanted = row.type ?? "stock";
       registerSymbolInfo({
         symbol: row.symbol,
         name: row.name,
         exchange: row.venue,
         currency: row.quote || "USD",
         type: wanted,
-        delayed: wanted === "stock" || wanted === "etf" || wanted === "index",
+        delayed: !row.realTime,
       });
     }
     if (row.symbol.startsWith("HL:") && !symbolInfo(row.symbol))
@@ -218,13 +249,13 @@ export function SymbolSearch() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && results[0]) choose(results[0]);
+            if (e.key === "Enter" && query.trim() === debounced.trim() && results[0]) choose(results[0]);
           }}
         />
         <kbd>↵</kbd>
       </div>
       <div className="filter-tabs market-tabs" role="tablist" aria-label="Market">
-        {MARKET_TABS.map((m) => (
+        {SEARCH_TABS.map((m) => (
           <button
             key={m.id}
             role="tab"
@@ -237,8 +268,8 @@ export function SymbolSearch() {
         ))}
       </div>
       {market === "perps" ? (
-        <div className="filter-tabs" role="group" aria-label="Hyperliquid markets">
-          {([["all", "All"], ["main", "Crypto perps"], ...dexes] as [string, string][]).map(([id, label]) => (
+        <div className="filter-tabs" role="group" aria-label="Perpetual venues">
+          {([["all", "All venues"], [BYBIT_PERPS, "Bybit"], ["main", "Hyperliquid"], ...dexes] as [string, string][]).map(([id, label]) => (
             <button key={id} className={dex === id ? "active" : ""} onClick={() => setDex(id)}>
               {label}
             </button>
@@ -286,7 +317,7 @@ export function SymbolSearch() {
       ) : null}
       <div className="search-caption">
         <span>SYMBOL / NAME</span>
-        <span>{market === "crypto" ? "BINANCE / KRAKEN · SPOT" : market === "perps" ? "HYPERLIQUID · PERPETUAL" : alpaca(market) ? `${equityVenue.toUpperCase()} · ALPACA KEY REQUIRED` : "YAHOO FINANCE · DELAYED"}</span>
+        <span>{market === "all" ? "SOURCE / 24H TURNOVER" : market === "crypto" ? "SPOT" : market === "perps" ? "PERPETUAL" : alpaca(market) ? `${equityVenue.toUpperCase()} · ALPACA KEY REQUIRED` : "YAHOO FINANCE · DELAYED"}</span>
       </div>
       <div className="search-results">
         {results.map((s) => (
@@ -302,9 +333,9 @@ export function SymbolSearch() {
                 {s.quote ? <span className="muted">{s.quote}</span> : null}
               </strong>
               <small>{s.name}</small>
+              <span className="result-exchange">{searchVenue(s)}</span>
             </span>
-            <span className="result-exchange">{s.venue}</span>
-            <SearchQuote symbol={s.symbol} />
+            <SearchQuote symbol={s.symbol} snapshot={s.price} />
             {target === "watchlist" ? (
               watchSymbols?.includes(s.symbol) ? (
                 <Check size={16} className="positive" />
@@ -316,24 +347,31 @@ export function SymbolSearch() {
         ))}
         {!results.length ? (
           <div className="empty-state">
-            {perpsError && market === "perps" ? perpsError : loading ? "Searching…" : `No symbols match “${debounced}”.`}
+            {perpsError && market === "perps" ? perpsError : searching ? "Searching…" : `No symbols match “${debounced}”.`}
           </div>
         ) : null}
       </div>
       <div className="modal-footnote">
-        {loading
+        {searching
           ? "Searching…"
-          : market === "crypto"
-            ? `${catalog.length} USDT pairs · public exchange data`
+          : market === "all"
+            ? "Exact matches first, then live feeds and 24h turnover when available."
+            : market === "crypto"
+            ? "Spot markets from Binance, Kraken and Bybit."
             : market === "perps"
-              ? `${perps.length} perpetual markets on Hyperliquid, including stocks, commodities and indices from builder dexes · real time, free`
+              ? "Perpetual markets from Hyperliquid and Bybit. Equity perpetuals are separate from listed shares."
               : alpaca(market) ? feed === "sip" ? "Consolidated US stock history with a 16-minute cutoff. Alpaca credentials are required." : "Real-time IEX trades and minute bars. Account key required in Market data connections. 30-symbol stream limit." : "Stocks, ETFs, indices and forex come from Yahoo Finance and are typically delayed 15 minutes for US exchanges."}
+        {needsBybit && bybitUnavailable ? <span role="status">Bybit data is temporarily unavailable.</span> : null}
+        {market === "all" && hasQuery && perpsError ? <span role="status">{perpsError}</span> : null}
       </div>
     </Modal>
   );
 }
 
-function SearchQuote({ symbol }: { symbol: string }) {
-  const price = useChartStore((state) => state.quotes[symbol]?.price);
+function SearchQuote({ symbol, snapshot }: { symbol: string; snapshot?: number }) {
+  const price = useChartStore((state) => {
+    const quote = state.quotes[symbol];
+    return quote?.simulated ? undefined : quote?.price;
+  }) ?? snapshot;
   return price === undefined ? null : <span className="mono">{formatPrice(price)}</span>;
 }

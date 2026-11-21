@@ -559,6 +559,8 @@ function buildMockApiPayload(urlStr) {
             szDecimals: 5,
             pricePrecisionKnown: true,
           },
+          { symbol: "HL:xyz:TSLA", coin: "xyz:TSLA", name: "TSLA", dex: "xyz", dexName: "XYZ",
+            mark: 430, previousDay: 423, volume: 30_000_000, szDecimals: 3, pricePrecisionKnown: true },
         ],
         warnings: [],
       };
@@ -567,10 +569,18 @@ function buildMockApiPayload(urlStr) {
     return { range: null };
   }
 
+  if (url.pathname === "/api/bybit") {
+    return { tickers: url.searchParams.get("category") === "linear"
+      ? [{ pair: "TSLAUSDT", price: 432, turnover: 45_000_000 }]
+      : [] };
+  }
+
   if (url.pathname === "/api/yahoo") {
     const kind = url.searchParams.get("kind");
     if (kind === "chart") return { meta: {}, rows: [], adj: [], events: {} };
     if (kind === "spark") return { quotes: [] };
+    if (kind === "search" && url.searchParams.get("q") === "TSLA")
+      return { hits: [{ symbol: "TSLA", name: "Tesla, Inc.", exchange: "NASDAQ", type: "stock" }] };
     return { hits: [] };
   }
 
@@ -600,6 +610,7 @@ const MOCKED_API_PREFIXES = new Set([
   "/api/stock-base",
   "/api/market",
   "/api/hyperliquid",
+  "/api/bybit",
   "/api/yahoo",
   "/api/alerts",
   "/api/alerts/events",
@@ -1388,6 +1399,18 @@ async function run() {
       }
       recordAudit(vp, "/", await inspectViewportDom(cdp, vp.mobile));
       if (vp.width === 390 && !opts.liveApis) {
+        activeLabel = "universal mobile symbol search";
+        await tapWorkspaceTarget(cdp, ".workspace-toolbar .symbol-selector", 36);
+        await waitForPagePredicate(cdp, '!!document.querySelector(\'.search-modal input[aria-label="Search symbols"]\')', "symbol search opens");
+        await cdp.send("Runtime.evaluate", { expression: 'document.querySelector(\'.search-modal input[aria-label="Search symbols"]\').focus()' });
+        await cdp.send("Input.insertText", { text: "TSLA" });
+        await waitForPagePredicate(cdp, `(() => {
+          const sources = Array.from(document.querySelectorAll('.search-modal .result-exchange'));
+          return sources.length === 3 && ["Bybit", "Hyperliquid", "NASDAQ"].every((source, index) =>
+            sources[index].textContent.includes(source) && sources[index].getClientRects().length > 0);
+        })()`, "Bybit, Hyperliquid and NASDAQ results are visible and ranked by current turnover");
+        recordAudit(vp, "/ universal symbol search", await inspectViewportDom(cdp, true));
+        await tapWorkspaceTarget(cdp, '.search-modal [aria-label="Close dialog"]', 36);
         activeLabel = "phone drawings overlay";
         const widthBefore = (await cdp.send("Runtime.evaluate", {
           expression: 'document.querySelector(".chart-grid").clientWidth',

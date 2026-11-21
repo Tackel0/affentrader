@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React, { Profiler, type ReactNode } from "react";
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { SymbolSearch } from "@/components/SymbolSearch";
 import { SYMBOLS } from "@/lib/symbols";
@@ -8,8 +8,16 @@ import { useChartStore } from "@/stores/useChartStore";
 import { useWatchlistStore } from "@/stores/useWatchlistStore";
 import type { Quote } from "@/types/trading";
 
-const { renderBadge, loadCatalog } = vi.hoisted(() => ({ renderBadge: vi.fn(), loadCatalog: vi.fn() }));
+const { renderBadge, loadCatalog, loadBybit, loadHyperliquid, yahooSearch, snapshot } = vi.hoisted(() => ({
+  renderBadge: vi.fn(), loadCatalog: vi.fn(), loadBybit: vi.fn(async () => [] as unknown[]),
+  loadHyperliquid: vi.fn(async () => [] as unknown[]), yahooSearch: vi.fn(async () => [] as unknown[]),
+  snapshot: vi.fn(async () => ({ binance: new Map(), kraken: new Map() })),
+}));
 vi.mock("@/hooks/useSymbolCatalog", () => ({ loadSymbolCatalog: loadCatalog }));
+vi.mock("@/hooks/useHyperliquidCatalog", () => ({ hyperliquidCatalog: loadHyperliquid }));
+vi.mock("@/lib/market/bybitClient", () => ({ loadBybitCatalog: loadBybit }));
+vi.mock("@/lib/market/yahooClient", () => ({ yahooSearch }));
+vi.mock("@/lib/market/searchMarketSnapshots", () => ({ searchMarketSnapshots: snapshot }));
 vi.mock("@/components/ui", () => ({
   Modal: ({ children, title }: { children: ReactNode; title: string }) => <section aria-label={title}>{children}</section>,
   AssetBadge: ({ symbol }: { symbol: string }) => {
@@ -84,4 +92,28 @@ it("updates watchlist membership without closing the search", async () => {
   expect(useWatchlistStore.getState().lists[0].symbols).toEqual([kraken]);
   expect(row.querySelector(".lucide-check")).not.toBeNull();
   expect(useChartStore.getState().searchOpen).toBe(true);
+});
+
+it("shows live and listed TSLA instruments together and ranks live matches by turnover", async () => {
+  loadCatalog.mockResolvedValue(SYMBOLS);
+  loadHyperliquid.mockResolvedValueOnce([
+    { symbol: "HL:xyz:TSLA", name: "TSLA", dex: "xyz", dexName: "XYZ", volume: 30_000_000, mark: 430 },
+    { symbol: "HL:other:TSLA", name: "TSLA", dex: "other", dexName: "Other", volume: 900_000, mark: 431 },
+  ]);
+  loadBybit.mockResolvedValueOnce([{ category: "linear", ticker: { pair: "TSLAUSDT", turnover: 45_000_000, price: 432 } }]);
+  yahooSearch.mockResolvedValueOnce([{ symbol: "TSLA", name: "Tesla, Inc.", exchange: "NASDAQ", type: "stock" }]);
+  useChartStore.setState({ searchOpen: true, searchTarget: "chart" });
+  const { container, getByRole } = render(<SymbolSearch />);
+  expect(getByRole("tab", { name: "All markets" }).getAttribute("aria-selected")).toBe("true");
+  fireEvent.change(getByRole("textbox", { name: "Search symbols" }), { target: { value: "TSLA" } });
+  const rows = () => [...container.querySelectorAll(".symbol-result")];
+  await waitFor(() => expect(rows()).toHaveLength(4));
+  expect(rows().map(row => row.querySelector(".result-exchange")?.textContent)).toEqual([
+    "Bybit · Perp · Live · $45M / 24h",
+    "Hyperliquid · XYZ · Perp · Live · $30M / 24h",
+    "Hyperliquid · Other · Perp · Live · $900K / 24h",
+    "NASDAQ · Yahoo Finance · Delayed",
+  ]);
+  fireEvent.keyDown(getByRole("textbox", { name: "Search symbols" }), { key: "Enter" });
+  expect(useChartStore.getState()).toMatchObject({ symbol: "BYBIT:LINEAR:TSLAUSDT", searchOpen: false });
 });
