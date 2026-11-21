@@ -4,6 +4,7 @@ import { useChartStore } from "@/stores/useChartStore";
 import { rangeProfileSourceStamp } from "@/lib/orderflow/executionRangeSource";
 import { invalidateCanvasLayers } from "./canvasLayer";
 export interface StudyNotice { id: number; cell: string; context: string; title: string; message: string; alive?: () => boolean }
+export const STUDY_NOTICE_LAYER_ID = "af-study-notices";
 const hosts = new Map<string, number>(), entries = new Map<object, StudyNotice>(), listeners = new Set<() => void>();
 const drawingOwners = new Map<string, { cell: string; owner: object }>();
 export function drawingNoticeOwner(cell: string, symbol: string, id: string): object {
@@ -17,13 +18,22 @@ let snapshot: readonly StudyNotice[] = EMPTY, queued = false, sequence = 0;
 function alive(entry: StudyNotice) { try { return entry.alive?.() ?? true; } catch { return false; } }
 export function studyNoticeContext(cell: CellContext) { return JSON.stringify([cell, rangeProfileSourceStamp(cell.symbol, cell.timeframe)]); }
 function changed(cell: string) {
-  snapshot = [...entries.values()]; invalidateCanvasLayers(cell);
+  snapshot = [...entries.values()]; invalidateCanvasLayers(cell, STUDY_NOTICE_LAYER_ID);
   if (queued) return; queued = true;
   queueMicrotask(() => { queued = false; listeners.forEach(listener => listener()); });
 }
 export function attachStudyNoticeHost(cell: string) {
   hosts.set(cell, (hosts.get(cell) ?? 0) + 1); invalidateCanvasLayers(cell);
-  return () => { const count = (hosts.get(cell) ?? 1) - 1; if (count) hosts.set(cell, count); else { hosts.delete(cell); for (const [owner, entry] of entries) if (entry.cell === cell) entries.delete(owner); for (const [key, entry] of drawingOwners) if (entry.cell === cell) drawingOwners.delete(key); changed(cell); } };
+  return () => {
+    const count = (hosts.get(cell) ?? 1) - 1;
+    if (count) { hosts.set(cell, count); return; }
+    hosts.delete(cell);
+    for (const [owner, entry] of entries) if (entry.cell === cell) entries.delete(owner);
+    for (const [key, entry] of drawingOwners) if (entry.cell === cell) drawingOwners.delete(key);
+    // Switch study layers back to their standalone notice painters.
+    invalidateCanvasLayers(cell);
+    changed(cell);
+  };
 }
 export function clearStudyNotice(owner: object) { const previous = entries.get(owner); if (previous) { entries.delete(owner); changed(previous.cell); } }
 /** Return false for standalone/native consumers without the host's accessible detail control. */

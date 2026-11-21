@@ -1,20 +1,27 @@
 "use client";
 import type { RendererLayerArgs } from "@luxalgo/vela";
 import { contextForCanvas, type CellContext } from "./cellContext";
-const liveLayers = new Set<{ canvas: () => HTMLCanvasElement | undefined; repaint: () => void }>();
-const dirtyCells = new Set<string>();
+const liveLayers = new Set<{ id?: string; canvas: () => HTMLCanvasElement | undefined; repaint: () => void }>();
+const dirtyCells = new Map<string, Set<string> | null>();
 let paintFrame = 0;
 
 /** Redraw host-owned canvases without relayouting Vela or dismissing its drawing settings. */
-export function invalidateCanvasLayers(cellId: string) {
-  dirtyCells.add(cellId);
+export function invalidateCanvasLayers(cellId: string, layerId?: string) {
+  if (layerId === undefined) dirtyCells.set(cellId, null);
+  else if (dirtyCells.get(cellId) !== null) {
+    const layers = dirtyCells.get(cellId) ?? new Set<string>();
+    layers.add(layerId);
+    dirtyCells.set(cellId, layers);
+  }
   if (paintFrame) return;
   paintFrame = requestAnimationFrame(() => {
     paintFrame = 0;
-    const cells = new Set(dirtyCells); dirtyCells.clear();
+    const cells = new Map(dirtyCells); dirtyCells.clear();
     for (const layer of liveLayers) {
       const canvas = layer.canvas();
-      if (canvas?.isConnected && cells.has(contextForCanvas(canvas)?.id ?? "")) layer.repaint();
+      if (!canvas?.isConnected) continue;
+      const layers = cells.get(contextForCanvas(canvas)?.id ?? "");
+      if (layers === null || layer.id !== undefined && layers?.has(layer.id)) layer.repaint();
     }
   });
 }
@@ -27,10 +34,11 @@ export function canvasLayer(
     cell: CellContext,
   ) => void,
   hasContent?: (args: RendererLayerArgs, cell: CellContext) => boolean,
+  layerId?: string,
 ) {
   let canvas: HTMLCanvasElement | undefined, lastArgs: RendererLayerArgs | null = null;
   let parkedSize: { width: number; height: number } | undefined;
-  const entry = { canvas: () => canvas, repaint: () => { if (lastArgs) render(lastArgs); } };
+  const entry = { id: layerId, canvas: () => canvas, repaint: () => { if (lastArgs) render(lastArgs); } };
   const render = (args: RendererLayerArgs) => {
     lastArgs = args;
     if (!canvas) return;

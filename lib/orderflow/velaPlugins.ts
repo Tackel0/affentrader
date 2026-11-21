@@ -78,7 +78,7 @@ import { tailsIds, tailsTitles } from "./volumeTails";
 import { paintVolumeTails, TailsRenderCache } from "./volumeTailsRenderer";
 import { registerFixedTails } from "@/lib/drawings/fixedTailsPlugin";
 import { rollingProfileDescriptor } from "./rollingProfileIndicator";
-import { clearStudyNotice, currentStudyNotices, routeStudyNotice } from "@/lib/chart/studyNotices";
+import { clearStudyNotice, currentStudyNotices, routeStudyNotice, STUDY_NOTICE_LAYER_ID } from "@/lib/chart/studyNotices";
 import { registerLiquidationHeatmap } from "./liquidationHeatmapStudy";
 const studyTrades = (symbol: string) => studyTradeSource.read(stripVenue(symbol), marketService.tradesFor(symbol));
 function footprintBackfillSymbol(cell: CellContext) {
@@ -282,7 +282,7 @@ export function registerOrderflowPlugins() {
     async symbol => ({ ...await loadPriceGridMetadata(stripVenue(symbol)), symbol })));
   registerDerivedIndicator();
   registerNativeIndicator(visibleProfileDescriptor());
-  registerRendererLayer({ id: "af-study-notices", placement: "above-data", create: () => {
+  registerRendererLayer({ id: STUDY_NOTICE_LAYER_ID, placement: "above-data", create: () => {
     let notices: ReturnType<typeof currentStudyNotices> = [];
     return canvasLayer((ctx, args) => {
       const unavailable = notices.some(notice => /unavailable|waiting|no observed|no recorded|collecting|candles only/i.test(notice.message));
@@ -294,7 +294,7 @@ export function registerOrderflowPlugins() {
     }, (_args, cell) => {
       notices = currentStudyNotices(cell);
       return notices.length > 0;
-    });
+    }, STUDY_NOTICE_LAYER_ID);
   } });
   registerNativeIndicator(depthHeatmapDescriptor(receive => marketService.onBook(receive), depthSource));
   registerRendererLayer({ id: "af-depth-heatmap", placement: "below-data", create: () => {
