@@ -116,11 +116,12 @@ export async function proxy(request: NextRequest) {
   const sessionCookie = request.cookies.get(SITE_COOKIE)?.value;
   const authenticated = validSiteSession(sessionCookie, settings);
   const secure = isHttpsRequest(request);
+  const sessionCookieOptions = { httpOnly: true, sameSite: "lax", secure, path: "/" } as const;
   if (path === "/logout") {
     if (request.method !== "POST") return new NextResponse("POST required", { status: 405, headers: { ...privateHeaders, Allow: "POST" } });
     if (!sameOrigin(request)) return new NextResponse("Forbidden", { status: 403, headers: privateHeaders });
     const response = NextResponse.redirect(externalUrl(request, "/login"), 303);
-    response.cookies.set(SITE_COOKIE, "", { httpOnly: true, sameSite: "strict", secure, path: "/", maxAge: 0 });
+    response.cookies.set(SITE_COOKIE, "", { ...sessionCookieOptions, maxAge: 0 });
     for (const [key, value] of Object.entries(privateHeaders)) response.headers.set(key, value);
     return response;
   }
@@ -154,7 +155,7 @@ export async function proxy(request: NextRequest) {
     const destination = safeReturnPath(form.get("next"));
     if (!await matchesSitePassword(form.get("password") ?? "", settings)) return login(destination, "Das Passwort ist nicht richtig.", 401);
     const response = NextResponse.redirect(externalUrl(request, destination), 303);
-    response.cookies.set(SITE_COOKIE, createSiteSession(settings), { httpOnly: true, sameSite: "strict", secure, path: "/", maxAge: SESSION_SECONDS });
+    response.cookies.set(SITE_COOKIE, createSiteSession(settings), { ...sessionCookieOptions, maxAge: SESSION_SECONDS });
     for (const [key, value] of Object.entries(privateHeaders)) response.headers.set(key, value);
     return response;
   }
@@ -165,6 +166,12 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(url, { status: 303, headers: privateHeaders });
   }
   if (path.startsWith("/api/") && sessionCookie) {
+    const writes = !["GET", "HEAD", "OPTIONS"].includes(request.method);
+    const fetchSite = request.headers.get("sec-fetch-site");
+    if (writes && (fetchSite === "cross-site" || fetchSite === "same-site"
+      || (request.headers.has("origin") && !sameOrigin(request)))) {
+      return NextResponse.json({ error: "Same-origin requests only." }, { status: 403, headers: privateHeaders });
+    }
     const isHeavy = !["GET", "HEAD"].includes(request.method) || HEAVY_GET_API_PATHS.has(path);
     const tier = isHeavy ? "heavy" : "read";
     const limit = isHeavy ? 60 : 240;

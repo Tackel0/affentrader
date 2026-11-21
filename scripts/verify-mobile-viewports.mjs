@@ -1080,6 +1080,9 @@ async function run() {
     });
 
     let advertisedRevision = null;
+    const externalSessionLink = !opts.baseUrl && !opts.liveApis
+      ? `http://localhost:${new URL(baseUrl).port}/session-link`
+      : null;
     if (!opts.liveApis) {
       await cdp.send("Page.addScriptToEvaluateOnNewDocument", {
         source: `(() => {
@@ -1174,6 +1177,16 @@ async function run() {
       cdp.onEvent("Fetch.requestPaused", async (params) => {
         const requestId = params.requestId;
         const reqUrl = params.request?.url ?? "";
+        if (reqUrl === externalSessionLink) {
+          const body = `<a href="${baseUrl}/terminal?view=opps">Open terminal</a>`;
+          await cdp.send("Fetch.fulfillRequest", {
+            requestId,
+            responseCode: 200,
+            responseHeaders: [{ name: "content-type", value: "text/html; charset=utf-8" }],
+            body: Buffer.from(body).toString("base64"),
+          }).catch(() => {});
+          return;
+        }
         if (!/^https?:\/\//i.test(reqUrl)) {
           await cdp.send("Fetch.continueRequest", { requestId }).catch(() => {});
           return;
@@ -1235,6 +1248,7 @@ async function run() {
     let sidebarSheetsChecked = 0;
     let phoneDrawingOverlayChecked = false;
     let phoneChartFocusChecked = false;
+    let sessionResumeChecked = false;
     const tabletChartFocusViewports = [];
 
     const recordAudit = (viewport, scenario, audit) => {
@@ -1311,6 +1325,24 @@ async function run() {
         'window.location.pathname === "/" && document.readyState === "complete"',
         "post-login redirect to /",
       );
+    }
+    if (externalSessionLink) {
+      activeLabel = "mobile session resume";
+      await setViewport(VIEWPORTS[0]);
+      const { cookies } = await cdp.send("Network.getCookies", { urls: [baseUrl] });
+      const session = cookies.find(cookie => cookie.name === "affentrader-site-session");
+      if (!session?.httpOnly || session.session || session.sameSite !== "Lax"
+        || session.expires < Date.now() / 1000 + 6 * 86400) {
+        throw new Error("The browser did not retain a persistent, HttpOnly, seven-day Lax session");
+      }
+      const destination = `${baseUrl}/terminal?view=opps`;
+      await cdp.send("Page.navigate", { url: externalSessionLink });
+      await waitForPagePredicate(cdp, `document.querySelector('a')?.href === ${JSON.stringify(destination)}`, "external terminal link");
+      await cdp.send("Runtime.evaluate", { expression: 'document.querySelector("a").click()', userGesture: true });
+      await waitForPagePredicate(cdp, `location.href === ${JSON.stringify(destination)} && !!document.querySelector(".affen-window-shell")`, "external link resumes the workspace session");
+      await cdp.send("Page.reload");
+      await waitForPagePredicate(cdp, `location.href === ${JSON.stringify(destination)} && !!document.querySelector(".affen-window-shell")`, "reload resumes the workspace session");
+      sessionResumeChecked = true;
     }
 
     // Step 3: Sweep all 4 viewports across /, BottomPanel tabs, and /terminal 8 modules
@@ -1724,7 +1756,12 @@ async function run() {
       activeLabel = "offline navigation";
       await setViewport(VIEWPORTS[0]);
       await waitForPagePredicate(cdp, "!!navigator.serviceWorker.controller", "active service worker");
-      await cdp.send("Network.clearBrowserCookies");
+      await cdp.send("Runtime.evaluate", { expression: `(() => {
+        const form = Object.assign(document.createElement("form"), { method: "post", action: "/logout" });
+        document.body.append(form);
+        form.submit();
+      })()` });
+      await waitForPagePredicate(cdp, 'location.pathname === "/login"', "same-origin logout clears the session");
       await cdp.send("Page.navigate", { url: `${baseUrl}/terminal?view=opps` });
       await waitForPagePredicate(
         cdp,
@@ -1753,6 +1790,7 @@ async function run() {
         {
           viewports: VIEWPORTS.map((v) => v.name),
           scenariosChecked: results.length,
+          sessionResumeChecked,
           offlineNavigationChecked,
           deploymentUpdateChecked,
           pineWorkerLifecycleChecked,

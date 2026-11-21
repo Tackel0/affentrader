@@ -28,6 +28,7 @@ describe("private site access", () => {
   it("rejects forged, expired, future and password-rotated sessions", () => {
     const now = 1_800_000_000_000, token = createSiteSession(settings, now);
     expect(validSiteSession(token, settings, now)).toBe(true);
+    expect(validSiteSession(token, settings, now + 6 * 24 * 60 * 60 * 1000)).toBe(true);
     expect(validSiteSession(token, settings, now + SESSION_SECONDS * 1000)).toBe(false);
     expect(validSiteSession(token, settings, now - 1000)).toBe(false);
     expect(validSiteSession(token.slice(0, -1) + (token.endsWith("0") ? "1" : "0"), settings, now)).toBe(false);
@@ -74,13 +75,36 @@ describe("private site access", () => {
     const response = await proxy(request("/login", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", origin: "http://localhost:3000" }, body: "password=test-password&next=%2F" }));
     expect(response.status).toBe(303);
     expect(response.headers.get("set-cookie")).toMatch(/HttpOnly/i);
-    expect(response.headers.get("set-cookie")).toMatch(/SameSite=strict/i);
+    expect(response.headers.get("set-cookie")).toMatch(/SameSite=lax/i);
+    expect(response.cookies.get(SITE_COOKIE)?.maxAge).toBe(7 * 24 * 60 * 60);
     const token = response.cookies.get(SITE_COOKIE)!.value;
     const admitted = await proxy(request("/api/alerts", { headers: { cookie: `${SITE_COOKIE}=${token}` } }));
     expect(admitted.headers.get("x-middleware-next")).toBe("1");
     const logout = await proxy(request("/logout", { method: "POST", headers: { origin: "http://localhost:3000" } }));
     expect(logout.cookies.get(SITE_COOKIE)?.maxAge).toBe(0);
     expect((await proxy(request("/logout"))).status).toBe(405);
+  });
+  it("opens the workspace from an external link and rejects cross-origin writes", async () => {
+    configure();
+    const cookie = `${SITE_COOKIE}=${createSiteSession(settings)}`;
+    const navigation = await proxy(request("/terminal?view=opps", {
+      headers: { cookie, "sec-fetch-site": "cross-site", "sec-fetch-mode": "navigate" },
+    }));
+    expect(navigation.headers.get("x-middleware-next")).toBe("1");
+    for (const source of [
+      { "sec-fetch-site": "cross-site", origin: "https://foreign.test" },
+      { "sec-fetch-site": "same-site" },
+      { origin: "https://foreign.test" },
+    ]) {
+      const headers = new Headers({ cookie });
+      for (const [key, value] of Object.entries(source)) if (value) headers.set(key, value);
+      expect((await proxy(request("/api/stock-base", { method: "POST", headers }))).status).toBe(403);
+      expect((await proxy(request("/logout", { method: "POST", headers }))).status).toBe(403);
+    }
+    const localWrite = await proxy(request("/api/stock-base", {
+      method: "POST", headers: { cookie, origin: "http://localhost:3000", "sec-fetch-site": "same-origin" },
+    }));
+    expect(localWrite.headers.get("x-middleware-next")).toBe("1");
   });
   it("sets Secure cookies on HTTPS and limits body size", async () => {
     configure();
