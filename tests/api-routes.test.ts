@@ -17,6 +17,7 @@ import { clearYahooCache } from "@/lib/server/yahoo";
 import { GET as healthGet } from "@/app/api/health/route";
 import { GET as feedsGet } from "@/app/api/feeds/route";
 import { GET as hyperliquidGet } from "@/app/api/hyperliquid/route";
+import { GET as bybitGet } from "@/app/api/bybit/route";
 import {
   DELETE as libraryDelete,
   GET as libraryGet,
@@ -944,6 +945,33 @@ describe("edge regressions on /api/market, /api/alerts, and webhooks", () => {
         ),
       ).rejects.toThrow();
       expect(cancel).toHaveBeenCalledTimes(1);
+    }
+  });
+});
+
+describe("Bybit market route", () => {
+  it("normalizes checked native candles and instruments for the exact exchange category", async () => {
+    const upstream = vi.fn(async (url: string) => {
+      const query = new URL(url);
+      const list = query.pathname.endsWith("/kline") ?
+        [["120000", "101", "104", "100", "102", "20"], ["60000", "99", "102", "98", "100", "12"], ["0", "1", "1", "1", "1", "1"]] :
+        [{ symbol: "BTCUSDT", priceFilter: { tickSize: "0.1" }, lotSizeFilter: { qtyStep: "0.001" } }];
+      return Response.json({ retCode: 0, result: { list } });
+    });
+    vi.stubGlobal("fetch", upstream);
+    try {
+      const read = (query: string) => bybitGet(new NextRequest(`http://localhost/api/bybit?${query}`));
+      const symbol = encodeURIComponent("BYBIT:LINEAR:BTCUSDT");
+      expect((await read(`kind=candles&symbol=${symbol}&interval=1&limit=0`)).status).toBe(400);
+      expect((await read("kind=tickers&category=invalid")).status).toBe(400);
+      expect(upstream).not.toHaveBeenCalled();
+      const history = await read(`kind=candles&symbol=${symbol}&interval=1&limit=1000&end=120000`);
+      expect(await history.json()).toEqual({ candles: [[60000, 99, 102, 98, 100, 12], [120000, 101, 104, 100, 102, 20]] });
+      const instrument = await read(`kind=instrument&symbol=${symbol}`);
+      expect(await instrument.json()).toEqual({ tickSize: 0.1, quantityStep: 0.001 });
+      expect(upstream.mock.calls.map(([url]) => new URL(url).searchParams.get("category"))).toEqual(["linear", "linear"]);
+    } finally {
+      vi.unstubAllGlobals();
     }
   });
 });

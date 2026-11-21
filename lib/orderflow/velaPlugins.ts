@@ -92,7 +92,7 @@ const archiveOptions = {
 const tpoExecutionDependencies = { trades: studyTrades, replay: replayTrades, revision: archiveOptions.revision, subscribe: archiveOptions.subscribe,
   ticks: (receive: (tick: import("@/types/trading").Tick) => void) => marketService.onTick(tick => { studyTradeSource.observe(tick); receive(tick); }) };
 function depthSource(symbol: string, timeframe: string) {
-  const state = useChartStore.getState(), provider = providerOf(symbol), supported = provider === "binance" || provider === "hyperliquid" || provider === "kraken";
+  const state = useChartStore.getState(), provider = providerOf(symbol), supported = provider === "binance" || provider === "hyperliquid" || provider === "kraken" || provider === "bybit";
   return { key: depthSourceKey(state.marketEpochs[symbol] ?? 0, state.feedMode, state.dataSources[`${symbol}:${timeframe}`]),
     enabled: supported && !isTickInterval(timeframe) && state.feedMode !== "simulation" && state.dataSources[`${symbol}:${timeframe}`] === "exchange",
     reason: !supported ? "This source supplies no level-2 depth. IEX/Yahoo candles cannot create an order book." : isTickInterval(timeframe) ? "Depth heatmap requires a time-based chart interval." : "Waiting for live exchange depth; simulated data supplies no order book." };

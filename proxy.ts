@@ -52,7 +52,7 @@ function appCsp(https: boolean): string {
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self' data:",
-    "connect-src 'self' https://data-api.binance.vision wss://data-stream.binance.vision https://api.kraken.com wss://ws.kraken.com wss://api.hyperliquid.xyz wss://stream.data.alpaca.markets",
+    "connect-src 'self' https://data-api.binance.vision wss://data-stream.binance.vision https://api.kraken.com wss://ws.kraken.com wss://api.hyperliquid.xyz wss://stream.data.alpaca.markets wss://stream.bybit.com",
     "worker-src 'self' blob:",
     "child-src 'self' blob:",
     "manifest-src 'self'",

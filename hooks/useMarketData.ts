@@ -65,7 +65,7 @@ export function useMarketData() {
     .sort()
     .join(",");
   const quotePriority = [...new Set([...visibleWatchSymbols, ...(lists.find(list => list.id === activeListId)?.symbols ?? [])])]
-    .filter(symbol => symbol.startsWith("HL:") || symbol.startsWith("IEX:")).slice(0, 150).join(",");
+    .filter(symbol => symbol.startsWith("HL:") || symbol.startsWith("IEX:") || symbol.startsWith("BYBIT:")).slice(0, 150).join(",");
   useEffect(() => {
     marketService.start(
       symbolsKey.split(","),

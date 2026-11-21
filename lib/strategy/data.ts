@@ -1,6 +1,6 @@
 import { generateHistory } from "@/lib/market/mock";
 import { getSymbol } from "@/lib/symbols";
-import { isSymbolId, providerOf, tickerOf } from "@/lib/symbolId";
+import { bybitMarket, isSymbolId, providerOf, spotQuoteCurrency, tickerOf } from "@/lib/symbolId";
 import { bucketStart, nextBucket, parseInterval } from "@/lib/market/intervals";
 import { loadKlines } from "@/lib/market/klines";
 import { loadYahooBars } from "@/lib/market/yahooClient";
@@ -69,7 +69,7 @@ export const strategyVenue = (market: StrategyMarket) =>
     ? "Yahoo Finance · delayed"
     : market.provider === "hyperliquid"
       ? "Hyperliquid"
-      : market.provider === "kraken" ? "Kraken" : "Binance";
+      : market.provider === "kraken" ? "Kraken" : market.provider === "bybit" ? "Bybit" : "Binance";
 export async function loadStrategyDataset(
   symbol: string,
   rawTimeframe: Timeframe,
@@ -148,6 +148,21 @@ export async function loadStrategyDataset(
         "Simulation accounting uses synthetic SIM units; no live currency or exchange rules were retrieved.",
       );
     }
+  } else if (provider === "bybit") {
+    progress("Loading Bybit candles…");
+    const { loadBybitBars, loadBybitTradingIncrements } = await import("@/lib/market/bybitClient");
+    bars = await loadBybitBars({ symbol, timeframe, count: settings.bars + 1, end: closedBoundary - 1 }, fetcher);
+    const currency = spotQuoteCurrency(ticker);
+    market = { ...market, base: ticker.slice(0, -currency.length), currency, type: bybitMarket(symbol)?.category === "spot" ? "crypto" : "future" };
+    if (!frozenMarket) {
+      try {
+        const { tickSize, quantityStep } = await loadBybitTradingIncrements(symbol, fetcher);
+        market = { ...market, tickSize, tickSource: "exchange", ...(quantityStep ? { quantityStep, quantitySource: "exchange" } : {}) };
+      } catch { signal.throwIfAborted(); }
+      if (market.tickSource !== "exchange" || market.quantitySource !== "exchange")
+        warnings.push("Some Bybit trading increments were unavailable. Missing steps use estimates unless overridden.");
+    }
+    if (market.type === "future") warnings.push("Bybit perpetual funding is not modeled.");
   } else if (provider === "kraken") {
     progress("Loading closed Kraken spot candles…");
     const { loadKrakenClosedBars, loadKrakenTradingIncrements } = await import("@/lib/market/kraken");

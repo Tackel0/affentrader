@@ -3,6 +3,8 @@ import { binanceDepth, binanceTicker, binanceTrade } from "./binanceStream";
 import { parseWireObject, wireDecimal, wireObject } from "./marketWire";
 import { clearMarketSessions, registerMarketSessions } from "./sessionWindows";
 import { KRAKEN_NATIVES, loadKrakenClosedBars, loadKrakenRecentTrades, loadKrakenTradingIncrements, subscribeKrakenTrades } from "./kraken";
+import { BYBIT_NATIVES, subscribeBybit } from "./bybit";
+import { loadBybitBars } from "./bybitClient";
 import type { MarketDataFeed } from "@luxalgo/vela";
 import type {
   FeedMode,
@@ -28,10 +30,12 @@ import { bucketStart, isTickInterval, nextBucket, normalizeInterval, planSource 
 import { candleRecoveryPlan, mergeRecoveredCandles, RecoveryUnavailableError } from "./candleRecovery";
 import { hyperliquidQuoteTradeSymbols, mergeHyperliquidQuote, type HyperliquidPriceBasis } from "./hyperliquidQuotes";
 import {
+  bybitMarket,
   providerOf,
   registerSymbolInfo,
   symbolInfo,
   tickerOf,
+  type BybitCategory,
 } from "@/lib/symbolId";
 import { loadYahooBars, yahooQuotes } from "./yahooClient";
 import { loadHyperliquidAssets, loadHyperliquidBars } from "./hyperliquidClient";
@@ -99,6 +103,7 @@ class RecentTrades {
 }
 
 export class MarketService {
+  private bybitFeeds = new Map<BybitCategory, () => void>();
   private iexStream: IexStream | null = null;
   private iexEpoch = -1;
   private iexConnection = 0;
@@ -339,6 +344,7 @@ export class MarketService {
             hyperliquid: !sameFor("hyperliquid"),
             kraken: !sameFor("kraken"),
             alpaca: !sameFor("alpaca"),
+            bybit: !sameFor("bybit"),
           });
         }
       }
@@ -476,9 +482,11 @@ export class MarketService {
       this.startHyperliquid(epoch);
       this.startKraken(epoch);
       this.startIex(epoch);
+      this.startBybit(epoch);
     }
   }
   stop() {
+    this.stopBybit();
     this.krakenConnection++;
     this.krakenLiveFrom.clear();
     this.krakenGaps.clear();
@@ -541,7 +549,8 @@ export class MarketService {
     hyperliquid?: boolean;
     kraken?: boolean;
     alpaca?: boolean;
-  } = { binance: true, yahoo: true, hyperliquid: true, kraken: true, alpaca: true }) {
+    bybit?: boolean;
+  } = { binance: true, yahoo: true, hyperliquid: true, kraken: true, alpaca: true, bybit: true }) {
     if (changed.binance) {
       if (this.socket) {
         this.socket.onclose = null;
@@ -575,9 +584,67 @@ export class MarketService {
     if (changed.kraken) {
       this.startKraken(this.generation);
     }
+    if (changed.bybit) this.startBybit(this.generation);
     if (changed.alpaca) {
       if (this.iexStream) this.iexStream.setSymbols(this.iexSymbols());
       else this.startIex(this.generation);
+    }
+  }
+  private stopBybit() {
+    for (const stop of this.bybitFeeds.values()) stop();
+    this.bybitFeeds.clear();
+  }
+  private startBybit(epoch: number) {
+    this.stopBybit();
+    if (!this.running || this.mode !== "auto" || epoch !== this.generation) return;
+    const charted = this.symbols.map(bybitMarket);
+    const quoted = [...new Set([...this.symbols, ...this.quotePriority, ...this.quoteSymbols])].map(bybitMarket);
+    for (const category of ["spot", "linear"] as const) {
+      const chartPairs = charted.flatMap(market => market?.category === category ? [market.pair] : []);
+      const quotePairs = quoted.flatMap(market => market?.category === category ? [market.pair] : []).slice(0, Math.max(chartPairs.length, 150));
+      if (!quotePairs.length) continue;
+      let active = true;
+      let disconnect: (() => void) | undefined;
+      let retry: ReturnType<typeof setTimeout> | undefined;
+      let failures = 0;
+      const valid = () => active && epoch === this.generation;
+      const markLive = (symbol: string) => {
+        failures = 0;
+        const state = useChartStore.getState();
+        if (state.symbol === symbol && state.feedStatus !== "live") state.set({ feedStatus: "live" });
+      };
+      const connect = () => {
+        if (!valid()) return;
+        disconnect = subscribeBybit(category, chartPairs, quotePairs, {
+          trade: tick => {
+            if (!valid() || this.seen.has(tick.id)) return;
+            this.seen.set(tick.id, tick.time);
+            if (this.seen.size > 10_000) this.seen.delete(this.seen.keys().next().value!);
+            markLive(tick.symbol);
+            this.accept(tick);
+          },
+          book: book => {
+            if (!valid() || !this.publish("book", this.bookListeners, book)) return;
+            const state = useChartStore.getState();
+            if (state.symbol === book.symbol) state.set({ orderBook: book });
+          },
+          ticker: (symbol, ticker) => {
+            if (!valid()) return;
+            this.quote(symbol, ticker.price, ticker.open, ticker.high, ticker.low, ticker.volume, false,
+              basicMetrics(symbol, ticker.volume, ticker.turnover, ticker.high, ticker.low, "24h", ticker.time),
+              { basis: "trade", time: ticker.time });
+            markLive(symbol);
+          },
+          disconnected: () => {
+            if (!valid()) return;
+            const state = useChartStore.getState();
+            if (bybitMarket(state.symbol)?.category === category) state.set({ orderBook: null, feedStatus: "reconnecting" });
+            retry = setTimeout(connect, Math.min(30_000, 2000 * 2 ** Math.min(failures++, 4)));
+          },
+        });
+      };
+      this.bybitFeeds.set(category, () => { active = false; clearTimeout(retry); disconnect?.(); });
+      connect();
     }
   }
   private iexSymbols() {
@@ -1662,7 +1729,7 @@ export class MarketService {
     if (epoch !== this.generation) return;
     const state = useChartStore.getState();
     const prev = (this.quoteBatch ?? state.quotes)[symbol];
-    if (providerOf(symbol) === "kraken" && !simulated && prev?.priceBasis === "trade" && !prev.simulated && pricing && pricing.time < prev.time) return;
+    if (["kraken", "bybit"].includes(providerOf(symbol)) && !simulated && prev?.priceBasis === "trade" && !prev.simulated && pricing && pricing.time < prev.time) return;
     const quote: Quote | undefined = providerOf(symbol) === "hyperliquid" && !simulated
       ? mergeHyperliquidQuote(prev, { symbol, price, basis: pricing?.basis ?? "mark", time: pricing?.time ?? Date.now(),
         referencePrice: pricing?.referencePrice, metadataTime: pricing?.metadataTime, metrics }) : {
@@ -1745,7 +1812,7 @@ export class MarketService {
       (previous && !transitioned ? previous.volume : 0) + tick.quantity,
       tick.simulated,
       snapshot ?? accumulated,
-      !tick.simulated && (provider === "hyperliquid" || provider === "kraken") ? { basis: "trade", time: tick.time } : undefined,
+      !tick.simulated && (provider === "hyperliquid" || provider === "kraken" || provider === "bybit") ? { basis: "trade", time: tick.time } : undefined,
     );
     if (epoch !== this.generation) return;
     let tape = this.tradesBySymbol.get(tick.symbol);
@@ -1945,6 +2012,7 @@ export class MarketService {
   ): Promise<OHLCV[]> {
     if(this.mode==="simulation")return this.syntheticHistory(symbol,timeframe,count,end);
     const provider = providerOf(symbol);
+    if (provider === "bybit") return loadBybitBars({ symbol, timeframe, count, end });
     if (provider === "alpaca") return (await loadIexBars(symbol, timeframe, count, end)).bars;
     if (provider === "kraken") {
       const bars = await loadKrakenClosedBars(tickerOf(symbol), timeframe);
@@ -2054,6 +2122,9 @@ export class MarketService {
     if (isTickInterval(timeframe))
       return this.tickHistory(symbol, timeframe, count, end);
     const key = `${symbol}:${timeframe}`;
+    const bybit = this.mode === "auto" && providerOf(symbol) === "bybit";
+    if (bybit && !planSource(timeframe, BYBIT_NATIVES))
+      return (this.histories.get(key) ?? []).filter(bar => end === undefined || bar.time <= end).slice(-count);
     const requestKey = `${key}:${count}:${end ?? ""}`;
     const epoch = this.generation;
     const existing = this.histories.get(key);
@@ -2074,15 +2145,12 @@ export class MarketService {
       let bars: OHLCV[] = [];
       if (this.mode !== "simulation")
         try {
-          bars = await loadKlines(browserKlinePager, {
-            symbol,
-            timeframe,
-            count,
-            end,
-          });
+          const request = { symbol, timeframe, count, end };
+          bars = await (bybit ? loadBybitBars(request) : loadKlines(browserKlinePager, request));
           if (epoch === this.generation && bars.length)
             this.liveHistory.add(key);
-        } catch {
+        } catch (error) {
+          if (bybit && (end !== undefined || !this.histories.get(key)?.length)) throw error;
           bars = [];
         }
       let simulated = this.mode === "simulation";
@@ -2099,7 +2167,7 @@ export class MarketService {
           bars = [...collected];
         } else if (
           this.mode === "auto" &&
-          (!this.symbols.includes(symbol) || (quote && !quote.simulated))
+          (bybit || !this.symbols.includes(symbol) || (quote && !quote.simulated))
         ) {
           bars = [];
         } else {
@@ -2364,6 +2432,8 @@ export class MarketService {
         };
       }
       if (providerOf(symbol) === "kraken") return { ticker: symbol, type: "crypto", timezone: "Etc/UTC", currency: tickerOf(symbol).split("/")[1], session: "24x7", mintick: this.krakenTickSizes.get(symbol) };
+      const bybit = bybitMarket(symbol);
+      if (bybit) return { ticker: symbol, type: bybit.category === "spot" ? "crypto" : "futures", timezone: "Etc/UTC", currency: bybit.pair.endsWith("USDC") ? "USDC" : "USDT", session: "24x7" };
       if (providerOf(symbol) === "alpaca") return { ticker: symbol, type: "stock", timezone: "America/New_York", mintick: 0.01, pricescale: 100, currency: "USD", session: "regular" };
       if (providerOf(symbol) === "yahoo") {
         const info = symbolInfo(symbol);
@@ -2393,7 +2463,7 @@ export class MarketService {
 }
 /** Remove a venue prefix such as `BINANCE:`, keeping the `YF:` and `HL:` provider tags. */
 export function stripVenue(symbol: string): string {
-  return symbol.startsWith("YF:") || symbol.startsWith("HL:") || providerOf(symbol) === "alpaca" || providerOf(symbol) === "kraken" ? symbol : symbol.replace(/^.*:/, "");
+  return providerOf(symbol) !== "binance" ? symbol : symbol.replace(/^.*:/, "");
 }
 export function normalizeTimeframe(tf: string): Timeframe {
   return normalizeInterval(tf, "15m");

@@ -9,6 +9,7 @@ class FakeSocket {
   onclose: (() => void) | null = null;
   onerror: (() => void) | null = null;
   onmessage: ((e: { data: string }) => void) | null = null;
+  sent: string[] = [];
   constructor(public url: string) {
     FakeSocket.instances.push(this);
   }
@@ -16,6 +17,7 @@ class FakeSocket {
     this.readyState = 1;
     this.onopen?.();
   }
+  send(data: string) { this.sent.push(data); }
   close() {
     this.readyState = 3;
     this.onclose?.();
@@ -126,6 +128,53 @@ describe("market lifecycle and source isolation", () => {
     expect(service.tradesFor("BTCUSDT")).toHaveLength(1);
     expect(service.tradesFor("ETHUSDT")[0].side).toBe("sell");
     expect(service.tradesFor("SOLUSDT")).toEqual([]);
+  });
+  it("uses Bybit candle history and isolates live trades, quotes and book deltas by market", async () => {
+    const spot = "BYBIT:SPOT:BTCUSDT", perp = "BYBIT:LINEAR:BTCUSDT";
+    useChartStore.setState({ symbol: perp });
+    const load = vi.mocked(fetch).mockImplementation(async input => {
+      if (String(input).startsWith("/api/bybit?")) return {
+        ok: true, json: async () => ({ candles: [[999_960_000, 99, 101, 98, 100, 20]] }),
+      } as Response;
+      return { ok: false } as Response;
+    });
+    service.start([spot, perp], "auto");
+    const spotSocket = FakeSocket.instances.find(socket => socket.url.endsWith("/spot"))!;
+    const perpSocket = FakeSocket.instances.find(socket => socket.url.endsWith("/linear"))!;
+    spotSocket.open();
+    perpSocket.open();
+    expect(perpSocket.sent.map(data => JSON.parse(data).args).flat()).toEqual([
+      "publicTrade.BTCUSDT", "orderbook.50.BTCUSDT", "tickers.BTCUSDT",
+    ]);
+    expect(await service.history(perp, "1m", 1)).toMatchObject([{ close: 100, volume: 20 }]);
+    expect(load.mock.calls[0][0]).not.toContain("bybit.com");
+    expect(load.mock.calls.some(([url]) => String(url).includes("symbol=BYBIT%3ALINEAR%3ABTCUSDT&interval=1"))).toBe(true);
+
+    const send = (socket: FakeSocket, data: object) => socket.onmessage?.({ data: JSON.stringify(data) });
+    const ticker = { symbol: "BTCUSDT", lastPrice: "100", prevPrice24h: "95", highPrice24h: "104", lowPrice24h: "92", volume24h: "14", turnover24h: "1400" };
+    send(perpSocket, { topic: "tickers.BTCUSDT", type: "snapshot", ts: Date.now(), data: ticker });
+    send(perpSocket, { topic: "tickers.BTCUSDT", type: "delta", ts: Date.now(), data: { lastPrice: "101" } });
+    expect(useChartStore.getState().quotes[perp]).toMatchObject({ price: 101, metrics: { volume: { quote: 1400 } } });
+    const trade = { topic: "publicTrade.BTCUSDT", data: [{ s: "BTCUSDT", S: "Sell", v: "2", p: "101", i: "same-id", T: Date.now() }] };
+    send(spotSocket, trade);
+    send(perpSocket, trade);
+    send(perpSocket, trade);
+    expect(service.tradesFor(spot)).toMatchObject([{ symbol: spot, side: "sell" }]);
+    expect(service.tradesFor(perp)).toMatchObject([{ symbol: perp, side: "sell" }]);
+    expect(useChartStore.getState().feedStatus).toBe("live");
+    expect(service.barsFor(perp, "1m").at(-1)?.close).toBe(101);
+    const book = (type: string, u: number, b: string[][], a: string[][]) =>
+      send(perpSocket, { topic: "orderbook.50.BTCUSDT", type, ts: Date.now(), data: { s: "BTCUSDT", u, b, a } });
+    book("snapshot", 2, [["99", "1"], ["98", "1"]], [["102", "3"]]);
+    book("delta", 3, [["99", "0"], ["100", "2"]], []);
+    book("delta", 2, [["101", "9"]], []);
+    expect(useChartStore.getState().orderBook).toMatchObject({ symbol: perp, bids: [{ price: 100, quantity: 2 }, { price: 98, quantity: 1 }] });
+    perpSocket.close();
+    expect(useChartStore.getState()).toMatchObject({ feedStatus: "reconnecting", orderBook: null });
+    await vi.advanceTimersByTimeAsync(2001);
+    expect(FakeSocket.instances.filter(socket => socket.url.endsWith("/linear"))).toHaveLength(2);
+    service.stop();
+    expect(vi.getTimerCount()).toBe(0);
   });
   let service: MarketService;
   beforeEach(() => {

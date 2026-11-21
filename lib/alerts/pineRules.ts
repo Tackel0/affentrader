@@ -1,6 +1,6 @@
 import type { AlertRule, Condition, RuleEvent } from "@/types/alerts";
 import type { PineSignal, PineSeries } from "@/types/pineAlerts";
-import { providerOf, symbolInfo, tickerOf, spotQuoteCurrency } from "@/lib/symbolId";
+import { bybitMarket, providerOf, symbolInfo, tickerOf, spotQuoteCurrency } from "@/lib/symbolId";
 import { scopeFinished, isExpired } from "./schedule";
 import { scopeStopped } from "./rateLimit";
 import { strategyRuntimeTimeframe } from "@/lib/strategy/data";
@@ -13,8 +13,9 @@ export const pineFillTemplate = (source: string) => source.match(/^\s*\/\/@strat
 export function pineSeries(symbol: string, timeframe: string, bars: PineSeries["bars"], simulated = false, extra: PineSeries["info"] = {}): PineSeries {
   const meta = symbolInfo(symbol), provider = providerOf(symbol), ticker = tickerOf(symbol);
   return { symbol, timeframe, bars, simulated, info: { ticker, tickerid: symbol, main_tickerid: symbol, timezone: provider === "alpaca" ? "America/New_York" : meta?.timezone || "Etc/UTC", description: meta?.name ?? ticker,
-    prefix: provider === "alpaca" ? symbol.slice(0, 3) : provider === "binance" ? "BINANCE" : provider === "hyperliquid" ? "HYPERLIQUID" : provider === "kraken" ? "KRAKEN" : meta?.exchange ?? "YAHOO", type: provider === "hyperliquid" ? "futures" : provider === "alpaca" || provider === "yahoo" ? meta?.type ?? "stock" : "crypto",
-    currency: provider === "alpaca" || provider === "hyperliquid" ? "USD" : provider === "binance" ? spotQuoteCurrency(symbol) : provider === "kraken" ? ticker.split("/")[1] : meta?.currency ?? "", session: provider === "alpaca" || provider === "yahoo" ? "regular" : "24x7", ...extra } };
+    prefix: provider === "alpaca" ? symbol.slice(0, 3) : provider === "yahoo" ? meta?.exchange ?? "YAHOO" : provider.toUpperCase(),
+    type: provider === "hyperliquid" || bybitMarket(symbol)?.category === "linear" ? "futures" : provider === "alpaca" || provider === "yahoo" ? meta?.type ?? "stock" : "crypto",
+    currency: provider === "alpaca" || provider === "hyperliquid" ? "USD" : provider === "binance" || provider === "bybit" ? spotQuoteCurrency(ticker) : provider === "kraken" ? ticker.split("/")[1] : meta?.currency ?? "", session: provider === "alpaca" || provider === "yahoo" ? "regular" : "24x7", ...extra } };
 }
 export function pineMessage(message: string, signal: PineSignal, series: PineSeries, now: number): string {
   const bar = signal.bar ?? series.bars.find(bar => bar.time === signal.time) ?? series.bars.at(-1)!;

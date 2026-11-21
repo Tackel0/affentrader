@@ -4,7 +4,9 @@
  * (Yahoo Finance tickers: stocks, ETFs, indices, forex) and `HL:BTC`,
  * `HL:xyz:TSLA` (Hyperliquid perpetuals, including builder-deployed markets).
  */
-export type Provider = "binance" | "yahoo" | "hyperliquid" | "alpaca" | "kraken";
+export type Provider = "binance" | "yahoo" | "hyperliquid" | "alpaca" | "kraken" | "bybit";
+export type BybitCategory = "spot" | "linear";
+const BYBIT_PREFIX = "BYBIT:";
 export const KRAKEN_PREFIX = "KRK:";
 export const KRAKEN_PAIR = /^[A-Z0-9]{1,16}\/[A-Z0-9]{1,16}$/;
 export const IEX_PREFIX = "IEX:";
@@ -14,6 +16,17 @@ export function iexSymbol(ticker: string): string { return `${IEX_PREFIX}${ticke
 export function sipSymbol(ticker: string): string { return `${SIP_PREFIX}${ticker.trim().toUpperCase()}`; }
 
 export const BINANCE_SYMBOL = /^[A-Z0-9]{4,24}$/;
+export function bybitSymbol(category: BybitCategory, pair: string): string {
+  return `${BYBIT_PREFIX}${category.toUpperCase()}:${pair}`;
+}
+
+export function bybitMarket(symbol: string): { category: BybitCategory; pair: string } | null {
+  if (!symbol.startsWith(BYBIT_PREFIX)) return null;
+  const [, category, pair, extra] = symbol.split(":");
+  if (extra !== undefined || (category !== "SPOT" && category !== "LINEAR") || !pair
+    || !BINANCE_SYMBOL.test(pair) || !["USDT", "USDC"].includes(spotQuoteCurrency(pair))) return null;
+  return { category: category === "SPOT" ? "spot" : "linear", pair };
+}
 const YAHOO_TICKER = /^[A-Z0-9^][A-Z0-9._=^-]{0,19}$/;
 export const YAHOO_PREFIX = "YF:";
 export const HYPERLIQUID_PREFIX = "HL:";
@@ -21,6 +34,7 @@ export const HYPERLIQUID_PREFIX = "HL:";
 const HL_COIN = /^(?:[a-z0-9]{2,12}:)?[A-Za-z0-9_-]{1,24}$/;
 
 export function providerOf(symbol: string): Provider {
+  if (symbol.startsWith(BYBIT_PREFIX)) return "bybit";
   if (symbol.startsWith(KRAKEN_PREFIX)) return "kraken";
   if (symbol.startsWith(IEX_PREFIX) || symbol.startsWith(SIP_PREFIX)) return "alpaca";
   if (symbol.startsWith(YAHOO_PREFIX)) return "yahoo";
@@ -29,6 +43,7 @@ export function providerOf(symbol: string): Provider {
 }
 
 export function tickerOf(symbol: string): string {
+  if (symbol.startsWith(BYBIT_PREFIX)) return symbol.slice(symbol.lastIndexOf(":") + 1);
   if (symbol.startsWith(KRAKEN_PREFIX)) return symbol.slice(KRAKEN_PREFIX.length);
   if (symbol.startsWith(IEX_PREFIX) || symbol.startsWith(SIP_PREFIX)) return symbol.slice(4);
   if (symbol.startsWith(YAHOO_PREFIX)) return symbol.slice(YAHOO_PREFIX.length);
@@ -61,6 +76,7 @@ export function isYahooTicker(ticker: string): boolean {
 /** True for any symbol the application can chart. */
 export function isSymbolId(value: unknown): value is string {
   if (typeof value !== "string") return false;
+  if (value.startsWith(BYBIT_PREFIX)) return bybitMarket(value) !== null;
   if (value.startsWith(IEX_PREFIX) || value.startsWith(SIP_PREFIX)) return IEX_TICKER.test(value.slice(4));
   if (value.startsWith(YAHOO_PREFIX)) return YAHOO_TICKER.test(value.slice(YAHOO_PREFIX.length));
   if (value.startsWith(HYPERLIQUID_PREFIX)) return HL_COIN.test(value.slice(HYPERLIQUID_PREFIX.length));
@@ -119,6 +135,7 @@ export function symbolLabel(symbol: string): string {
 /** Short display label for a symbol, without the provider prefix. */
 export function displayTicker(symbol: string): string {
   switch (providerOf(symbol)) {
+    case "bybit": return tickerOf(symbol);
     case "kraken":
     case "alpaca": return tickerOf(symbol);
     case "yahoo":

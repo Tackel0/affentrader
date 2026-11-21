@@ -1,5 +1,6 @@
 import { isSymbolId, providerOf, tickerOf } from "@/lib/symbolId";
 import { loadKrakenTradingIncrements } from "./kraken";
+import { loadBybitTradingIncrements } from "./bybitClient";
 import { loadHyperliquidAssets } from "./hyperliquidClient";
 import { priceTick } from "./hyperliquid";
 import { executionPriceGrid } from "@/lib/orderflow/priceGrid";
@@ -16,6 +17,10 @@ export function priceGridTick(metadata: PriceGridMetadata, price?: number): numb
 export async function fetchPriceGridMetadata(symbol: string, fetcher: typeof fetch = fetch): Promise<PriceGridMetadata> {
   if (!isSymbolId(symbol)) throw new Error("Invalid price-grid market.");
   const provider = providerOf(symbol), ticker = tickerOf(symbol), checkedAt = Date.now();
+  if (provider === "bybit") {
+    const { tickSize } = await loadBybitTradingIncrements(symbol, fetcher);
+    executionPriceGrid(tickSize); return { symbol, tickSize, checkedAt, source: "Bybit priceFilter.tickSize" };
+  }
   if (provider === "kraken") {
     const { tickSize } = await loadKrakenTradingIncrements(ticker, fetcher);
     executionPriceGrid(tickSize); return { symbol, tickSize, checkedAt, source: "Kraken AssetPairs tick_size" };

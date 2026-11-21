@@ -5,6 +5,7 @@ import {
   NATIVE_INTERVALS,
   parseInterval,
   planSource,
+  type NativeSpec,
 } from "./intervals";
 
 /** Deepest history a single request may assemble (TradingView Premium depth). */
@@ -87,9 +88,10 @@ export interface KlineRequest {
 export async function loadKlines(
   pager: KlinePager,
   request: KlineRequest,
+  natives: readonly NativeSpec[] = NATIVE_INTERVALS,
 ): Promise<OHLCV[]> {
   const interval = parseInterval(request.timeframe);
-  const plan = planSource(request.timeframe);
+  const plan = planSource(request.timeframe, natives);
   if (!interval || !plan)
     throw new Error(`Interval ${request.timeframe} has no exchange source.`);
   const count = Math.max(1, Math.min(MAX_HISTORY_BARS, Math.floor(request.count)));

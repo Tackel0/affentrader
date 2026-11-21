@@ -1,6 +1,6 @@
 import type { MarketSymbol, Timeframe } from "@/types/trading";
 import { intervalMs, PRESET_INTERVALS } from "@/lib/market/intervals";
-import { displayTicker, providerOf, symbolInfo, spotQuoteCurrency, tickerOf } from "@/lib/symbolId";
+import { bybitMarket, displayTicker, providerOf, symbolInfo, spotQuoteCurrency, tickerOf } from "@/lib/symbolId";
 /** Intervals that are always aggregated for every symbol. */
 export const TIMEFRAMES: Timeframe[] = [...PRESET_INTERVALS];
 /**
@@ -145,6 +145,11 @@ const PALETTE = ["#2962ff", "#089981", "#f7931a", "#9c27b0", "#e91e63", "#00bcd4
 export function getSymbol(symbol: string): MarketSymbol {
   const known = SYMBOLS.find((s) => s.symbol === symbol);
   if (known) return known;
+  const bybit = bybitMarket(symbol);
+  if (bybit) {
+    const asset = getSymbol(bybit.pair);
+    return { ...asset, symbol };
+  }
   if (providerOf(symbol) !== "binance") {
     const info = symbolInfo(symbol);
     const ticker = displayTicker(symbol);
@@ -211,6 +216,14 @@ export interface SymbolDescription {
 
 export function describeSymbol(symbol: string): SymbolDescription {
   const asset = getSymbol(symbol);
+  const bybit = bybitMarket(symbol);
+  if (bybit) {
+    const quote = spotQuoteCurrency(bybit.pair);
+    const base = bybit.pair.slice(0, -quote.length);
+    const market = bybit.category === "spot" ? "Spot" : "Perp";
+    return { title: `${base} / ${quote} · ${market}`, short: `${base}/${quote}`, venue: `Bybit · ${market}`, quote,
+      watermark: base, caption: `BYBIT · ${market.toUpperCase()}`, delayed: false, crypto: bybit.category === "spot", feed: "Bybit", streams: true };
+  }
   if (providerOf(symbol) === "kraken") {
     const [base, quote] = tickerOf(symbol).split("/");
     return { title: `${base} / ${quote}`, short: `${base}/${quote}`, venue: "Kraken", quote,

@@ -9,7 +9,9 @@ import {
   type MarketView,
 } from "@/lib/alerts/rules";
 import { isValidInterval } from "@/lib/market/intervals";
-import { isSymbolId, providerOf, tickerOf } from "@/lib/symbolId";
+import { bybitMarket, bybitSymbol, isSymbolId, providerOf, tickerOf } from "@/lib/symbolId";
+import { BYBIT_NATIVES } from "@/lib/market/bybit";
+import { bybitServerPager, bybitTickers } from "@/lib/server/bybit";
 import { loadHyperliquidBars } from "@/lib/market/hyperliquidClient";
 import { parseCandles } from "@/lib/market/hyperliquid";
 import { loadYahooBars } from "@/lib/market/yahooClient";
@@ -340,6 +342,7 @@ export function exchangeSource(fetcher: typeof fetch = fetch): MarketSource {
   const loadBars = async (symbol: string, timeframe: string, count: number): Promise<OHLCV[]> => {
     switch (providerOf(symbol)) {
       case "alpaca": throw new Error("Alpaca IEX requires credentials in an open browser tab; server alerts cannot access this session feed.");
+      case "bybit": return loadKlines(bybitServerPager(fetcher), { symbol, timeframe, count }, BYBIT_NATIVES);
       case "kraken": return (await loadKrakenClosedBars(tickerOf(symbol), timeframe, fetcher)).slice(-count);
       case "hyperliquid":
         return loadHyperliquidBars({
@@ -390,6 +393,19 @@ export function exchangeSource(fetcher: typeof fetch = fetch): MarketSource {
     quotes: async (all, ranges = []) => {
       const out: Record<string, NonNullable<MarketView["quote"]>> = {};
       const symbols = all.filter((s) => providerOf(s) === "binance");
+      const bybit = new Set(all.filter(symbol => providerOf(symbol) === "bybit"));
+      await Promise.all((["spot", "linear"] as const).filter(category =>
+        [...bybit].some(symbol => bybitMarket(symbol)?.category === category)).map(async category => {
+        const rows = await bybitTickers(category, fetcher).catch(() => []);
+        for (const row of rows) {
+          const symbol = bybitSymbol(category, row.pair);
+          if (bybit.has(symbol)) out[symbol] = {
+            price: row.price, previous: row.open, changePercent: (row.price / row.open - 1) * 100,
+            volume: row.volume, high: row.high, low: row.low,
+            metrics: basicMetrics(symbol, row.volume, row.turnover, row.high, row.low, "24h", row.time),
+          };
+        }
+      }));
       const kraken = all.filter(symbol => providerOf(symbol) === "kraken");
       for (let i = 0; i < kraken.length; i += 50) {
         const batch = kraken.slice(i, i + 50);

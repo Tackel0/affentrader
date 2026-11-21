@@ -49,7 +49,7 @@ export function rangeDescription(quote?: Quote): string {
 }
 export function basicMetrics(symbol: string, volume: number | null, quoteVolume: number | null, high: number, low: number, period: QuotePeriod, now = Date.now()): QuoteMetrics {
   return {
-    volume: { base: volume, quote: quoteVolume, currency: ["hyperliquid", "alpaca"].includes(providerOf(symbol)) ? "USD" : symbolInfo(symbol)?.currency ?? (providerOf(symbol) === "binance" ? spotQuoteCurrency(symbol) : providerOf(symbol) === "kraken" ? tickerOf(symbol).split("/")[1] : ""), period, asOf: now },
+    volume: { base: volume, quote: quoteVolume, currency: ["hyperliquid", "alpaca"].includes(providerOf(symbol)) ? "USD" : symbolInfo(symbol)?.currency ?? (["binance", "bybit"].includes(providerOf(symbol)) ? spotQuoteCurrency(tickerOf(symbol)) : providerOf(symbol) === "kraken" ? tickerOf(symbol).split("/")[1] : ""), period, asOf: now },
     range: { high: high > 0 ? high : null, low: low > 0 ? low : null, period, from: period === "24h" ? now - DAY_MS : null, to: now, resolution: period === "observed" || period === "simulation" ? "observed" : "ticker", complete: period !== "observed" },
   };
 }

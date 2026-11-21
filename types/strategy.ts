@@ -1,5 +1,6 @@
 import type { IPineInput } from "pinets";
 import type { OHLCV, Timeframe } from "./trading";
+import type { Provider } from "@/lib/symbolId";
 
 export interface StrategySettings {
   capital: number;
@@ -38,7 +39,7 @@ export interface StrategyMarket {
   quantityStep: number;
   base: string;
   currency?: string;
-  provider?: "binance" | "hyperliquid" | "yahoo" | "alpaca" | "kraken";
+  provider?: Provider;
   timezone?: string;
   type?: string;
   pointValue?: number;

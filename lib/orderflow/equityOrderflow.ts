@@ -26,7 +26,7 @@ export function resolveOrderflowTarget(
   options: { iexEnabled?: boolean } = {},
 ): EquityOrderflowResolution {
   const provider = providerOf(symbol);
-  if (provider === "binance" || provider === "kraken" || provider === "hyperliquid" || provider === "alpaca") {
+  if (provider !== "yahoo") {
     return {
       symbol,
       chartType: "footprint",
