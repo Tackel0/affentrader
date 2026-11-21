@@ -1572,7 +1572,20 @@ async function run() {
       }
       recordAudit(vp, "/ compact navigation", await inspectViewportDom(cdp, true));
       await tapWorkspaceTarget(cdp, 'nav.utility-rail [aria-label="Watchlists"]');
-      await waitForPagePredicate(cdp, '!!document.querySelector(\'.right-sidebar[aria-label="Watchlist sidebar"] .sidebar-sheet-resizer[aria-valuenow]\')', "Watchlist opens from bottom navigation");
+      if (vp.verifySavedLayout) {
+        await waitForPagePredicate(cdp, `(() => {
+          const sidebar = document.querySelector('.right-sidebar[aria-label="Watchlist sidebar"]');
+          const chart = document.querySelector('.center-workspace');
+          if (!sidebar || !chart) return false;
+          const dock = sidebar.getBoundingClientRect();
+          const plot = chart.getBoundingClientRect();
+          return getComputedStyle(sidebar).position === "relative" && dock.left >= plot.right - 1
+            && dock.width >= 260 && Math.abs(dock.top - plot.top) <= 2 && !sidebar.querySelector('.sidebar-sheet-resizer').getClientRects().length;
+        })()`, `${vp.name} Watchlist docks at the right edge alongside the chart`);
+        recordAudit(vp, "/ tablet Watchlist dock", await inspectViewportDom(cdp, true));
+      } else {
+        await waitForPagePredicate(cdp, '!!document.querySelector(\'.right-sidebar[aria-label="Watchlist sidebar"] .sidebar-sheet-resizer[aria-valuenow]\')', "Watchlist opens from bottom navigation");
+      }
       await tapWorkspaceTarget(cdp, 'nav.utility-rail [aria-label="Chart"]');
       await waitForPagePredicate(cdp, '!document.querySelector(".right-sidebar")', "Chart closes the sheet");
       if (vp.verifySavedLayout && !opts.liveApis) {

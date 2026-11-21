@@ -70,7 +70,7 @@ export function resolveOrderflowTarget(
     mappedFrom: null,
     liveOrderflow: false,
     studies: ["volume-nodes", "orderflow-signals", "delta-divergence", "vpvr"],
-    notice: `${symbol} has no live HL/IEX tick feed: OHLCV Orderflow Proxy active (HVN/LVN, VPVR, Est. Delta Div & ABS*/EXH*).`,
+    notice: `${symbol} has no live HL/IEX tick feed: OHLCV Orderflow Proxy active (VPVR, Est. Delta Div & ABS*/EXH*).`,
   };
 }
 

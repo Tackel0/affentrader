@@ -171,7 +171,7 @@ export const INDICATORS: IndicatorDefinition[] = [
   },
   { id: "visible-footprint", name: "Visible Range Footprint", shortName: "VR Footprint", category: "Order flow", kind: "orderflow", nativeId: "af-visible-footprint", defaults: {},
     description: "Classified executions in the visible candle range, pinned Left or Right; no per-candle projections" },
-  { id: "volume-nodes", name: "Volume Nodes (HVN / LVN)", shortName: "HVN/LVN", category: "Order flow", kind: "orderflow", nativeId: "af-volume-nodes", defaults: {},
+  { id: "volume-nodes", name: "Volume Nodes (HVN / LVN)", shortName: "HVN/LVN", category: "Order flow", kind: "orderflow", nativeId: "af-volume-nodes", defaults: { showHvn: false, showLvn: false },
     description: "Highlights High Volume Nodes (acceptance zones) and Low Volume Nodes (rejection pockets) on price" },
   { id: "orderflow-signals", name: "Absorption & Exhaustion", shortName: "Abs/Exh", category: "Order flow", kind: "orderflow", nativeId: "af-orderflow-signals", defaults: {},
     description: "Marks passive limit-wall absorption and aggressive buyer/seller exhaustion at bar highs and lows" },

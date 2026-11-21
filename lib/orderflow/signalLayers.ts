@@ -138,7 +138,7 @@ interface VolumeNodeOptions {
 
 const hasVolumeNodes = ({ data, bars }: RendererLayerArgs): boolean => {
   const options = data as VolumeNodeOptions | null | undefined;
-  return Boolean(options && bars.length && (options.showHvn !== false || options.showLvn !== false));
+  return Boolean(options && bars.length && (options.showHvn === true || options.showLvn === true));
 };
 
 /**
@@ -159,16 +159,16 @@ export function registerOrderflowSignalPlugins({ studyTrades, subscribeTicks, re
     paneHint: "price",
     inputsSchema: () => [
       { key: "rows", title: "Profile Rows", type: "int", defval: 32, min: 10, max: 120, step: 2 },
-      { key: "showHvn", title: "Show HVN (High Volume Nodes)", type: "bool", defval: true },
-      { key: "showLvn", title: "Show LVN (Low Volume Nodes)", type: "bool", defval: true },
+      { key: "showHvn", title: "Show HVN (High Volume Nodes)", type: "bool", defval: false },
+      { key: "showLvn", title: "Show LVN (Low Volume Nodes)", type: "bool", defval: false },
       { key: "hvnColor", title: "HVN Color", type: "color", defval: "#38bdf8" },
       { key: "lvnColor", title: "LVN Color", type: "color", defval: "#f59e0b" },
     ],
-    defaultInputs: () => ({ rows: 32, showHvn: true, showLvn: true, hvnColor: "#38bdf8", lvnColor: "#f59e0b" }),
+    defaultInputs: () => ({ rows: 32, showHvn: false, showLvn: false, hvnColor: "#38bdf8", lvnColor: "#f59e0b" }),
     create: () => {
       let ctx: NativeIndicatorContext | null = null;
       let active = false;
-      let opts = { rows: 32, showHvn: true, showLvn: true, hvnColor: "#38bdf8", lvnColor: "#f59e0b" };
+      let opts = { rows: 32, showHvn: false, showLvn: false, hvnColor: "#38bdf8", lvnColor: "#f59e0b" };
       const push = () => {
         if (active && ctx) ctx.pushData({ ...opts });
       };
@@ -234,8 +234,7 @@ export function registerOrderflowSignalPlugins({ studyTrades, subscribeTicks, re
         const placedNodes: PlacedRect[] = [];
         ctx.save();
         for (const node of nodes) {
-          if (node.kind === "HVN" && cfg.showHvn === false) continue;
-          if (node.kind === "LVN" && cfg.showLvn === false) continue;
+          if (node.kind === "HVN" ? cfg.showHvn !== true : cfg.showLvn !== true) continue;
           const y = args.coords.priceToY(node.price, args.scale, args.bounds);
           if (!Number.isFinite(y) || y < args.bounds.top + 8 || y > args.bounds.top + args.bounds.height - 8) continue;
           const color = node.kind === "HVN" ? hvnColor : lvnColor;

@@ -10,7 +10,7 @@ import {ChartSnapshotDialog} from "./ChartSnapshotDialog";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { bindSidebarChartBounds } from "@/lib/chart/sidebarBounds";
 import { bindSidebarResize, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } from "@/lib/chart/sidebarResize";
-import { bindBottomPanelResize, COMPACT_WORKSPACE_QUERY } from "@/lib/chart/bottomPanelResize";
+import { bindBottomPanelResize, COMPACT_WORKSPACE_QUERY, TABLET_WORKSPACE_QUERY } from "@/lib/chart/bottomPanelResize";
 import {
   Activity,
   ChevronDown,
@@ -117,22 +117,25 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
         if (state.sidebarWidth !== previous.sidebarWidth) changed(state.sidebarWidth);
       }),
     });
-    const offBounds = chart ? bindSidebarChartBounds(sidebar, chart) : undefined;
     const compact = window.matchMedia(COMPACT_WORKSPACE_QUERY);
-    let offHeight: (() => void) | undefined;
+    const tablet = window.matchMedia(TABLET_WORKSPACE_QUERY);
+    let offSheet: (() => void) | undefined;
     const bindSheet = () => {
-      offHeight?.();
-      offHeight = compact.matches && chart
-        ? bindBottomPanelResize(sidebar, sidebar, sheetHandle, chart, () => chart.getBoundingClientRect().height).dispose
-        : undefined;
+      offSheet?.();
+      offSheet = undefined;
+      if (!compact.matches || tablet.matches || !chart) return;
+      const offBounds = bindSidebarChartBounds(sidebar, chart);
+      const offHeight = bindBottomPanelResize(sidebar, sidebar, sheetHandle, chart, () => chart.getBoundingClientRect().height).dispose;
+      offSheet = () => { offHeight(); offBounds(); };
     };
     bindSheet();
     compact.addEventListener("change", bindSheet);
+    tablet.addEventListener("change", bindSheet);
     return () => {
       compact.removeEventListener("change", bindSheet);
-      offHeight?.();
+      tablet.removeEventListener("change", bindSheet);
+      offSheet?.();
       offResize();
-      offBounds?.();
     };
   }, [sidebarOpen]);
   // Keep the chart visible when entering the phone/tablet layout, including resizes.

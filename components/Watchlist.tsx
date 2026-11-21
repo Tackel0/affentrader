@@ -163,28 +163,24 @@ const SymbolRow = memo(function SymbolRow({
         onDrop(e.dataTransfer.getData("text/plain"), symbol);
       }}
     >
-      <button
-        className="watchlist-asset"
-        onClick={(e) => (e.ctrlKey || e.metaKey || e.shiftKey ? onSelect(symbol, e) : onOpen(symbol))}
-      >
-        <span
-          className="flag-dot"
-          role="button"
-          tabIndex={0}
+      <div className="watchlist-instrument">
+        <button
+          type="button"
+          className="watchlist-flag"
           aria-label={flag ? `Flag: ${flag}` : "Set flag"}
-          style={{ background: flag ? FLAG_COLORS[flag] : "transparent", borderColor: flag ? FLAG_COLORS[flag] : undefined }}
-          onClick={(e) => {
-            e.stopPropagation();
-            onFlag(symbol, e.currentTarget);
-          }}
-          onKeyDown={(e) => e.key === "Enter" && onFlag(symbol, e.currentTarget)}
-        />
-        <AssetBadge symbol={symbol} />
-        <span>
-          <strong>{asset.base}</strong>
-          <small>{describeSymbol(symbol).quote}</small>
-        </span>
-      </button>
+          onClick={(e) => onFlag(symbol, e.currentTarget)}
+        ><span className="flag-dot" aria-hidden="true" style={flag ? { background: FLAG_COLORS[flag], borderColor: FLAG_COLORS[flag] } : undefined} /></button>
+        <button
+          className="watchlist-asset"
+          onClick={(e) => (e.ctrlKey || e.metaKey || e.shiftKey ? onSelect(symbol, e) : onOpen(symbol))}
+        >
+          <AssetBadge symbol={symbol} />
+          <span>
+            <strong>{asset.base}</strong>
+            <small>{describeSymbol(symbol).quote}</small>
+          </span>
+        </button>
+      </div>
       {columns.map((c) => (
         <button key={c} className="watch-cell-button" tabIndex={-1} title={c === "last" && quote ? `${quotePriceLabel(quote)} · ${new Date(quote.time).toISOString()}` : undefined} onClick={() => onOpen(symbol)}>
           <Cell column={c} quote={quote} />

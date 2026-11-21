@@ -204,7 +204,9 @@ describe("Orderflow signal renderer layers (throttling, caching, visible range &
     volLayer.paint(mockCtx, inactiveNodes, cell);
     expect(mockCtx.stroke).not.toHaveBeenCalled();
     expect(volLayer.hasContent({ ...inactiveNodes, data: { showHvn: false, showLvn: false } })).toBe(false);
-    expect(volLayer.hasContent({ ...inactiveNodes, data: { rows: 32 } })).toBe(true);
+    expect(volLayer.hasContent({ ...inactiveNodes, data: { rows: 32 } })).toBe(false);
+    expect(volLayer.hasContent({ ...inactiveNodes, data: { rows: 32, showHvn: true } })).toBe(true);
+    expect(volLayer.hasContent({ ...inactiveNodes, data: { rows: 32, showLvn: true } })).toBe(true);
 
     // Frame 1 & Frame 2 on identical bars/trades should compute divergences only ONCE
     detectDivSpy.mockClear();
