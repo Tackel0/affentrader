@@ -914,10 +914,13 @@ async function run() {
   const opts = parseArgs(process.argv.slice(2));
   const projectRoot = process.cwd();
   const buildDir = join(opts.standaloneDir ? resolve(opts.standaloneDir) : projectRoot, ".next");
-  const loadableManifest = join(buildDir, "react-loadable-manifest.json");
-  const pineChunks = !opts.baseUrl && existsSync(loadableManifest)
-    ? (JSON.parse(readFileSync(loadableManifest, "utf8"))["lib/indicators/engineOptions.ts -> @luxalgo/vela-pinets"]?.files ?? [])
-    : [];
+  const loadablePath = join(buildDir, "react-loadable-manifest.json");
+  const loadable = !opts.baseUrl && existsSync(loadablePath)
+    ? JSON.parse(readFileSync(loadablePath, "utf8"))
+    : null;
+  const pineChunks = loadable?.["lib/indicators/engineOptions.ts -> @luxalgo/vela-pinets"]?.files ?? [];
+  const strategyChunks = loadable?.["components/BottomPanel.tsx -> ./StrategyTester"]?.files.filter(path => path.endsWith(".js")) ?? [];
+  if (loadable && !strategyChunks.length) throw new Error("Strategy tester is missing its on-demand JavaScript chunk");
   const chromePath = resolveChromePath();
   if (!existsSync(chromePath)) {
     throw new Error(`Chrome/Chromium binary not found at ${chromePath}. Set CHROME_PATH.`);
@@ -1074,11 +1077,13 @@ async function run() {
 
     const consoleErrors = [];
     const http5xx = [];
-    const requestedPineChunks = new Set();
+    const requestedChunks = new Set();
+    const requestedAssets = new Set([...pineChunks, ...strategyChunks]);
     cdp.onEvent("Network.requestWillBeSent", ({ request }) => {
       const requestPath = new URL(request.url).pathname;
-      if (request.url.startsWith(`${baseUrl}/`) && pineChunks.some(path => requestPath === `/_next/${path}`)) {
-        requestedPineChunks.add(requestPath);
+      const chunk = requestPath.slice("/_next/".length);
+      if (request.url.startsWith(`${baseUrl}/`) && requestPath.startsWith("/_next/") && requestedAssets.has(chunk)) {
+        requestedChunks.add(chunk);
       }
     });
     let activeLabel = "bootstrap";
@@ -1278,6 +1283,7 @@ async function run() {
     let phoneDrawingOverlayChecked = false;
     let phoneChartFocusChecked = false;
     let sessionResumeChecked = false;
+    let strategyLoadsOnDemandChecked = false;
     const tabletChartFocusViewports = [];
 
     const recordAudit = (viewport, scenario, audit) => {
@@ -1398,6 +1404,21 @@ async function run() {
         await waitForPagePredicate(cdp, "window.__sidebarMounted === false", `${vp.name} chart startup skips the sidebar`);
       }
       recordAudit(vp, "/", await inspectViewportDom(cdp, vp.mobile));
+      if (vp.width === 390 && !opts.liveApis && strategyChunks.length) {
+        activeLabel = "strategy tester on-demand loading";
+        if (strategyChunks.every(path => requestedChunks.has(path))) {
+          throw new Error("The strategy tester finished downloading before its panel opened");
+        }
+        await cdp.send("Runtime.evaluate", {
+          expression: `document.querySelector('.workspace-panel-strip [data-panel="strategy"]').click()`,
+        });
+        await waitForPagePredicate(cdp, '!!document.querySelector(".bottom-panel.expanded .strategy-tester")', "open the strategy tester on demand");
+        if (strategyChunks.some(path => !requestedChunks.has(path))) throw new Error("Opening the strategy tester did not load its JavaScript");
+        await cdp.send("Runtime.evaluate", {
+          expression: `document.querySelector('.bottom-panel button[aria-label="Collapse bottom panel"]').click()`,
+        });
+        strategyLoadsOnDemandChecked = true;
+      }
       if (vp.width === 390 && !opts.liveApis) {
         activeLabel = "universal mobile symbol search";
         await tapWorkspaceTarget(cdp, ".workspace-toolbar .symbol-selector", 36);
@@ -1768,7 +1789,7 @@ async function run() {
         '[...document.querySelectorAll("button")].some(button => button.textContent.trim() === "Add to chart" && !button.disabled)',
         "Pine editor can add a study",
       );
-      if (requestedPineChunks.size) throw new Error("The Pine runtime loaded before the first Pine study was added");
+      if (pineChunks.some(path => requestedChunks.has(path))) throw new Error("The Pine runtime loaded before the first Pine study was added");
       await cdp.send("Runtime.evaluate", {
         expression: `[...document.querySelectorAll("button")].find(button => button.textContent.trim() === "Add to chart").click()`,
       });
@@ -1777,7 +1798,7 @@ async function run() {
         "window.__pineLifecycle.started === 1",
         "a Pine worker starts for the installed study",
       );
-      if (pineChunks.length && !requestedPineChunks.size) throw new Error("Adding a Pine study did not load its engine bundle");
+      if (pineChunks.length && !pineChunks.some(path => requestedChunks.has(path))) throw new Error("Adding a Pine study did not load its engine bundle");
       pineLoadsOnDemandChecked = pineChunks.length > 0;
       for (const [index, mode] of ["simulation", "auto"].entries()) {
         await cdp.send("Runtime.evaluate", {
@@ -1855,6 +1876,7 @@ async function run() {
           deploymentUpdateChecked,
           pineWorkerLifecycleChecked,
           pineLoadsOnDemandChecked,
+          strategyLoadsOnDemandChecked,
           compactDockSnapChecked,
           sidebarSheetsChecked,
           phoneDrawingOverlayChecked,

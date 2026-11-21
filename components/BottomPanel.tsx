@@ -2,7 +2,7 @@
 import { baseVolume, periodLabel, quoteRange, rangeDescription } from "@/lib/market/quoteMetrics";
 import { useQuoteRanges } from "@/hooks/useQuoteRanges";
 import { symbolLabel } from "@/lib/symbolId";
-import { lazy, Suspense, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { bindBottomPanelResize, COMPACT_WORKSPACE_QUERY } from "@/lib/chart/bottomPanelResize";
 import {
   ChevronDown,
@@ -29,22 +29,65 @@ import {
 import { indicatorHandles } from "@/hooks/useVelaChart";
 import { IconButton } from "./ui";
 import { PineLibraries } from "./PineLibraries";
-import { StrategyTester } from "./StrategyTester";
 import { useStrategyStore } from "@/stores/useStrategyStore";
 import { downloadFile } from "@/lib/files";
-import { TradingPanel } from "./TradingPanel";
-import { DomPanel } from "./DomPanel";
-import { PortfolioPanel } from "./PortfolioPanel";
-import { NewsPanel } from "./NewsPanel";
-import { CalendarPanel } from "./CalendarPanel";
 import { ModuleErrorBoundary } from "./ModuleErrorBoundary";
 import type { BottomTab } from "@/types/trading";
 
-const HeatmapPanel = lazy(() => import("./HeatmapPanel").then(({ HeatmapPanel }) => ({ default: HeatmapPanel })));
-const OrderFlowPanel = lazy(() => import("./OrderFlowPanel").then(({ OrderFlowPanel }) => ({ default: OrderFlowPanel })));
-const ScreenerPanel = lazy(() => import("./ScreenerPanel").then(({ ScreenerPanel }) => ({ default: ScreenerPanel })));
-const ResearchTerminal = lazy(() => import("./ResearchTerminal").then(({ ResearchTerminal }) => ({ default: ResearchTerminal })));
-const orderFlowLoading = <p className="form-help" role="status">Loading order flow…</p>;
+type DeferredTab = Exclude<BottomTab, "overview" | "pine">;
+const deferredPanels = {
+  strategy: {
+    label: "strategy tester",
+    load: () => import("./StrategyTester").then(({ StrategyTester }) => ({ default: StrategyTester })),
+  },
+  orderflow: {
+    label: "order flow",
+    load: () => import("./OrderFlowPanel").then(({ OrderFlowPanel }) => ({ default: OrderFlowPanel })),
+  },
+  trading: {
+    label: "paper trading",
+    load: () => import("./TradingPanel").then(({ TradingPanel }) => ({ default: TradingPanel })),
+  },
+  dom: {
+    label: "DOM",
+    load: () => import("./DomPanel").then(({ DomPanel }) => ({ default: DomPanel })),
+  },
+  portfolio: {
+    label: "portfolio",
+    load: () => import("./PortfolioPanel").then(({ PortfolioPanel }) => ({ default: PortfolioPanel })),
+  },
+  screener: {
+    label: "screener",
+    load: () => import("./ScreenerPanel").then(({ ScreenerPanel }) => ({ default: ScreenerPanel })),
+  },
+  terminal: {
+    label: "terminal",
+    load: () => import("./ResearchTerminal").then(({ ResearchTerminal }) => ({ default: ResearchTerminal })),
+  },
+  news: {
+    label: "news",
+    load: () => import("./NewsPanel").then(({ NewsPanel }) => ({ default: NewsPanel })),
+  },
+  calendar: {
+    label: "calendar",
+    load: () => import("./CalendarPanel").then(({ CalendarPanel }) => ({ default: CalendarPanel })),
+  },
+  heatmap: {
+    label: "heatmap",
+    load: () => import("./HeatmapPanel").then(({ HeatmapPanel }) => ({ default: HeatmapPanel })),
+  },
+} satisfies Record<DeferredTab, { label: string; load: () => Promise<{ default: ComponentType }> }>;
+
+function DeferredPanel({ tab }: { tab: DeferredTab }) {
+  const { label, load } = deferredPanels[tab] ?? deferredPanels.orderflow;
+  // A remount after Retry needs a fresh lazy type so React can retry a failed import.
+  const [Component] = useState(() => lazy(load));
+  return (
+    <Suspense fallback={<p className="form-help" role="status">Loading {label}…</p>}>
+      <Component />
+    </Suspense>
+  );
+}
 
 /** Tabs that share the resizable full-height tool layout. */
 const TOOL_TABS: BottomTab[] = ["trading", "dom", "portfolio", "screener", "terminal", "news", "calendar", "heatmap"];
@@ -121,34 +164,8 @@ export function BottomPanel() {
               <MarketOverview />
             ) : tab === "pine" ? (
               <PineEditor />
-            ) : tab === "strategy" ? (
-              <StrategyTester />
-            ) : tab === "trading" ? (
-              <TradingPanel />
-            ) : tab === "dom" ? (
-              <DomPanel />
-            ) : tab === "portfolio" ? (
-              <PortfolioPanel />
-            ) : tab === "screener" ? (
-              <Suspense fallback={<p className="form-help" role="status">Loading screener…</p>}>
-                <ScreenerPanel />
-              </Suspense>
-            ) : tab === "terminal" ? (
-              <Suspense fallback={<p className="form-help" role="status">Loading terminal…</p>}>
-                <ResearchTerminal />
-              </Suspense>
-            ) : tab === "news" ? (
-              <NewsPanel />
-            ) : tab === "calendar" ? (
-              <CalendarPanel />
-            ) : tab === "heatmap" ? (
-              <Suspense fallback={<p className="form-help" role="status">Loading heatmap…</p>}>
-                <HeatmapPanel />
-              </Suspense>
             ) : (
-              <Suspense fallback={orderFlowLoading}>
-                <OrderFlowPanel />
-              </Suspense>
+              <DeferredPanel key={tab} tab={tab} />
             )}
           </ModuleErrorBoundary>
         </div>
