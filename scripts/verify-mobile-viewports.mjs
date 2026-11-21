@@ -799,12 +799,18 @@ async function verifyFocusedChartLayout(cdp, minWidth) {
   await waitForPagePredicate(cdp, `document.querySelector('.compact-chart-switcher select')?.options.length === 8
     && document.querySelectorAll('.chart-grid-cell').length === 1
     && document.querySelector('.chart-grid-cell').clientWidth >= ${minWidth}`, "eight-chart layout defaults to one large chart");
+  await waitForPagePredicate(cdp, `Array.from(document.querySelectorAll('.vela-container canvas')).some(canvas =>
+    canvas.width > 0 && canvas.height > 0)`, "focused chart has sized canvas buffers");
   await cdp.send("Runtime.evaluate", { expression: `(() => {
+    window.__previousChartCanvases = Array.from(document.querySelectorAll('.vela-container canvas'));
     const picker = document.querySelector('.compact-chart-switcher select');
     picker.selectedIndex = 1;
     picker.dispatchEvent(new Event('change', { bubbles: true }));
   })()` });
   await waitForPagePredicate(cdp, `document.querySelector('.chart-grid-cell.active-cell')?.dataset.cellId === 'cell-2'`, "compact chart selector activates the chosen chart");
+  await waitForPagePredicate(cdp, `window.__previousChartCanvases.every(canvas =>
+    !canvas.isConnected && canvas.width === 0 && canvas.height === 0)`, "old chart releases every canvas backing buffer after switching");
+  await cdp.send("Runtime.evaluate", { expression: "delete window.__previousChartCanvases" });
   await tapWorkspaceTarget(cdp, ".compact-chart-switcher button");
   await waitForPagePredicate(cdp, `document.querySelectorAll('.chart-grid-cell').length === 8`, "full chart grid opens on demand");
   await tapWorkspaceTarget(cdp, ".compact-chart-switcher button");
@@ -1544,7 +1550,7 @@ async function run() {
         const canvases = [...document.querySelectorAll(".vela-container canvas")]
           .filter(canvas => canvas.width > 0 && canvas.clientWidth > 0);
         return devicePixelRatio === 3 && canvases.length > 0 && canvases.every(canvas =>
-          Math.abs(canvas.width - canvas.clientWidth * 2) <= 2);
+          Math.abs(canvas.width - canvas.clientWidth * 1.5) <= 2);
       })()`, `${vp.name} Vela canvas drawing density is capped on DPR-3 touch screens`);
       await tapWorkspaceTarget(cdp, 'nav.utility-rail [aria-label="Chart"]');
       await waitForPagePredicate(cdp, 'document.querySelector(\'nav.utility-rail [aria-label="Chart"]\')?.getAttribute("aria-pressed") === "true"', "Chart is active");
@@ -1768,9 +1774,11 @@ async function run() {
         `location.pathname === "/login" && !!document.querySelector('form[action="/login"]')`,
         "online navigation still requires login",
       );
-      const stopped = once(serverProc, "exit", { signal: AbortSignal.timeout(8_000) });
-      serverProc.kill("SIGTERM");
-      await stopped;
+      if (serverProc.exitCode === null && serverProc.signalCode === null) {
+        const stopped = once(serverProc, "exit", { signal: AbortSignal.timeout(8_000) });
+        serverProc.kill("SIGKILL");
+        await stopped;
+      }
       serverProc = null;
       const offlineUrl = `${baseUrl}/terminal?view=opps`;
       await cdp.send("Page.navigate", { url: offlineUrl });
@@ -1800,7 +1808,7 @@ async function run() {
           phoneChartFocusChecked,
           tabletChartFocusViewports,
           compactNavigationViewports: COMPACT_NAV_VIEWPORTS.map(v => v.name),
-          compactCanvasDensity: 2,
+          compactCanvasDensity: 1.5,
           pwaShortcutsChecked,
           pwaScreenshotsChecked,
           maxDocOverflowRatio: Math.max(...results.map((r) => r.docScrollWidth / Math.max(1, r.innerWidth))),
