@@ -73,6 +73,48 @@ describe("native data-window lifecycle", () => {
     expect(cancel).toHaveBeenCalledExactlyOnceWith(7);
     expect(scheduled).toBeUndefined();
   });
+  it("suspends reads and timers while hidden and picks up settled chart state on return", () => {
+    const page = Object.assign(new EventTarget(), { hidden: false });
+    const setHidden = (hidden: boolean) => {
+      page.hidden = hidden;
+      page.dispatchEvent(new Event("visibilitychange"));
+    };
+    let scheduled: FrameRequestCallback | undefined;
+    const request = vi.fn((callback: FrameRequestCallback) => { scheduled = callback; return 7; });
+    const cancel = vi.fn(() => { scheduled = undefined; });
+    vi.stubGlobal("document", page);
+    vi.stubGlobal("requestAnimationFrame", request);
+    vi.stubGlobal("cancelAnimationFrame", cancel);
+    const host = setup();
+    try {
+      host.events.get("bar")!();
+      setHidden(true);
+      expect(cancel).toHaveBeenCalledExactlyOnceWith(7);
+      expect(vi.getTimerCount()).toBe(0);
+      host.events.get("load:start")!();
+      host.events.get("load:end")!();
+      host.context({ zone: "Europe/Berlin" });
+      host.crosshair();
+      host.readout({ ...host.currentReadout(), time: "14:35" });
+      vi.advanceTimersByTime(1000);
+      expect(host.read).toHaveBeenCalledOnce();
+      expect(request).toHaveBeenCalledOnce();
+
+      setHidden(false);
+      expect(vi.getTimerCount()).toBe(1);
+      expect(request).toHaveBeenCalledTimes(2);
+      scheduled?.(0);
+      expect(host.view()).toMatchObject({ zone: "Europe/Berlin", status: "ready", readout: { time: "14:35" } });
+      host.readout({ ...host.currentReadout(), time: "14:40" });
+      vi.advanceTimersByTime(250);
+      expect(host.view().readout?.time).toBe("14:40");
+
+      host.dispose();
+      setHidden(true);
+      setHidden(false);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { host.dispose(); vi.unstubAllGlobals(); }
+  });
   it("hides the old market throughout loading, mismatched identity, errors and live recovery", async () => {
     const host = setup(); host.events.get("load:start")!(); await vi.runAllTicks();
     expect(host.view()).toMatchObject({ status: "loading", readout: null });

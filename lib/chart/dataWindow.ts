@@ -39,15 +39,17 @@ export interface DataWindowHost {
 
 /** Observe the renderer's actual readout, including its revealed Replay series and pane formatting. */
 export function bindDataWindow(chart: Pick<Vela, "renderer" | "on" | "market"> & Partial<Pick<Vela, "getVisibleRange">>, host: DataWindowHost, publish: (view: DataWindowView) => void): () => void {
+  const page = typeof document === "undefined" ? undefined : document;
   let disposed = false, loading = false, queued = false, signature = "";
   let frame: number | null = null;
+  let timer: ReturnType<typeof setInterval> | undefined;
   const depthCursorScope = (context: DataWindowContext) => JSON.stringify([
     context.symbol, context.timeframe, context.marketEpoch, context.depthSource, context.replay,
     context.replay ? context.replayThrough : null,
   ]);
   let hover: { time: number; price: number; scope: string } | null = null;
   const refresh = () => {
-    if (disposed) return;
+    if (disposed || page?.hidden) return;
     const context = host.read();
     if (hover && hover.scope !== depthCursorScope(context)) hover = null;
     const status = context.error ? "error" : loading || chart.market.symbol !== context.symbol || chart.market.timeframe !== context.timeframe ? "loading"
@@ -77,13 +79,14 @@ export function bindDataWindow(chart: Pick<Vela, "renderer" | "on" | "market"> &
     if (next !== signature) { signature = next; publish(view); }
   };
   const schedule = () => {
-    if (disposed || queued) return;
+    if (disposed || queued || page?.hidden) return;
     queued = true;
     const run = () => { frame = null; queued = false; refresh(); };
     if (typeof requestAnimationFrame === "function") frame = requestAnimationFrame(run);
     else queueMicrotask(run);
   };
   const off = [host.subscribe(schedule), chart.renderer.onCrosshairMove(event => {
+    if (disposed || page?.hidden) return;
     const context = host.read();
     const time = event?.ohlc?.time ?? event?.time ?? null;
     hover = !loading && chart.market.symbol === context.symbol && chart.market.timeframe === context.timeframe
@@ -95,13 +98,33 @@ export function bindDataWindow(chart: Pick<Vela, "renderer" | "on" | "market"> &
     chart.on("load:start", () => { loading = true; hover = null; schedule(); }), chart.on("load:end", () => { loading = false; schedule(); })];
   for (const event of ["bar", "market:changed", "history:complete", "context:changed", "indicator:added", "indicator:removed", "pane:changed", "replay:start", "replay:step", "replay:tick", "replay:end"] as const)
     off.push(chart.on(event, schedule));
-  // Native plot updates can settle after the bar event, without a scripting-engine event.
-  const timer = setInterval(() => { if (!queued) refresh(); }, 250);
+  const stopPolling = () => {
+    clearInterval(timer);
+    timer = undefined;
+    if (frame !== null) {
+      cancelAnimationFrame(frame);
+      frame = null;
+      queued = false;
+    }
+  };
+  const startPolling = () => {
+    // Native plot updates can settle after the bar event, without a scripting-engine event.
+    timer ??= setInterval(() => { if (!queued) refresh(); }, 250);
+  };
+  const onVisibilityChange = () => {
+    if (page?.hidden) stopPolling();
+    else {
+      startPolling();
+      schedule();
+    }
+  };
+  page?.addEventListener("visibilitychange", onVisibilityChange);
+  if (!page?.hidden) startPolling();
   refresh();
   return () => {
     disposed = true;
-    if (frame !== null) cancelAnimationFrame(frame);
-    clearInterval(timer);
+    page?.removeEventListener("visibilitychange", onVisibilityChange);
+    stopPolling();
     off.forEach(dispose => dispose());
   };
 }
