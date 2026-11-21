@@ -52,6 +52,19 @@ describe("TPO session price markers and labels", () => {
     expect(changed[0].rows).toBe(first[0].rows); expect(changed[0].valueArea).toBe(first[0].valueArea); expect(changed[0].initialBalance).toBe(first[0].initialBalance);
     source[1].close = 103; expect(cache.read(source, style, "30m", "BTCUSDT")[0].markers?.close.price).toBe(103);
   });
+  it("retains market profile rows when a live candle update replaces the bar array", () => {
+    const cache = createTpoCache(), first = cache.read(bars, style, "30m", "BTCUSDT");
+    expect(cache.read(bars.map(value => ({ ...value, volume: 2 })), style, "30m", "BTCUSDT")).toBe(first);
+    const quote = [...bars.slice(0, 2), { ...bars[2], close: 109 }];
+    const updated = cache.read(quote, style, "30m", "BTCUSDT");
+    expect(updated[1].markers?.close.price).toBe(109);
+    expect(updated[1].rows).toBe(first[1].rows);
+    expect(updated).toEqual(buildTpoSessions(quote, style, "30m", "BTCUSDT"));
+    quote[2].high = 111;
+    const expanded = cache.read(quote, style, "30m", "BTCUSDT");
+    expect(expanded[1].rows).not.toBe(updated[1].rows);
+    expect(expanded).toEqual(buildTpoSessions(quote, style, "30m", "BTCUSDT"));
+  });
   it("validates and resolves optional legacy settings and exposes native controls", () => {
     const legacy = Object.fromEntries(Object.entries(style).filter(([key]) => !/Marker|midpoint|LabelVisible/.test(key)));
     expect(validTpo(legacy)).toBe(true); expect(resolveTpo(legacy)).toEqual(style);

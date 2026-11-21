@@ -9,6 +9,7 @@ import { STRUCTURE_SCRIPT } from "@/lib/indicators/scripts";
 import { studyTradeSource } from "@/lib/orderflow/studyTradeSource";
 import { countIds } from "@/lib/orderflow/tradeCount";
 import { LIQUIDATION_HEATMAP } from "@/lib/orderflow/liquidationHeatmap";
+import { TPO_OVERLAY_ID } from "@/lib/orderflow/tpoOverlay";
 import { registerOrderflowPlugins } from "@/lib/orderflow/velaPlugins";
 import { popoutId, scopedName } from "@/lib/windowScope";
 import { AffenTerminalWindow } from "@/components/AffenTerminalWindow";
@@ -467,6 +468,7 @@ async function runNativeOverlaysE2E(): Promise<MainRouteResult["chartOverlays"]>
     () => chart.addNativeIndicator(LIQUIDATION_HEATMAP, { inputs: { leverages: "20× / 50× / 100×" } }),
     300,
   );
+  await measureOverlay(TPO_OVERLAY_ID, () => chart.addNativeIndicator(TPO_OVERLAY_ID), 300);
   const sigHandle = await measureOverlay(
     "af-orderflow-signals",
     () => chart.addNativeIndicator("af-orderflow-signals", { inputs: { showAbsorption: true, showExhaustion: true } }),

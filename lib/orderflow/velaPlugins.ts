@@ -39,7 +39,7 @@ import { createTpoCache } from "./tpoModel";
 import { TpoCandleSource } from "./tpoCandleSource";
 import { TpoExecutionSource } from "./tpoExecutionSource";
 import { resolveTpo, tpoSettings } from "./tpoSettings";
-import { paintTpoSessions } from "./tpoRenderer";
+import { clearTpoRenderCache, paintTpoSessions } from "./tpoRenderer";
 import { TPO_OVERLAY_ID, tpoOverlayDescriptor, resolveTpoOverlay, paintTpoOverlay, type TpoOverlayChannel } from "./tpoOverlay";
 import { publishTpoMenuFrame, clearTpoMenuFrame } from "./tpoSessionMenu";
 import { createTpoTouchCache } from "./tpoReferenceTouches";
@@ -601,15 +601,25 @@ export function registerOrderflowPlugins() {
   });
   registerNativeIndicator(tpoOverlayDescriptor());
   registerRendererLayer({ id: TPO_OVERLAY_ID, placement: "above-data", repaintOnCursor: true, create: () => {
-    const token = Symbol("tpo-overlay"), cache = createTpoCache(), touchCache = createTpoTouchCache(), notice = {};
+    const token = Symbol("tpo-overlay"), notice = {};
+    let cache = createTpoCache(), touchCache = createTpoTouchCache();
     let key: string | undefined, sourceCell: string | undefined;
-    const source = new TpoCandleSource(() => { if (sourceCell) invalidateCanvasLayers(sourceCell); });
-    const executions = new TpoExecutionSource(tpoExecutionDependencies, () => { if (sourceCell) invalidateCanvasLayers(sourceCell); });
+    let context2d: CanvasRenderingContext2D | undefined;
+    const repaint = () => { if (sourceCell) invalidateCanvasLayers(sourceCell, TPO_OVERLAY_ID); };
+    const source = new TpoCandleSource(repaint);
+    const executions = new TpoExecutionSource(tpoExecutionDependencies, repaint);
+    const deactivate = () => {
+      if (!sourceCell) return;
+      sourceCell = undefined;
+      if (key) { clearTpoSurface(key, token); key = undefined; }
+      clearStudyNotice(notice); source.reset(); executions.reset();
+      cache = createTpoCache(); touchCache = createTpoTouchCache();
+      clearTpoRenderCache(context2d); context2d = undefined;
+    };
     const layer = canvasLayer((ctx, args, cell) => {
-      sourceCell = cell.id;
+      sourceCell = cell.id; context2d = ctx;
       if (key) clearTpoSurface(key, token);
-      const channel = args.data as TpoOverlayChannel | null;
-      if (!channel || channel.symbol !== cell.symbol || channel.timeframe !== cell.timeframe || channel.live !== !cell.replay) { source.reset(); executions.reset(); clearStudyNotice(notice); return; }
+      const channel = args.data as TpoOverlayChannel;
       key = `${cell.id}:${channel.id}`;
       const last = args.bars.at(-1), context = { symbol: cell.symbol, timeframe: cell.timeframe,
         epoch: useChartStore.getState().marketEpochs[cell.symbol] ?? 0, replay: cell.replay,
@@ -639,20 +649,36 @@ export function registerOrderflowPlugins() {
           ctx.fillStyle = args.theme.textColor; ctx.font = "11px sans-serif"; ctx.fillText(`TPO overlay: ${message}`, 8, args.bounds.top + 48, Math.max(10, args.coords.width - 16));
         }
       }
-    });
-    return { ...layer, destroy() { source.reset(); executions.reset(); if (key) clearTpoSurface(key, token); clearStudyNotice(notice); layer.destroy(); } };
+    }, (args, cell) => {
+      const channel = args.data as TpoOverlayChannel | undefined;
+      if (channel && channel.symbol === cell.symbol && channel.timeframe === cell.timeframe && channel.live === !cell.replay) return true;
+      deactivate();
+      return false;
+    }, TPO_OVERLAY_ID);
+    return { ...layer, destroy() { deactivate(); layer.destroy(); } };
   } });
   registerRendererLayer({
     id: "tpo",
     repaintOnCursor: true,
     create: () => {
-      const token = Symbol("tpo"), cache = createTpoCache(), touchCache = createTpoTouchCache(); let layerId: string | undefined;
-      const source = new TpoCandleSource(() => { if (layerId) invalidateCanvasLayers(layerId); });
-      const executions = new TpoExecutionSource(tpoExecutionDependencies, () => { if (layerId) invalidateCanvasLayers(layerId); });
+      const token = Symbol("tpo");
+      let cache = createTpoCache(), touchCache = createTpoTouchCache();
+      let layerId: string | undefined;
+      let context2d: CanvasRenderingContext2D | undefined;
+      const repaint = () => { if (layerId) invalidateCanvasLayers(layerId, "tpo"); };
+      const source = new TpoCandleSource(repaint);
+      const executions = new TpoExecutionSource(tpoExecutionDependencies, repaint);
+      const deactivate = () => {
+        if (!layerId) return;
+        clearDerivedIssue(layerId, token); clearTpoSurface(layerId, token); clearTpoMenuFrame(layerId, token);
+        layerId = undefined;
+        source.reset(); executions.reset();
+        cache = createTpoCache(); touchCache = createTpoTouchCache();
+        clearTpoRenderCache(context2d); context2d = undefined;
+      };
       const layer = canvasLayer((ctx, args, cell) => {
         if (layerId) { clearTpoSurface(layerId, token); clearTpoMenuFrame(layerId, token); }
-        layerId = cell.id;
-        if (args.priceStyle !== "tpo") { source.reset(); executions.reset(); clearDerivedIssue(cell.id, token); return; }
+        layerId = cell.id; context2d = ctx;
         const owner = cell.id === "primary" ? useWorkspaceStore.getState().activeId : cell.id;
         runDerivedPaint(cell.id, token, { owner, symbol: cell.symbol, timeframe: cell.timeframe, type: "tpo" }, () => {
           const last = args.bars.at(-1);
@@ -675,8 +701,12 @@ export function registerOrderflowPlugins() {
             publishTpoSurface(cell.id, token, { ...context, sessions, style, touches, ladders, metrics, sourceBasis: read.value.basis, sourceCalendar: read.value.calendar });
           } catch (error) { publishTpoSurface(cell.id, token, { ...context, error: error instanceof Error ? error.message : "Invalid TPO data." }); throw error; }
         });
-      });
-      return { ...layer, destroy() { source.reset(); executions.reset(); if (layerId) { clearDerivedIssue(layerId, token); clearTpoSurface(layerId, token); clearTpoMenuFrame(layerId, token); } layer.destroy(); } };
+      }, args => {
+        if (args.priceStyle === "tpo") return true;
+        deactivate();
+        return false;
+      }, "tpo");
+      return { ...layer, destroy() { deactivate(); layer.destroy(); } };
     },
   });
   for (const [profileId, profileTitle] of [["af-session-profile", "Session Volume Profile"], ["af-rolling-profile", "Rolling Volume Profile"]]) registerRendererLayer({

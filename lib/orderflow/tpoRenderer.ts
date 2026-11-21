@@ -16,6 +16,12 @@ const ladderCaches = new WeakMap<object, TpoVolumeLadderCache>();
 import { tpoSessionLayout } from "./tpoLayout";
 export { tpoSessionLayout } from "./tpoLayout";
 
+export function clearTpoRenderCache(context: CanvasRenderingContext2D | undefined) {
+  if (!context) return;
+  ladderCaches.delete(context);
+  paintSamples.delete(context);
+}
+
 /** Session-time blocks, POC/VA lines, range bracket and price candles. */
 export function paintTpoSessions(ctx: CanvasRenderingContext2D, args: RendererLayerArgs, sessions: readonly TpoSession[], style: TpoPreferences, observedTouches?: TpoTouches, priceBars = args.bars, metrics?: TpoMetrics) {
   const { coords, bounds, scale } = args;

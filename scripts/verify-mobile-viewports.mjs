@@ -1499,6 +1499,21 @@ async function run() {
         await waitForPagePredicate(cdp, `window.__footprintCanvases.every(canvas => canvas.width === 0 && canvas.height === 0)`, "Footprint buffers remain reusable through a second close");
         await cdp.send("Runtime.evaluate", { expression: `delete window.__sizedBeforeFootprint; delete window.__footprintCanvases` });
 
+        activeLabel = "mobile TPO chart canvas lifecycle";
+        await cdp.send("Runtime.evaluate", { expression: `window.__beforeTpo = new Set([...document.querySelectorAll('.vela-container canvas')].filter(canvas => canvas.width && canvas.height))` });
+        await tapWorkspaceTarget(cdp, ".chart-type-button", 36);
+        await chooseType("Time price opportunities");
+        await waitForPagePredicate(cdp, `(() => {
+          if (!document.querySelector('.chart-type-button[aria-label="Chart type: TPO / Market Profile"]')) return false;
+          window.__tpoCanvases = [...document.querySelectorAll('.vela-container canvas')].filter(canvas => canvas.width && canvas.height && !window.__beforeTpo.has(canvas));
+          return window.__tpoCanvases.some(canvas => canvas.getContext('2d')?.getImageData(0, 0, canvas.width, canvas.height).data.some((value, index) => index % 4 === 3 && value > 0));
+        })()`, "TPO paints after its chart buffer activates");
+        recordAudit(vp, "/ TPO chart", await inspectViewportDom(cdp, true));
+        await tapWorkspaceTarget(cdp, ".chart-type-button", 36);
+        await chooseType("Japanese candlesticks");
+        await waitForPagePredicate(cdp, `window.__tpoCanvases.every(canvas => canvas.width === 0 && canvas.height === 0)`, "switching away releases TPO drawing buffers");
+        await cdp.send("Runtime.evaluate", { expression: `delete window.__beforeTpo; delete window.__tpoCanvases` });
+
         activeLabel = "universal mobile symbol search";
         await tapWorkspaceTarget(cdp, ".workspace-toolbar .symbol-selector", 36);
         await waitForPagePredicate(cdp, '!!document.querySelector(\'.search-modal input[aria-label="Search symbols"]\')', "symbol search opens");

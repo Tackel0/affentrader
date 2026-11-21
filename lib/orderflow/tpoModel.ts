@@ -11,6 +11,7 @@ import { tpoTradingCalendar } from "./tpoTradingHours";
 import { marketSessions, type MarketSessionCalendar } from "@/lib/market/sessionWindows";
 import { scopedTpoOperations } from "./tpoOperations";
 import { tpoMarkers, type TpoMarkers } from "./tpoMarkers";
+import { resolveZone } from "@/lib/timezones";
 
 const MINUTE = 60000;
 type Bar = Pick<OHLCV, "time" | "high" | "low"> & Partial<Pick<OHLCV, "open" | "close">>;
@@ -118,17 +119,24 @@ export function tpoWindow(bars: readonly { time: number }[], preferences = defau
 
 /** Inspect all contributing fields: history repair may mutate an older bar in place. Display-only edits reuse the model. */
 export function createTpoCache() {
-  let previousBars: readonly Bar[] | undefined, snapshot: Bar[] = [], settings = "", calendar: ReturnType<typeof tpoCalendar> | undefined;
+  let snapshot: Bar[] = [], settings = "", calendar: ReturnType<typeof tpoCalendar> | undefined;
+  let previousSource: MarketSessionCalendar | undefined;
   let result: TpoSession[] = [], failure: unknown;
   return { read(bars: readonly Bar[], preferences: TpoPreferences, timeframe: string, symbol: string, source?: MarketSessionCalendar) {
-    const nextSettings = JSON.stringify([timeframe, symbol, preferences.sessionPeriod ?? "Day", preferences.sessionZone, preferences.sessionStartMinutes, preferences.sessionMinutes,
-      preferences.tradingHours ?? "Full day", preferences.customStart ?? 0, preferences.customEnd ?? 0, source?.revision ?? marketSessions(symbol)?.revision,
+    const sessionSource = source ?? marketSessions(symbol);
+    const nextSettings = JSON.stringify([timeframe, symbol, preferences.sessionPeriod ?? "Day", resolveZone(preferences.sessionZone, symbol), preferences.sessionStartMinutes, preferences.sessionMinutes,
+      preferences.tradingHours ?? "Full day", preferences.customStart ?? 0, preferences.customEnd ?? 0, sessionSource?.revision,
       preferences.weekdaysOnly, preferences.blockMinutes, preferences.rowSize, preferences.targetRows, preferences.valueAreaPercent, tpoIbMinutes(preferences), scopedTpoOperations(preferences, timeframe, symbol)]);
-    const changed = snapshot.length !== bars.length || bars.some((bar, index) => (["time", "high", "low"] as const).some(key => !Object.is(bar[key], snapshot[index][key])));
-    const pricesChanged = !changed && bars.some((bar, index) => !Object.is(bar.open, snapshot[index].open) || !Object.is(bar.close, snapshot[index].close));
-    if (previousBars !== bars || settings !== nextSettings || changed) {
-      if (previousBars !== bars || settings !== nextSettings) calendar = tpoCalendar(preferences, symbol, source);
-      previousBars = bars; settings = nextSettings; snapshot = bars.map(({ time, high, low, open, close }) => ({ time, high, low, open, close })); failure = undefined;
+    const settingsChanged = settings !== nextSettings || previousSource !== sessionSource;
+    let structureChanged = snapshot.length !== bars.length, pricesChanged = false;
+    for (let i = 0; i < bars.length && !structureChanged && !settingsChanged; i++) {
+      const bar = bars[i], prior = snapshot[i];
+      structureChanged = !Object.is(bar.time, prior.time) || !Object.is(bar.high, prior.high) || !Object.is(bar.low, prior.low);
+      pricesChanged ||= !Object.is(bar.open, prior.open) || !Object.is(bar.close, prior.close);
+    }
+    if (settingsChanged || structureChanged) {
+      if (settingsChanged) calendar = tpoCalendar(preferences, symbol, sessionSource);
+      previousSource = sessionSource; settings = nextSettings; snapshot = bars.map(({ time, high, low, open, close }) => ({ time, high, low, open, close })); failure = undefined;
       try { result = buildTpoSessions(bars, preferences, timeframe, symbol, calendar); } catch (error) { failure = error; }
     } else if (pricesChanged) {
       // Quote-only updates affect the endpoint markers, not TPO visits, price
