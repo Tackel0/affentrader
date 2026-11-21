@@ -96,7 +96,7 @@ export function bindDataWindow(chart: Pick<Vela, "renderer" | "on" | "market"> &
   for (const event of ["bar", "market:changed", "history:complete", "context:changed", "indicator:added", "indicator:removed", "pane:changed", "replay:start", "replay:step", "replay:tick", "replay:end"] as const)
     off.push(chart.on(event, schedule));
   // Native plot updates can settle after the bar event, without a scripting-engine event.
-  const timer = setInterval(refresh, 250);
+  const timer = setInterval(() => { if (!queued) refresh(); }, 250);
   refresh();
   return () => {
     disposed = true;

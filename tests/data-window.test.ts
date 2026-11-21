@@ -63,6 +63,7 @@ describe("native data-window lifecycle", () => {
     const host = setup();
     try {
       host.crosshair(); host.crosshair(); host.config();
+      vi.advanceTimersByTime(500);
       expect(request).toHaveBeenCalledOnce();
       expect(host.read).toHaveBeenCalledOnce();
       scheduled?.(0);
