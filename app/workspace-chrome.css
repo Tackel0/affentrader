@@ -323,7 +323,7 @@
 /* The dock owns the height. Each active market view has one scrolling area. */
 .bottom-panel.expanded:is([data-tab="orderflow"], [data-tab="dom"]) > .bottom-panel-content { overflow: hidden; }
 .bottom-panel[data-tab="orderflow"]:has(.orderflow-dock) > .bottom-panel-content { height: var(--panel-height, 370px); }
-.orderflow-dock { container-type: inline-size; height: 100%; min-height: 0; }
+.orderflow-dock { container: orderflow / inline-size; height: 100%; min-height: 0; }
 .orderflow-dock > .detailed-orderflow {
   height: 100%; min-height: 0; padding: 0; gap: 0;
   grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
@@ -403,7 +403,15 @@
 .flow-settings-dialog .dom-column-list label { display: flex; align-items: center; gap: 5px; }
 .dom-book-only .dom-row { min-width: 0; }
 .dom-book-only .dom-current-price { color: var(--text); background: var(--tv-hover); font-weight: 700; }
-@container (max-width: 760px) {
+@container orderflow (width > 760px) {
+  .orderflow-dock > .detailed-orderflow { grid-template-rows: minmax(0, 1fr); }
+  .flow-nav { grid-area: 1 / 1; justify-self: end; align-self: start; z-index: 2; border: 0; padding: 2px 9px; }
+  .detailed-orderflow > .trade-tape { grid-area: 1 / 1; }
+  .detailed-orderflow > .orderbook { grid-area: 1 / 2; }
+  .trade-tape .orderflow-title { padding-inline-end: 100px; }
+  .trade-tape .orderflow-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+@container orderflow (max-width: 760px) {
   .orderflow-dock > .detailed-orderflow { grid-template-columns: minmax(0, 1fr); }
   .flow-switch { display: flex; align-items: center; gap: 3px; }
   .flow-nav { justify-content: space-between; padding-inline: 7px; }
@@ -434,6 +442,11 @@
 }
 @media (pointer: coarse) {
   .dom-executions .dom-order-cell .dom-orders { min-height: 36px; }
+}
+@media (max-height: 500px) and (pointer: coarse) {
+  .detailed-orderflow > :is(.trade-tape, .orderbook) { padding-block: 6px; }
+  .detailed-orderflow .flow-status, .detailed-orderflow .tape-minute-balance { margin-block: 4px; }
+  .detailed-orderflow .filtered-tape-table td { padding-block: 3px; }
 }
 .goto-date-fields label { min-width: 0; }
 .goto-date-fields input { width: 100%; min-width: 0; }

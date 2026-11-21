@@ -1438,14 +1438,21 @@ async function run() {
         })).result?.value;
         if (!chartHeight || openHeight !== chartHeight) throw new Error(`[${vp.name}] Order flow resized the chart from ${chartHeight} to ${openHeight}`);
       }
-      recordAudit(vp, "/ + BottomPanel(orderflow)", await inspectViewportDom(cdp, vp.mobile));
-      if (vp.width === 390 && !opts.liveApis) {
+      if ((vp.width === 390 || vp.name === "844x390") && !opts.liveApis) {
         activeLabel = "mobile orderflow and DOM controls";
         await waitForPagePredicate(cdp, 'window.__publishMarketFixture()', "exchange fixture arrives");
         await waitForPagePredicate(cdp, `(() => {
           const tape = document.querySelector('.trade-tape'), row = tape?.querySelector('tbody tr'), dock = tape?.closest('.bottom-panel-content');
-          return row && dock && row.getBoundingClientRect().bottom <= dock.getBoundingClientRect().bottom && tape.scrollWidth <= tape.clientWidth;
+          const frame = dock?.getBoundingClientRect(), trade = row?.getBoundingClientRect();
+          return frame && trade && trade.top >= frame.top && trade.bottom <= frame.bottom && tape.scrollWidth <= tape.clientWidth;
         })()`, "trade rows are visible without opening settings or scrolling sideways");
+      }
+      recordAudit(vp, "/ + BottomPanel(orderflow)", await inspectViewportDom(cdp, vp.mobile));
+      if (vp.name === "844x390" && !opts.liveApis) {
+        await tapWorkspaceTarget(cdp, '.flow-chart-tools summary', 36);
+        await waitForPagePredicate(cdp, `!!document.querySelector('.flow-chart-tools[open] button')`, "landscape chart tools open beside the tape title");
+      }
+      if (vp.width === 390 && !opts.liveApis) {
         await tapWorkspaceTarget(cdp, '.trade-tape [aria-label="Tape settings"]', 36);
         await waitForPagePredicate(cdp, '!!document.querySelector(\'.flow-settings-dialog [aria-label="Trade side filter"]\')', "tape filters open on demand");
         recordAudit(vp, "/ tape filters", await inspectViewportDom(cdp, true));
@@ -1781,6 +1788,7 @@ async function run() {
         await waitForPagePredicate(cdp, "window.__sidebarMounted === false", `${vp.name} chart startup skips the sidebar`);
       }
       recordAudit(vp, "/ compact navigation", await inspectViewportDom(cdp, true));
+      if (vp.name === "844x390" && !opts.liveApis) await verifyOrderflowDock(vp);
       await tapWorkspaceTarget(cdp, 'nav.utility-rail [aria-label="Watchlists"]');
       if (vp.verifySavedLayout) {
         await waitForPagePredicate(cdp, `(() => {

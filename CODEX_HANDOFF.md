@@ -118,6 +118,14 @@ Outputs filterable trade setups with a **Setup-Score (0–100)**, transparent po
 
 *(Every landed fix/feature is verified directly against modified source files; global test/build counts are only updated after `@qa-verifier` completes the full post-edit verification gate.)*
 
+### Pass 2026-11-21 — Show Live Trades Immediately in Phone Landscape
+
+- **Cause.** In the 844 × 390 phone layout the dock had 200 CSS pixels of usable height. The stand-alone Chart tools row and default vertical spacing left the first execution below the visible area.
+- **Change.** In wide docks `workspace-chrome.css` places Chart tools alongside the tape title. Short touch viewports use tighter section padding and table spacing while retaining 36 px trade price targets. The viewport audit opens a populated landscape tape, checks that its first row fits, and opens Chart tools by touch.
+- **Measurement.** With live Binance executions in Chromium's 844 × 390 dark workspace, the first trade moved from 199 to 145 CSS pixels below the dock top. One complete trade row and five DOM price rows were visible, and both tables fit the viewport width.
+- **Release gate.** Fast-forward pull, Next.js type generation, typecheck, all 2,814 tests, production build, headless Chrome Terminal E2E and 66 viewport scenarios passed. The viewport audit checked 2,731 mobile controls with zero horizontal document overflow. No Next.js upgrade notice appeared.
+- **Earlier deployment verified.** GitHub Actions run 44957398221 deployed `68bee519` as `affenterminal--r20261121223852-68bee519`. All five live endpoints returned HTTP 200 and the login timestamp matched.
+
 ### Pass 2026-11-21 — Put Live Trades and Depth First
 
 - **Cause.** The Orderflow panel stacked settings, totals and explanatory text ahead of the trade table. The DOM placed paper order tools and display options before the price ladder. On a 390 × 844 phone viewport the first trade and ladder rows both fell below the visible dock.
