@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { EXCHANGE_ZONE, LOCAL_ZONE, TIMEZONES, formatClock, isValidZone, offsetLabel, resolveZone } from "@/lib/timezones";
 import { registerSymbolInfo } from "@/lib/symbolId";
 
@@ -13,6 +13,18 @@ describe("time zones", () => {
     expect(isValidZone(42)).toBe(false);
     expect(isValidZone(EXCHANGE_ZONE)).toBe(true);
     expect(isValidZone(LOCAL_ZONE)).toBe(true);
+  });
+  it("reuses validation results for the repeated chart time zone and an invalid setting", () => {
+    const dateTimeFormat = vi.spyOn(Intl, "DateTimeFormat");
+    try {
+      for (let index = 0; index < 300; index++) {
+        expect(resolveZone("America/Phoenix")).toBe("America/Phoenix");
+        expect(resolveZone("Mars/VallesMarineris")).toBe("UTC");
+      }
+      expect(dateTimeFormat).toHaveBeenCalledTimes(2);
+    } finally {
+      dateTimeFormat.mockRestore();
+    }
   });
   it("formats the same instant differently per zone", () => {
     const instant = new Date("2026-01-15T12:00:00Z");

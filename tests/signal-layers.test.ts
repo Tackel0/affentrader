@@ -20,8 +20,9 @@ vi.mock("@/lib/chart/canvasLayer", async (importOriginal) => {
   return {
     ...actual,
     invalidateCanvasLayers: vi.fn(),
-    canvasLayer: (paint: (ctx: CanvasRenderingContext2D, args: RendererLayerArgs, cell: unknown) => void) => ({
+    canvasLayer: (paint: (ctx: CanvasRenderingContext2D, args: RendererLayerArgs, cell: unknown) => void, hasContent?: (args: RendererLayerArgs) => boolean) => ({
       paint,
+      hasContent,
     }),
   };
 });
@@ -198,6 +199,12 @@ describe("Orderflow signal renderer layers (throttling, caching, visible range &
 
     const mockCtx = makeMockCtx();
     const cell = { id: "cell-main", symbol: "YF:AAPL", timeframe: "1D" };
+    const inactiveNodes = { ...makeArgs(0, 25), data: null };
+    expect(volLayer.hasContent(inactiveNodes)).toBe(false);
+    volLayer.paint(mockCtx, inactiveNodes, cell);
+    expect(mockCtx.stroke).not.toHaveBeenCalled();
+    expect(volLayer.hasContent({ ...inactiveNodes, data: { showHvn: false, showLvn: false } })).toBe(false);
+    expect(volLayer.hasContent({ ...inactiveNodes, data: { rows: 32 } })).toBe(true);
 
     // Frame 1 & Frame 2 on identical bars/trades should compute divergences only ONCE
     detectDivSpy.mockClear();

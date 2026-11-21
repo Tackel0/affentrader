@@ -128,6 +128,19 @@ const sameChannelContext = <T>(
   return true;
 };
 
+interface VolumeNodeOptions {
+  rows?: number;
+  showHvn?: boolean;
+  showLvn?: boolean;
+  hvnColor?: string;
+  lvnColor?: string;
+}
+
+const hasVolumeNodes = ({ data, bars }: RendererLayerArgs): boolean => {
+  const options = data as VolumeNodeOptions | null | undefined;
+  return Boolean(options && bars.length && (options.showHvn !== false || options.showLvn !== false));
+};
+
 /**
  * Registers three LuxAlgo/Vela-compatible institutional Orderflow & Volume Profile signal layers:
  * 1. `af-volume-nodes`: High & Low Volume Nodes (HVN / LVN) overlaid on price action
@@ -197,14 +210,8 @@ export function registerOrderflowSignalPlugins({ studyTrades, subscribeTicks, re
     placement: "above-data",
     create: () =>
       canvasLayer((ctx: CanvasRenderingContext2D, args: RendererLayerArgs) => {
-        const cfg = (args.data ?? {}) as {
-          rows?: number;
-          showHvn?: boolean;
-          showLvn?: boolean;
-          hvnColor?: string;
-          lvnColor?: string;
-        };
-        if (!args.bars.length) return;
+        if (!hasVolumeNodes(args)) return;
+        const cfg = args.data as VolumeNodeOptions;
         const rowsCount = Math.max(10, Math.min(120, Math.round(cfg.rows ?? 32)));
         let res: ReturnType<typeof nodesCache.read> = null;
         try {
@@ -243,7 +250,7 @@ export function registerOrderflowSignalPlugins({ studyTrades, subscribeTicks, re
           pill(ctx, Math.max(24, width - 27), y, node.kind, "rgba(15,23,42,0.88)", color, color, placedNodes, minNodeY, maxNodeY);
         }
         ctx.restore();
-      }),
+      }, hasVolumeNodes),
   });
 
   // Shared live trade subscription helper preserving full venue symbol identity & Replay fence

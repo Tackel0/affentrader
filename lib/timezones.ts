@@ -39,15 +39,24 @@ export const TIMEZONES: { id: string; label: string }[] = [
   { id: "Pacific/Auckland", label: "Auckland" },
 ];
 
+const zoneValidity = new Map<string, boolean>();
+const MAX_CACHED_ZONES = 64;
+
 export function isValidZone(zone: unknown): zone is string {
   if (typeof zone !== "string" || !zone) return false;
   if (zone === EXCHANGE_ZONE || zone === LOCAL_ZONE) return true;
+  const cached = zoneValidity.get(zone);
+  if (cached !== undefined) return cached;
+  let valid: boolean;
   try {
     new Intl.DateTimeFormat("en-US", { timeZone: zone });
-    return true;
+    valid = true;
   } catch {
-    return false;
+    valid = false;
   }
+  if (zoneValidity.size >= MAX_CACHED_ZONES) zoneValidity.clear();
+  zoneValidity.set(zone, valid);
+  return valid;
 }
 
 /** The IANA zone a choice means for a given symbol. */
