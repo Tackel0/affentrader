@@ -1459,7 +1459,7 @@ async function run() {
         await tapWorkspaceTarget(cdp, '.flow-settings-dialog [aria-label="Close dialog"]', 44);
         await tapWorkspaceTarget(cdp, '.flow-switch button:nth-child(2)', 36);
         await waitForPagePredicate(cdp, 'window.__publishMarketFixture()', "refresh the displayed order book");
-        await waitForPagePredicate(cdp, `getComputedStyle(document.querySelector('.trade-tape')).display === 'none' && !!document.querySelector('.orderbook .book-view-row')`, "the order book gets the full phone width");
+        await waitForPagePredicate(cdp, `!document.querySelector('.trade-tape') && !!document.querySelector('.orderbook .book-view-row')`, "the order book gets the full phone width");
         recordAudit(vp, "/ order book view", await inspectViewportDom(cdp, true));
         await tapWorkspaceTarget(cdp, '.flow-switch button:first-child', 36);
       }

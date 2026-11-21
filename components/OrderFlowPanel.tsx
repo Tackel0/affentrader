@@ -1,5 +1,5 @@
 "use client";
-import { memo, useCallback, useEffect, useMemo, useState, useSyncExternalStore, type CSSProperties } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, CircleHelp, SlidersHorizontal } from "lucide-react";
 import { Modal } from "./ui";
@@ -34,8 +34,25 @@ import { defaultTapePreferences, readTapePreferences, tapeHighlightMultipliers }
 import { formatOrderflowAmount as number } from "@/lib/orderflow/formatAmount";
 const LIVE_TAPE_REFRESH_MS = 100;
 const emptyRevision = () => 0;
+const subscribeNothing = () => () => {};
+
 export function OrderFlowPanel() {
   const [pane, setPane] = useState<"tape" | "book">("tape");
+  const switchRef = useRef<HTMLDivElement>(null);
+  const [compact, setCompact] = useState(false);
+  useLayoutEffect(() => {
+    const element = switchRef.current;
+    if (!element) return;
+    // The container query shows the switch only when one view fits.
+    const measure = () => setCompact(element.getBoundingClientRect().width > 0);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  const tapeVisible = !compact || pane === "tape";
+  const bookVisible = !compact || pane === "book";
   const [tapeDialog, setTapeDialog] = useState<"settings" | "details" | null>(null);
   const [preferences, setPreferences] = useState(defaultTapePreferences);
   const { tapeView, milliseconds, combine, pauseOnHover, sizeDisplay, highlightAt, highlightMode, highlightMultiplier, side, unit, minimum, maximumValue } = preferences;
@@ -60,6 +77,7 @@ export function OrderFlowPanel() {
     setPage(0);
   };
   const [hoveredTape, setHoveredTape] = useState<{ key: string; value: TimeSalesSnapshot } | null>(null);
+  useEffect(() => { if (!tapeVisible) setHoveredTape(null); }, [tapeVisible]);
   const clusterInterval = tapeView === "second" ? 1000 : tapeView === "minute" ? 60000 : null;
   const symbol = useChartStore(s => s.symbol),
     type = useChartStore(s => s.chartType), mode = useChartStore(s => s.feedMode), epoch = useChartStore(s => s.feedEpoch);
@@ -108,11 +126,13 @@ export function OrderFlowPanel() {
     return () => { off(); clearTimeout(refresh); };
   }, [key, symbol, simulated, replay, timeframe, source, replayReady, through, archiveRevision]);
   const hoverPaused = !replay && pauseOnHover && hoveredTape?.key === key;
-  const snapshot = paused ? frozen.value : hoverPaused ? hoveredTape.value : current.key === key ? current.value : null;
+  const snapshot = tapeVisible || tapeDialog
+    ? paused ? frozen.value : hoverPaused ? hoveredTape.value : current.key === key ? current.value : null
+    : null;
   const newWhilePaused = useMemo(() => {
-    if (!paused || current.key !== key || !current.value) return 0;
+    if (!tapeVisible || !paused || current.key !== key || !current.value) return 0;
     return countNewRetainedTrades(frozen.value, current.value);
-  }, [paused, frozen, current, key]);
+  }, [tapeVisible, paused, frozen, current, key]);
   const highlight = useMemo(() => !snapshot || highlightMode === "off" ? null : timeSalesHighlight(snapshot.trades,
     highlightMode === "auto" ? { mode: "auto", multiplier: highlightMultiplier } : { mode: "fixed", value: Number(highlightAt) }),
   [snapshot, highlightMode, highlightMultiplier, highlightAt]);
@@ -128,9 +148,9 @@ export function OrderFlowPanel() {
   const totals = useMemo(() => tapeDialog === "details" && matching.length ? timeSalesTotals(matching) : null, [matching, tapeDialog]);
   const minuteBalance = useMemo(() => snapshot ? timeSalesMinuteBalance(snapshot) : null, [snapshot]);
   const latest = snapshot?.trades[0], about = describeSymbol(symbol);
-  const bookTrades = current.key === key ? current.value?.trades : undefined;
+  const bookTrades = bookVisible && current.key === key ? current.value?.trades : undefined;
   const sourceError = current.key === key ? current.error : "";
-  const tapeStatus = replay ? sourceError || (!snapshot ? "Waiting for the current recorded tape." :
+  const tapeStatus = tapeDialog !== "details" ? "" : replay ? sourceError || (!snapshot ? "Waiting for the current recorded tape." :
     `${matching.length} matching / ${snapshot.trades.length} recorded observations strictly before ${new Date(snapshot.replayThrough!).toISOString()}. ${snapshot.coverage} Live trades excluded; missing periods remain unknown.`) : sourceError ||
     `${paused ? `PAUSED at ${new Date(snapshot!.capturedAt).toISOString()}. ` : ""}${matching.length} matching / ${snapshot?.trades.length ?? 0} retained observations${snapshot?.rejected ? ` · ${snapshot.rejected} invalid, duplicate or other-source rows excluded` : ""}. `;
   const currentContext = useCallback((boundary: number | null | undefined) => {
@@ -168,7 +188,7 @@ export function OrderFlowPanel() {
   return <div className="orderflow-dock">
     <div className="orderflow-panel detailed-orderflow" data-pane={pane}>
       <header className="flow-nav">
-        <div className="flow-switch" role="group" aria-label="Order flow views">
+        <div ref={switchRef} className="flow-switch" role="group" aria-label="Order flow views">
           <button type="button" className="button" aria-pressed={pane === "tape"} onClick={() => setPane("tape")}>Time &amp; sales</button>
           <button type="button" className="button" aria-pressed={pane === "book"} onClick={() => setPane("book")}>Order book</button>
         </div>
@@ -180,7 +200,7 @@ export function OrderFlowPanel() {
           </div>
         </details>
       </header>
-      <section className="trade-tape" aria-label="Time and sales" style={{
+      {tapeVisible && <section className="trade-tape" aria-label="Time and sales" style={{
         "--tape-buy": tapeStyle.bid,
         "--tape-sell": tapeStyle.ask,
         "--tape-font": `${tapeStyle.text}px`,
@@ -230,8 +250,8 @@ export function OrderFlowPanel() {
           setPage(0);
         }}>Resume with {newWhilePaused.toLocaleString("en-US")} new retained {newWhilePaused === 1 ? "observation" : "observations"}</button>}
 
-      </section>
-      <ObservedOrderBook symbol={symbol} timeframe={timeframe} mode={mode} source={source} replay={replay}
+      </section>}
+      <ObservedOrderBook active={bookVisible} symbol={symbol} timeframe={timeframe} mode={mode} source={source} replay={replay}
         replayReady={replayReady} simulated={simulated} through={through} depthKey={depthKey} trades={bookTrades}
         currentContext={currentContext} drawPriceLevel={drawPriceLevel} />
     </div>
@@ -350,6 +370,7 @@ function TapeTradeAge({ time }: { time: number }) {
 }
 
 interface ObservedOrderBookProps {
+  active: boolean;
   symbol: string;
   timeframe: string;
   mode: FeedMode;
@@ -365,7 +386,7 @@ interface ObservedOrderBookProps {
 }
 
 const ObservedOrderBook = memo(function ObservedOrderBook({
-  symbol, timeframe, mode, source, replay, simulated, replayReady, through, depthKey, trades, currentContext, drawPriceLevel,
+  active, symbol, timeframe, mode, source, replay, simulated, replayReady, through, depthKey, trades, currentContext, drawPriceLevel,
 }: ObservedOrderBookProps) {
   const [depthLevels, setDepthLevels] = useState(6);
   const [liveNow, setNow] = useState(Date.now);
@@ -378,10 +399,10 @@ const ObservedOrderBook = memo(function ObservedOrderBook({
   } | null>(null);
   useEffect(() => { setFrozenDepth(null); }, [depthKey]);
   const pausedDepth = !replay && !simulated && frozenDepth?.key === depthKey ? frozenDepth : null;
-  const book = useChartStore(s => replay || pausedDepth ? null : s.orderBook);
-  useSyncExternalStore(replayDepth.subscribe,
-    replay ? replayDepth.getRevision : replayDepth.getStatusRevision, emptyRevision);
-  const liveClock = !replay && !pausedDepth && !simulated;
+  const book = useChartStore(s => !active || replay || pausedDepth ? null : s.orderBook);
+  useSyncExternalStore(active ? replayDepth.subscribe : subscribeNothing,
+    active ? replay ? replayDepth.getRevision : replayDepth.getStatusRevision : emptyRevision, emptyRevision);
+  const liveClock = active && !replay && !pausedDepth && !simulated;
   useEffect(() => {
     if (!liveClock) return;
     setNow(Date.now());
@@ -394,7 +415,7 @@ const ObservedOrderBook = memo(function ObservedOrderBook({
   const combineBooks = !!combinedBase && (depthPreferences?.combinedMarkets?.includes(combinedBase) ?? false);
   const binanceSymbol = `${combinedBase}USDT`, krakenPair = `${combinedBase}/USDT`, krakenSymbol = `KRK:${krakenPair}`;
   const binanceChart = symbol === binanceSymbol, krakenChart = symbol === krakenSymbol;
-  const canCombineBooks = !replay && mode !== "simulation" && source === "exchange" && !!combinedBase && (binanceChart || krakenChart);
+  const canCombineBooks = active && !replay && mode !== "simulation" && source === "exchange" && !!combinedBase && (binanceChart || krakenChart);
   const [compareVenue, setCompareVenue] = useState(false);
   const loadSecondaryBook = canCombineBooks && !pausedDepth && (combineBooks || compareVenue);
   const secondaryKrakenBook = useKrakenBook(loadSecondaryBook && binanceChart ? krakenPair : null);
@@ -403,18 +424,18 @@ const ObservedOrderBook = memo(function ObservedOrderBook({
   const krakenBook = krakenChart ? book : secondaryKrakenBook;
   const { metadata: binanceGrid, error: binanceGridError } = useDomPriceGrid(binanceSymbol, binanceSymbol, canCombineBooks && combineBooks);
   const { metadata: krakenGrid, error: krakenGridError } = useDomPriceGrid(krakenSymbol, krakenSymbol, canCombineBooks && combineBooks);
-  const recordedDepth = replayReady && source === "exchange" && !simulated && through !== null
+  const recordedDepth = active && replayReady && source === "exchange" && !simulated && through !== null
     ? replayDepth.before(symbol, through, now)
     : undefined;
   useEffect(() => {
-    if (!replayReady || through === null) return;
+    if (!active || !replayReady || through === null) return;
     const now = Date.now();
     const refreshAt = recordedDepth ? recordedDepth.observedAt + REPLAY_DEPTH_RETENTION_MS + 1 : through;
     if (refreshAt <= now) return;
     const timer = setTimeout(() => setNow(Date.now()), refreshAt - now);
     return () => clearTimeout(timer);
-  }, [replayReady, recordedDepth, through]);
-  const displayedDepth = replay ? recordedDepth : pausedDepth?.book ?? book;
+  }, [active, replayReady, recordedDepth, through]);
+  const displayedDepth = !active ? null : replay ? recordedDepth : pausedDepth?.book ?? book;
   const comparisonSymbol = binanceChart ? krakenSymbol : binanceSymbol;
   const comparisonBook = binanceChart ? secondaryKrakenBook : secondaryBinanceBook;
   const comparisonReason = canCombineBooks && compareVenue && !pausedDepth
@@ -463,6 +484,7 @@ const ObservedOrderBook = memo(function ObservedOrderBook({
     const filename = `depth-${replay ? "replay" : "live"}-${symbol}-${snapshotTime}.csv`.replace(/[^a-zA-Z0-9._-]/g, "_");
     downloadFile(filename, csv, "text/csv;charset=utf-8");
   };
+  if (!active) return null;
   return (
     <section className="orderbook" aria-label="Observed order book">
       <div className="orderflow-title"><strong>Depth of market</strong><span>{depthReason ? "UNAVAILABLE" : replay ? "RECORDED TOP LEVELS" : pausedDepth ? "PAUSED SNAPSHOT" : "OBSERVED TOP LEVELS"}</span></div>

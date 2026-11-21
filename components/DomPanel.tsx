@@ -123,11 +123,6 @@ export function DomPanel() {
   const touchRows = (unlocked || (allColumns && orders.hasWorking)) && typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches;
   const rowHeight = touchRows ? Math.max(37, style.row) : style.row;
   const navigation = useDomNavigation(JSON.stringify([lineage,replay,mode,step]),reason ? null : model.target,now,domPreferences.follow,domPreferences.delay,{row: rowHeight, head: style.head});
-  const executed = useMemo(() => {
-    try { return { rows: executions?.rows(step, executionUnit, now), error: executions?.error ?? "" }; }
-    catch (error) { return { rows: undefined, error: error instanceof Error ? error.message : "Execution rows unavailable." }; }
-  }, [executions, step, executionUnit, now, executionRevision]);
-  const executionNumber = (value: number | undefined) => !executions || executed.error ? "—" : formatOrderflowAmount(value ?? 0);
   const viewport = useMemo(() => {
     if (reason || !book) return {rows:[],error:""};
     try { return {rows:centeredLadder(book,step,navigation.center,navigation.upperRows,navigation.visibleRows),error:""}; }
@@ -143,6 +138,13 @@ export function DomPanel() {
     try { return ladderPrice(average, step); } catch { return null; }
   }, [average, step]);
   const columns: DomColumnId[] = allColumns ? shownDomColumns(columnSettings, !!position, orders.hasWorking) : ["bid", "price", "ask"];
+  const executionRowsVisible = !reason && columns.some(id => id === "sold" || id === "bought" || id === "delta" || id === "volume" || id === "last");
+  const executed = useMemo(() => {
+    if (!executions || (!executionRowsVisible && !settingsOpen)) return { rows: undefined, error: executions?.error ?? "" };
+    try { return { rows: executions.rows(step, executionUnit, now), error: executions.error }; }
+    catch (error) { return { rows: undefined, error: error instanceof Error ? error.message : "Execution rows unavailable." }; }
+  }, [executions, step, executionUnit, now, executionRevision, executionRowsVisible, settingsOpen]);
+  const executionNumber = (value: number | undefined) => !executions || executed.error ? "—" : formatOrderflowAmount(value ?? 0);
   const quote = describeSymbol(symbol).quote || "quote units";
   const columnWidths=columns.map(id=>DOM_COLUMNS.find(column=>column.id===id)!.width);
   const submit = async(next:DomOrderReview) => {
@@ -286,12 +288,16 @@ export function DomPanel() {
         </div>
         {rows.map((row) => {
           const prints = executed.rows?.get(row.price);
-          const here = orders.byPrice.get(row.price) ?? [];
           const isPosition = position && positionPrice === row.price;
-          const pnl=domPnlAtPrice(position,row.price);
           const cell=(id:DomColumnId)=>{
-            if(id==="orders")return <span role="cell" className="dom-order-cell">{isPosition&&<span className="dom-position-label">{position.quantity>0?"Long":"Short"} {Math.abs(position.quantity)}</span>}{here.map(order=><button className={`dom-orders ${order.side}`} key={order.id} title={`Cancel ${order.side} ${order.type} ${order.quantity}`} onClick={()=>void paperCommands.cancelMany([order.id])}>{order.side==="buy"?"B":"S"} {({limit:"LMT",stop:"STP",stop_limit:"STP LMT",market:"MKT"}[order.type])} {order.quantity} ×</button>)}</span>;
-            if(id==="pnl")return <span role="cell" className={`dom-executed ${(pnl??0)<0?"negative":"positive"}`} title={`Position mark-to-market in ${quote}, before fees and currency conversion`}>{pnl===null?"—":pnl.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}</span>;
+            if(id==="orders") {
+              const here = orders.byPrice.get(row.price) ?? [];
+              return <span role="cell" className="dom-order-cell">{isPosition&&<span className="dom-position-label">{position.quantity>0?"Long":"Short"} {Math.abs(position.quantity)}</span>}{here.map(order=><button className={`dom-orders ${order.side}`} key={order.id} title={`Cancel ${order.side} ${order.type} ${order.quantity}`} onClick={()=>void paperCommands.cancelMany([order.id])}>{order.side==="buy"?"B":"S"} {({limit:"LMT",stop:"STP",stop_limit:"STP LMT",market:"MKT"}[order.type])} {order.quantity} ×</button>)}</span>;
+            }
+            if(id==="pnl") {
+              const pnl = domPnlAtPrice(position, row.price);
+              return <span role="cell" className={`dom-executed ${(pnl??0)<0?"negative":"positive"}`} title={`Position mark-to-market in ${quote}, before fees and currency conversion`}>{pnl===null?"—":pnl.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}</span>;
+            }
             if (id === "bid" || id === "ask") {
               const side = id === "bid" ? "buy" : "sell";
               const size = id === "bid" ? row.bid : row.ask;

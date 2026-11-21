@@ -4,25 +4,31 @@ import React, { Profiler } from "react";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { OrderFlowPanel } from "@/components/OrderFlowPanel";
 import { FootprintInspector } from "@/components/FootprintInspector";
+import { DomPanel } from "@/components/DomPanel";
 import { useChartStore } from "@/stores/useChartStore";
 import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
 import * as readout from "@/hooks/useChartReadout";
+import * as domTradesHook from "@/hooks/useDomTrades";
+import * as domGridHook from "@/hooks/useDomPriceGrid";
 import { replayDepth, REPLAY_DEPTH_RETENTION_MS } from "@/lib/orderflow/replayDepth";
+import { DomTrades } from "@/lib/orderflow/domTrades";
+import * as timeSales from "@/lib/orderflow/timeSales";
 import { clearFootprintSurface, publishFootprintSurface } from "@/lib/orderflow/footprintReadout";
 import type { FootprintInspectionTarget } from "@/lib/orderflow/footprintInspection";
 import { rangeProfileSourceStamp } from "@/lib/orderflow/executionRangeSource";
 import { footprints } from "@/lib/orderflow/math";
 import type { OrderBook, Tick } from "@/types/trading";
 
-const { renderTradeRow } = vi.hoisted(() => ({ renderTradeRow: vi.fn() }));
+const { renderTradeRow, renderBook } = vi.hoisted(() => ({ renderTradeRow: vi.fn(), renderBook: vi.fn() }));
 vi.mock("@/components/PriceLevelMenu", () => ({
   PriceLevelMenu: ({ price }: { price: number }) => { renderTradeRow(price); return <span>{price}</span>; },
 }));
 vi.mock("@/components/BookView", () => ({
-  BookView: ({ book }: { book: OrderBook }) => <div>Observed bid {book.bids[0]?.price}</div>,
+  BookView: ({ book }: { book: OrderBook }) => { renderBook(book); return <div>Observed bid {book.bids[0]?.price}</div>; },
 }));
 
 const initialReplay = useWorkspaceStore.getState().replay;
+const initialDomPreferences = useWorkspaceStore.getState().domPreferences;
 function depth(time: number, bid = 99): OrderBook {
   return { symbol: "HL:BTC", time, simulated: false, bids: [{ price: bid, quantity: 2 }], asks: [{ price: bid + 2, quantity: 3 }] };
 }
@@ -64,9 +70,12 @@ describe("OrderFlowPanel & FootprintInspector UI regression", () => {
     clearFootprintSurface("primary", token);
     cleanup();
     useWorkspaceStore.getState().setReplay(initialReplay);
+    useWorkspaceStore.setState({ domPreferences: initialDomPreferences });
     renderTradeRow.mockClear();
+    renderBook.mockClear();
     vi.useRealTimers();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it("renders FootprintInspector rows, diagonal ratios, validation, and live autoFollow without idle 120ms loops", async () => {
@@ -219,6 +228,82 @@ describe("OrderFlowPanel & FootprintInspector UI regression", () => {
     expect(renderTradeRow.mock.calls.map(([price]) => price)).toEqual([200]);
     const tape = screen.getByRole("table", { name: "Filtered time and sales" });
     expect(within(tape).getAllByRole("row")).toHaveLength(6);
+  });
+
+  it("suspends hidden phone views and resumes with fresh data or a paused snapshot", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(70_000);
+    useChartStore.setState({ orderBook: depth(70_000) });
+    let width = 230;
+    let resize = () => {};
+    const bounds = HTMLElement.prototype.getBoundingClientRect;
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains("flow-switch") ? new DOMRect(0, 0, width, 36) : bounds.call(this);
+    });
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(callback: () => void) { resize = callback; }
+      observe() {}
+      disconnect() {}
+    });
+    const filter = vi.spyOn(timeSales, "filterTimeSales");
+    render(<OrderFlowPanel />);
+    const switcher = within(screen.getByRole("group", { name: "Order flow views" }));
+
+    renderBook.mockClear();
+    for (let bid = 100; bid < 105; bid++) {
+      act(() => useChartStore.setState({ orderBook: depth(Date.now(), bid) }));
+      await act(async () => vi.advanceTimersByTimeAsync(500));
+    }
+    expect(renderBook).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Pause tape" }));
+    fireEvent.click(switcher.getByRole("button", { name: "Order book" }));
+    expect(screen.getByText("Observed bid 104")).toBeTruthy();
+    expect(screen.queryByRole("table", { name: "Filtered time and sales" })).toBeNull();
+    filter.mockClear();
+    for (let count = 5; count <= 9; count++) {
+      act(() => useChartStore.setState({ trades: sampleTicks(count) }));
+      await act(async () => vi.advanceTimersByTimeAsync(110));
+    }
+    expect(filter).not.toHaveBeenCalled();
+    fireEvent.click(switcher.getByRole("button", { name: "Time & sales" }));
+    const tape = within(screen.getByRole("table", { name: "Filtered time and sales" }));
+    expect(tape.getAllByRole("row")).toHaveLength(5);
+    fireEvent.click(screen.getByRole("button", { name: "Resume tape" }));
+    expect(tape.getAllByRole("row")).toHaveLength(10);
+
+    width = 0;
+    act(resize);
+    expect(screen.getByText("Observed bid 104")).toBeTruthy();
+    expect(tape.getAllByRole("row")).toHaveLength(10);
+  });
+
+  it("keeps collecting DOM executions without projecting hidden columns", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(64_000);
+    useChartStore.setState({ orderBook: depth(64_000) });
+    useWorkspaceStore.getState().setDomPreferences({ view: "book" });
+    const model = new DomTrades("HL:BTC", 63_000);
+    vi.spyOn(domTradesHook, "useDomTrades").mockReturnValue(model);
+    vi.spyOn(domGridHook, "useDomPriceGrid").mockReturnValue({ pending: false, error: "" });
+    const rows = vi.spyOn(model, "rows");
+
+    render(<DomPanel />);
+    const ladder = within(screen.getByRole("table", { name: "Depth of market" }));
+    expect(ladder.getAllByRole("columnheader")).toHaveLength(3);
+    expect(model.add({ ...sampleTicks()[0], time: Date.now(), price: 100 }, Date.now())).toBe(true);
+    await act(async () => vi.advanceTimersByTimeAsync(500));
+    expect(rows).not.toHaveBeenCalled();
+
+    act(() => useWorkspaceStore.getState().setDomPreferences({ view: "configured" }));
+    expect(ladder.getByRole("columnheader", { name: "Sold" })).toBeTruthy();
+    expect(rows.mock.results.at(-1)?.value.get(100)?.sold).toBe(10);
+    expect(model.observations).toBe(1);
+
+    act(() => useWorkspaceStore.getState().setDomPreferences({ view: "book" }));
+    rows.mockClear();
+    await act(async () => vi.advanceTimersByTimeAsync(500));
+    expect(rows).not.toHaveBeenCalled();
   });
 
   it("keeps Replay idle across live books and updates recorded depth on restore and expiry", async () => {

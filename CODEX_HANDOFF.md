@@ -118,6 +118,15 @@ Outputs filterable trade setups with a **Setup-Score (0–100)**, transparent po
 
 *(Every landed fix/feature is verified directly against modified source files; global test/build counts are only updated after `@qa-verifier` completes the full post-edit verification gate.)*
 
+### Pass 2026-11-21 — Suspend Hidden Orderflow Work and Compact DOM Projections
+
+- **Cause.** The narrow Orderflow dock hid one pane with CSS while both still processed live updates. The compact DOM ladder regrouped session executions even when it only displayed Bid, Price and Ask.
+- **Change.** `OrderFlowPanel` observes the existing responsive switch and renders only the chosen pane when space is limited. Hiding the order book stops its display clock, replay notifications and optional comparison streams. Hiding the tape skips its filters, clustering, highlights and table rows. The retained tape still supplies the order book's last-trade context, and the workspace continues recording depth.
+- **DOM.** `DomPanel` only projects grouped execution rows when an execution column is visible or settings need diagnostics. It continues collecting trades across layout switches, and looks up working orders and P&L when their cells are rendered.
+- **Regression coverage.** Five depth updates produce zero hidden book renders, and five tape refreshes produce zero hidden filter calls. Switching back restores a paused tape and then resumes to the newest retained trades. The DOM test adds a trade in compact mode, verifies zero projection calls, and checks the accumulated volume after configured columns open.
+- **Release gate.** Fast-forward pull, Next.js type generation, typecheck, all 2,816 tests, production build, headless Chrome Terminal E2E and 66 viewport scenarios passed. The viewport audit checked 2,731 mobile controls with zero horizontal document overflow. No Next.js upgrade notice appeared.
+- **Earlier deployment verified.** GitHub Actions run 44958026109 deployed `30bc7ce1` as `affenterminal--r20261121224624-30bc7ce1`. All five live endpoints returned HTTP 200 and the login timestamp matched.
+
 ### Pass 2026-11-21 — Show Live Trades Immediately in Phone Landscape
 
 - **Cause.** In the 844 × 390 phone layout the dock had 200 CSS pixels of usable height. The stand-alone Chart tools row and default vertical spacing left the first execution below the visible area.
