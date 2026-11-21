@@ -1930,6 +1930,7 @@ export class MarketService {
     this.barListeners.set(key, listeners);
     return () => {
       listeners.delete(cb);
+      if (!listeners.size && this.barListeners.get(key) === listeners) this.barListeners.delete(key);
     };
   }
   /**

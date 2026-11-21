@@ -161,6 +161,35 @@ describe("market lifecycle and source isolation", () => {
     expect(useChartStore.getState().trades).toHaveLength(1);
     expect(vi.getTimerCount()).toBe(0);
   });
+  it("releases unused bar subscriptions and preserves other and reopened listeners", () => {
+    const listeners = service["barListeners"];
+    for (let index = 0; index < 1000; index++) {
+      service.subscribe(`MARKET${index}USDT`, "1m", () => {})();
+    }
+    expect(listeners.size).toBe(0);
+
+    service.start(["BTCUSDT"], "auto");
+    const socket = FakeSocket.instances[0];
+    socket.open();
+    const trade = { e: "aggTrade", s: "BTCUSDT", T: Date.now(), p: "100", q: "2", m: false };
+    const first = vi.fn(), remaining = vi.fn(), reopened = vi.fn();
+    const offFirst = service.subscribe("BTCUSDT", "1m", first);
+    const offRemaining = service.subscribe("BTCUSDT", "1m", remaining);
+    offFirst();
+    socket.message({ ...trade, a: 1 });
+    expect(first).not.toHaveBeenCalled();
+    expect(remaining).toHaveBeenCalledOnce();
+    offRemaining();
+    expect(listeners.size).toBe(0);
+
+    const offReopened = service.subscribe("BTCUSDT", "1m", reopened);
+    offRemaining();
+    socket.message({ ...trade, a: 2 });
+    expect(reopened).toHaveBeenCalledOnce();
+    expect(remaining).toHaveBeenCalledOnce();
+    offReopened();
+    expect(listeners.size).toBe(0);
+  });
   it("publishes the screen tape and time candles together and delivers every raw update immediately", () => {
     let pending: FrameRequestCallback | undefined;
     const requestFrame = vi.fn((callback: FrameRequestCallback) => { pending = callback; return 56; });
