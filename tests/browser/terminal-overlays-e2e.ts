@@ -1,6 +1,6 @@
 import { createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { Vela, type OHLCV } from "@luxalgo/vela";
+import { DARK_THEME, NativeRenderer, Vela, type OHLCV } from "@luxalgo/vela";
 import { PineWorkerEngine } from "@luxalgo/vela-pinets";
 import { bindCellContext } from "@/lib/chart/cellContext";
 import { pineEngineOptions } from "@/lib/indicators/engineOptions";
@@ -69,6 +69,40 @@ async function waitFor<T>(fn: () => T | null | false | undefined, label: string,
     await new Promise((r) => setTimeout(r, 50));
   }
   throw new Error(`Timed out waiting for: ${label}`);
+}
+
+function verifyIndicatorStatus() {
+  const host = document.createElement("div");
+  const renderer = new NativeRenderer();
+  document.body.append(host);
+  renderer.mount(host, DARK_THEME);
+  try {
+    const handle = renderer.mountIndicator({ id: "status-test", title: "Status test", overlay: true, paneHint: "price", paneId: "price",
+      series: [], fills: [], backgrounds: [], priceLines: [], inputs: [], inputValues: {} });
+    const indicator = host.querySelector('[data-vela-pane="price"] > div')?.children[2];
+    if (!(indicator instanceof HTMLElement)) throw new Error("Indicator status element is missing");
+    const observer = new MutationObserver(() => {});
+    observer.observe(indicator, { attributes: true, childList: true });
+    for (let i = 0; i < 300; i++) renderer.setIndicatorStatus(handle, "idle");
+    const redundantWrites = observer.takeRecords().length;
+    observer.disconnect();
+    if (redundantWrites) throw new Error(`${redundantWrites} legend DOM writes for 300 unchanged idle statuses`);
+
+    renderer.setIndicatorStatus(handle, "loading");
+    const dot = indicator.firstElementChild;
+    if (!dot || indicator.children.length !== 3) throw new Error("Loading status did not show three dots");
+    renderer.setIndicatorStatus(handle, "loading");
+    if (indicator.firstElementChild !== dot) throw new Error("Repeated loading status restarted its animation");
+    renderer.setIndicatorStatus(handle, "live");
+    if (indicator.children.length || !indicator.style.animation) throw new Error("Live status did not show a pulse");
+    renderer.setTheme({ ...DARK_THEME, upColor: "#112233" });
+    if (getComputedStyle(indicator).backgroundColor !== "rgb(17, 34, 51)") throw new Error("Live status did not take the current theme color");
+    renderer.setIndicatorStatus(handle, "idle");
+    if (indicator.style.display !== "none") throw new Error("Idle status did not hide the live pulse");
+  } finally {
+    renderer.destroy();
+    host.remove();
+  }
 }
 
 function captureRgba(chart: Vela): { width: number; height: number; data: Uint8ClampedArray } {
@@ -248,6 +282,7 @@ async function runNativeOverlaysE2E(): Promise<MainRouteResult["chartOverlays"]>
   });
 
   registerOrderflowPlugins();
+  verifyIndicatorStatus();
   const disposeCtx = bindCellContext(
     chartEl,
     () => ({ id: "e2e-cell", symbol: "BTCUSDT", timeframe: "1m", replay: false, replayThrough: null }),
