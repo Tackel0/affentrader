@@ -1458,6 +1458,7 @@ async function run() {
 
         activeLabel = "mobile Footprint history and coverage";
         const beforeFootprint = requestedTradePages.length;
+        await cdp.send("Runtime.evaluate", { expression: `window.__sizedBeforeFootprint = new Set([...document.querySelectorAll('.vela-container canvas')].filter(canvas => canvas.width && canvas.height))` });
         await tapWorkspaceTarget(cdp, ".chart-type-button", 36);
         const chooseType = async (name) => {
           const selector = `.chart-type-popover [title="${name}"]`;
@@ -1474,11 +1475,29 @@ async function run() {
         })()`, "two historical trade pages appear in mobile Footprint coverage");
         const pages = requestedTradePages.slice(beforeFootprint);
         if (pages.length !== 2 || pages[0] !== null || pages[1] !== "1001") throw new Error(`Unexpected Footprint trade pages ${JSON.stringify(pages)}`);
+        await waitForPagePredicate(cdp, `(() => {
+          window.__footprintCanvases = [...document.querySelectorAll('.vela-container canvas')].filter(canvas => canvas.width && canvas.height && !window.__sizedBeforeFootprint.has(canvas));
+          return window.__footprintCanvases.length >= 1;
+        })()`, "opening Footprint allocates at least one drawing buffer");
         recordAudit(vp, "/ Footprint history coverage", await inspectViewportDom(cdp, true));
         await tapWorkspaceTarget(cdp, '.chart-coverage-modal [aria-label="Close dialog"]', 44);
         await tapWorkspaceTarget(cdp, ".chart-type-button", 36);
         await chooseType("Japanese candlesticks");
         await waitForPagePredicate(cdp, '!!document.querySelector(\'.chart-type-button[aria-label="Chart type: Candles"]\')', "restore Candles after Footprint coverage audit");
+        await waitForPagePredicate(cdp, `window.__footprintCanvases.every(canvas => canvas.width === 0 && canvas.height === 0)`, "switching back to Candles releases Footprint drawing buffers");
+        const beforeReopen = requestedTradePages.length;
+        await tapWorkspaceTarget(cdp, ".chart-type-button", 36);
+        await chooseType("Bid × Ask, total volume or delta at each price");
+        await waitForPagePredicate(cdp, '!!document.querySelector(".chart-coverage")', "Footprint resumes after closing");
+        await tapWorkspaceTarget(cdp, ".chart-coverage", 44);
+        await waitForPagePredicate(cdp, `document.querySelector('.chart-coverage-details')?.textContent.includes('Binance · observed trades from')`, "reopened Footprint loads trade history again");
+        if (requestedTradePages.length !== beforeReopen + 2) throw new Error("Reopened Footprint did not start one fresh historical request sequence");
+        await tapWorkspaceTarget(cdp, '.chart-coverage-modal [aria-label="Close dialog"]', 44);
+        await tapWorkspaceTarget(cdp, ".chart-type-button", 36);
+        await chooseType("Japanese candlesticks");
+        await waitForPagePredicate(cdp, '!!document.querySelector(\'.chart-type-button[aria-label="Chart type: Candles"]\')', "restore Candles after reopening Footprint");
+        await waitForPagePredicate(cdp, `window.__footprintCanvases.every(canvas => canvas.width === 0 && canvas.height === 0)`, "Footprint buffers remain reusable through a second close");
+        await cdp.send("Runtime.evaluate", { expression: `delete window.__sizedBeforeFootprint; delete window.__footprintCanvases` });
 
         activeLabel = "universal mobile symbol search";
         await tapWorkspaceTarget(cdp, ".workspace-toolbar .symbol-selector", 36);

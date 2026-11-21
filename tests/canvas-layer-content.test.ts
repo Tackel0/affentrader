@@ -3,6 +3,7 @@ import { expect, it, vi } from "vitest";
 import type { RendererLayerArgs } from "@luxalgo/vela";
 import { canvasLayer } from "@/lib/chart/canvasLayer";
 import { bindCellContext } from "@/lib/chart/cellContext";
+import { createFootprintMagnifierSurface } from "@/lib/orderflow/footprintMagnifierSurface";
 
 it("releases a dormant layer's backing buffer and restores the last Vela sizing on activation", () => {
   const host = document.createElement("div");
@@ -49,4 +50,27 @@ it("releases a dormant layer's backing buffer and restores the last Vela sizing 
     layer.destroy();
     unbind();
   }
+});
+
+it("releases the footprint magnifier buffer and restores it when inspecting again", () => {
+  const host = document.createElement("div"), plot = document.createElement("canvas");
+  host.append(plot);
+  const ctx = { setTransform: vi.fn(), clearRect: vi.fn() } as unknown as CanvasRenderingContext2D;
+  const acquire = vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(ctx);
+  const magnifier = createFootprintMagnifierSurface();
+  magnifier.mount(plot);
+  try {
+    expect(magnifier.acquire(1)).toBe(ctx);
+    const overlay = host.querySelector<HTMLCanvasElement>("canvas[data-footprint-magnifier]")!;
+    expect([overlay.width, overlay.height]).toEqual([plot.width, plot.height]);
+    magnifier.clear();
+    expect([overlay.width, overlay.height]).toEqual([plot.width, plot.height]);
+    magnifier.release();
+    expect([overlay.width, overlay.height]).toEqual([0, 0]);
+    expect(magnifier.acquire(1)).toBe(ctx);
+    expect([overlay.width, overlay.height]).toEqual([plot.width, plot.height]);
+    magnifier.destroy();
+    expect([overlay.width, overlay.height]).toEqual([0, 0]);
+    expect(host.contains(overlay)).toBe(false);
+  } finally { magnifier.destroy(); acquire.mockRestore(); }
 });

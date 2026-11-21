@@ -68,11 +68,14 @@ describe("classified footprint analysis", () => {
   });
   it("batches trade-only updates and cancels stale pending paints on source/style/Replay/disposal changes", () => {
     vi.useFakeTimers(); let receive: (tick: Tick) => void = () => {}; const off = vi.fn(), invalidate = vi.fn();
-    const updates = footprintUpdates(cb => { receive = cb; return off; }, invalidate);
+    const subscribe = vi.fn((cb: (tick: Tick) => void) => { receive = cb; return off; });
+    const updates = footprintUpdates(subscribe, invalidate);
+    expect(subscribe).not.toHaveBeenCalled();
     updates.set({ id: "cell-2", symbol: "BTCUSDT" }); receive(tick(100, 1, "buy")); receive(tick(101, 1, "buy"));
     vi.advanceTimersByTime(49); expect(invalidate).not.toHaveBeenCalled(); vi.advanceTimersByTime(1); expect(invalidate).toHaveBeenCalledExactlyOnceWith("cell-2");
     receive(tick(100, 1, "buy")); updates.set({ id: "cell-2", symbol: "ETHUSDT" }); vi.advanceTimersByTime(100); expect(invalidate).toHaveBeenCalledTimes(1);
     receive({ ...tick(100, 1, "buy"), symbol: "ETHUSDT" }); updates.set(undefined); vi.advanceTimersByTime(100); expect(invalidate).toHaveBeenCalledTimes(1);
-    updates.set({ id: "primary", symbol: "BTCUSDT" }); receive(tick(100, 1, "buy")); updates.destroy(); vi.advanceTimersByTime(100); expect(off).toHaveBeenCalledOnce(); expect(invalidate).toHaveBeenCalledTimes(1);
+    expect(subscribe).toHaveBeenCalledOnce(); expect(off).toHaveBeenCalledOnce();
+    updates.set({ id: "primary", symbol: "BTCUSDT" }); receive(tick(100, 1, "buy")); updates.destroy(); vi.advanceTimersByTime(100); expect(off).toHaveBeenCalledTimes(2); expect(invalidate).toHaveBeenCalledTimes(1);
   });
 });

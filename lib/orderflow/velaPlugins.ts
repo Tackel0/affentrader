@@ -136,19 +136,30 @@ export function registerOrderflowPlugins() {
       if (tick.symbol === stripVenue(symbol)) { studyTradeSource.observe(tick); receive(tick); }
     }), archiveOptions, loadPriceGridMetadata));
     registerRendererLayer({ id: FOOTPRINT_OVERLAY_IDS[kind], placement: "above-data", repaintOnCursor: true, create: () => {
-      const token = Symbol("footprint-overlay"), cache = createFootprintOverlayCache();
+      const token = Symbol("footprint-overlay");
+      let cache = createFootprintOverlayCache();
       let key: string | undefined, cellId: string | undefined, channel: FootprintOverlayChannel | undefined, modulates = false;
       let canvas: HTMLCanvasElement | undefined;
       const backfill = createFootprintBackfill(() => { if (canvas) requestCellFrame(canvas); });
       let cachedSurface: { key: string; surface: import("./footprintReadout").FootprintSurface } | undefined;
       const magnifier = createFootprintMagnifierSurface();
-      const hover = footprintHoverModifier(() => { magnifier.clear(); if (cellId) invalidateCanvasLayers(cellId); });
+      const hover = footprintHoverModifier(() => { magnifier.release(); if (cellId) invalidateCanvasLayers(cellId, FOOTPRINT_OVERLAY_IDS[kind]); });
+      const deactivate = () => {
+        backfill.clear(); magnifier.release(); hover.destroy(); modulates = false;
+        if (key) { clearFootprintSurface(key, token); key = undefined; }
+        if (channel) { channel.repaint = undefined; clearStudyNotice(channel); channel = undefined; }
+        cache = createFootprintOverlayCache(); cachedSurface = undefined;
+      };
       const layer = canvasLayer((ctx, args, cell) => {
         magnifier.clear(); modulates = false; cellId = cell.id; if (key) clearFootprintSurface(key, token);
         const next = args.data as FootprintOverlayChannel | undefined;
-        if (channel && channel !== next) { channel.repaint = undefined; clearStudyNotice(channel); cache.reveal.reset(); cachedSurface = undefined; }
-        channel = next; if (!channel) { backfill.clear(); cache.reveal.reset(); cachedSurface = undefined; return; }
-        channel.repaint = () => invalidateCanvasLayers(cell.id);
+        if (channel !== next) {
+          if (channel) deactivate();
+          channel = next;
+          if (channel && canvas) hover.mount(canvas);
+        }
+        if (!channel) return;
+        channel.repaint = () => invalidateCanvasLayers(cell.id, FOOTPRINT_OVERLAY_IDS[kind]);
         const identity = channel.identity;
         if (!identity || identity.symbol !== cell.symbol || identity.timeframe !== cell.timeframe || identity.live !== !cell.replay || identity.revision !== archiveOptions.revision(cell.symbol) || cell.replay && identity.through !== (cell.replayThrough ?? null)) { backfill.clear(); clearStudyNotice(channel); cache.reveal.reset(); cachedSurface = undefined; return; }
         key = `${cell.id}:${channel.id}`;
@@ -179,10 +190,14 @@ export function registerOrderflowPlugins() {
           }
         } catch (error) { cache.reveal.reset(); modulates = false; message = `${FOOTPRINT_OVERLAY_TITLES[kind]} unavailable: ${error instanceof Error ? error.message : "Invalid footprint data."}`; }
         if (!routeStudyNotice(channel, cell, FOOTPRINT_OVERLAY_TITLES[kind], message)) { ctx.fillStyle = args.theme.textColor; ctx.font = "10px sans-serif"; ctx.fillText(message, 8, args.bounds.top + 16, Math.max(10, args.coords.width - 16)); }
-      });
+      }, (args) => {
+        if (args.data) return true;
+        if (channel) deactivate();
+        return false;
+      }, FOOTPRINT_OVERLAY_IDS[kind]);
       return { ...layer, animating: () => cache.reveal.animating,
         modulateBase: () => modulates && channel?.style ? footprintBodyModulation(cache.reveal.opacity, [channel.style.position]) : null,
-        mount(element: HTMLCanvasElement) { canvas = element; layer.mount(element); hover.mount(element); magnifier.mount(element); }, destroy() { backfill.clear(); canvas = undefined; magnifier.destroy(); cache.reveal.reset(); hover.destroy(); if (key) clearFootprintSurface(key, token); if (channel) { channel.repaint = undefined; clearStudyNotice(channel); } layer.destroy(); } };
+        mount(element: HTMLCanvasElement) { canvas = element; layer.mount(element); magnifier.mount(element); }, destroy() { deactivate(); canvas = undefined; magnifier.destroy(); layer.destroy(); } };
     } });
   }
   registerFixedProfileConstruction();
@@ -391,7 +406,7 @@ export function registerOrderflowPlugins() {
       const backfill = createFootprintBackfill(() => { if (nativeCanvas) requestCellFrame(nativeCanvas); });
       let modulation: ReturnType<typeof footprintBodyModulation> | null = null;
       const magnifier = createFootprintMagnifierSurface();
-      const hover = footprintHoverModifier(() => { magnifier.clear(); if (layerId) invalidateCanvasLayers(layerId); });
+      const hover = footprintHoverModifier(() => { magnifier.release(); if (layerId) invalidateCanvasLayers(layerId, "footprint"); });
       const unfinishedCaches = new Map<string, ReturnType<typeof createUnfinishedAuctionCache>>();
       const pocCaches = new Map<string, ReturnType<typeof createFootprintPocCache>>();
       const stackCaches = new Map<string, ReturnType<typeof createFootprintStackedZoneCache>>();
@@ -399,26 +414,34 @@ export function registerOrderflowPlugins() {
       let cachedSurface: { key: string; surface: import("./footprintReadout").FootprintSurface } | undefined;
       let collection: { key: string; symbol: string; history: FootprintHistory; replay: boolean } | undefined;
       const updates = footprintUpdates(receive => marketService.onTick(tick => {
-        studyTradeSource.observe(tick);
         if (collection?.symbol === tick.symbol && !collection.replay) {
+          studyTradeSource.observe(tick);
           // The next scoped paint reports capacity/precision errors through the chart's existing error panel.
           try { collection.history.add([tick]); } catch { /* Stored by the collection; never render partial failed aggregates. */ }
         }
         receive(tick);
-      }), invalidateCanvasLayers);
+      }), id => invalidateCanvasLayers(id, "footprint"));
       let currentSymbol: string | undefined;
-      const detachArchive = new Map<string, () => void>();
+      let offArchive: (() => void) | undefined;
+      const deactivate = () => {
+        if (!layerId) return;
+        updates.set(undefined); backfill.clear(); reveal.reset(); grid.reset(); magnifier.release(); hover.destroy();
+        offArchive?.(); offArchive = undefined; currentSymbol = undefined;
+        clearStudyNotice(updates); clearDerivedIssue(layerId, token); clearFootprintSurface(layerId, token); clearFootprintMenuFrame(layerId, token);
+        collection = undefined; cachedSurface = undefined; modulation = null;
+        unfinishedCaches.clear(); pocCaches.clear(); stackCaches.clear(); displayCaches.clear(); layerId = undefined;
+      };
       const layer = canvasLayer((ctx, args, cell) => {
+        if (!layerId && nativeCanvas) hover.mount(nativeCanvas);
         magnifier.clear(); layerId = cell.id; modulation = null;
         const sourceSymbol = stripVenue(cell.symbol);
         if (currentSymbol !== sourceSymbol) {
-          for (const off of detachArchive.values()) off(); detachArchive.clear(); currentSymbol = sourceSymbol;
-          detachArchive.set(sourceSymbol, studyTradeSource.subscribe(sourceSymbol, () => { if (layerId) invalidateCanvasLayers(layerId); }));
+          offArchive?.(); currentSymbol = sourceSymbol;
+          offArchive = studyTradeSource.subscribe(sourceSymbol, () => { if (layerId) invalidateCanvasLayers(layerId, "footprint"); });
         }
         clearFootprintSurface(cell.id, token);
         clearFootprintMenuFrame(cell.id, token);
-        updates.set(args.priceStyle === "footprint" && !cell.replay ? { id: cell.id, symbol: stripVenue(cell.symbol) } : undefined);
-        if (args.priceStyle !== "footprint") { backfill.clear(); reveal.reset(); clearStudyNotice(updates); collection = undefined; clearDerivedIssue(cell.id, token); return; }
+        updates.set(!cell.replay && !isTickInterval(cell.timeframe) ? { id: cell.id, symbol: sourceSymbol } : undefined);
         const state = useChartStore.getState();
         const instances = resolveFootprintInstances(args.settings), placements = footprintPlacements(args, instances);
         const selectedId = `fp${args.settings?.readoutInstance ?? 1}`;
@@ -561,9 +584,13 @@ export function registerOrderflowPlugins() {
         ctx.fillText(`${replay ? "REPLAY · " : ""}${coverage?.simulated ? "SIMULATED · " : ""}${footprintModeLabel(style.volumeMode)} · Partial history · ${coverage?.trades.toLocaleString("en-US") ?? 0} trades${coverage?.dropped ? " · older bars evicted" : ""}${replay ? " · archived; completed bars only" : archiveOptions.label(cell.symbol) ? " · includes archive; gaps possible" : ""}`, 52, bounds.top + bounds.height - 10, Math.max(10, coords.width - 60));
         });
         if (!paintedCandles) { reveal.reset(); modulation = null; paintFootprintInstanceCandles(ctx, args, instances, placements, 0); }
-      });
+      }, (args) => {
+        if (args.priceStyle === "footprint") return true;
+        deactivate();
+        return false;
+      }, "footprint");
       return { ...layer, animating: () => reveal.animating, modulateBase: (args: RendererLayerArgs) => args.priceStyle === "footprint" ? modulation : null,
-        mount(canvas: HTMLCanvasElement) { nativeCanvas = canvas; layer.mount(canvas); hover.mount(canvas); magnifier.mount(canvas); }, destroy() { backfill.clear(); magnifier.destroy(); nativeCanvas = undefined; grid.dispose(); reveal.reset(); hover.destroy(); clearStudyNotice(updates); for (const off of detachArchive.values()) off(); detachArchive.clear(); if (layerId) { clearDerivedIssue(layerId, token); clearFootprintSurface(layerId, token); clearFootprintMenuFrame(layerId, token); } updates.destroy(); layer.destroy(); } };
+        mount(canvas: HTMLCanvasElement) { nativeCanvas = canvas; layer.mount(canvas); magnifier.mount(canvas); }, destroy() { deactivate(); magnifier.destroy(); nativeCanvas = undefined; grid.dispose(); updates.destroy(); layer.destroy(); } };
     },
   });
   registerChartType({
