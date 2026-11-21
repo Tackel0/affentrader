@@ -49,7 +49,7 @@ import { paintVolumeProfiles, type VolumeProfileChannel } from "./volumeProfileR
 import { publishSessionProfileSurface, clearSessionProfileSurface } from "./sessionProfileReadout";
 import { sessionProfileJobs } from "./sessionProfileJobs";
 import { auditPaint } from "@/lib/chart/paintAudit";
-import { cvdDescriptor, type CvdNotice } from "./cvdIndicator";
+import { cvdDescriptor } from "./cvdIndicator";
 import { registerFixedProfileConstruction } from "@/lib/drawings/fixedProfilePlugin";
 import { registerAnchoredVwapConstruction } from "@/lib/drawings/anchoredVwapPlugin";
 import { vwapBandsDescriptor } from "./vwapBandsIndicator";
@@ -106,6 +106,20 @@ export function priceAtPoint(y: number, cellId = "primary"): number | null {
   if (y < bounds.top || y > bounds.top + bounds.height) return null;
   return coords.yToPrice(y, scale, bounds);
 }
+function createStudyNoticeLayer(title: string, paint: (ctx: CanvasRenderingContext2D, args: RendererLayerArgs, message: string) => void) {
+  const owner = {};
+  let message = "";
+  const layer = canvasLayer((ctx, args) => paint(ctx, args, message), (args, cell) => {
+    message = (args.data as { message?: string } | null | undefined)?.message ?? "";
+    if (!message) {
+      clearStudyNotice(owner);
+      return false;
+    }
+    return !routeStudyNotice(owner, cell, title, message);
+  });
+  return { ...layer, destroy() { clearStudyNotice(owner); layer.destroy(); } };
+}
+
 export function registerOrderflowPlugins() {
   if (registered) return;
   registered = true;
@@ -218,17 +232,13 @@ export function registerOrderflowPlugins() {
   registerNativeIndicator(barStatsDescriptor(studyTrades, (symbol, changed) =>
     marketService.onTick(tick => { if (tick.symbol === stripVenue(symbol)) { studyTradeSource.observe(tick); changed(tick); } }), archiveOptions));
   for (const kind of ["total", "delta", "cumulative"] as const) {
-    registerRendererLayer({ id: countIds[kind], create: () => {
-      const owner = {};
-      const layer = canvasLayer((ctx, args, cell) => {
-        const notice = args.data as { message?: string } | undefined;
-        if (!notice?.message) { clearStudyNotice(owner); return; }
-        if (routeStudyNotice(owner, cell, countTitles[kind], notice.message)) return;
+    registerRendererLayer({
+      id: countIds[kind],
+      create: () => createStudyNoticeLayer(countTitles[kind], (ctx, args, message) => {
         ctx.globalAlpha = 1; ctx.fillStyle = args.theme.textColor; ctx.font = "10px sans-serif"; ctx.textAlign = "left";
-        ctx.fillText(notice.message, 8, args.bounds.top + 14, Math.max(10, args.coords.width - 16));
-      });
-      return { ...layer, destroy() { clearStudyNotice(owner); layer.destroy(); } };
-    } });
+        ctx.fillText(message, 8, args.bounds.top + 14, Math.max(10, args.coords.width - 16));
+      }),
+    });
     registerNativeIndicator(tradeCountDescriptor(kind, studyTrades, (symbol, changed) =>
       marketService.onTick(tick => { if (tick.symbol === stripVenue(symbol)) { studyTradeSource.observe(tick); changed(tick); } }), archiveOptions));
   }
@@ -655,20 +665,23 @@ export function registerOrderflowPlugins() {
   registerNativeIndicator(sessionProfileDescriptor(studyTrades, (symbol, changed) =>
     marketService.onTick(tick => { if (tick.symbol === stripVenue(symbol)) { studyTradeSource.observe(tick); changed(tick); } }), sessionProfileJobs,
     symbol => useChartStore.getState().marketEpochs[symbol] ?? 0, archiveOptions));
-  for (const [id, title] of [["af-cvd", "Cumulative Volume Delta"], ["af-volume-delta", "Volume Delta"]]) registerRendererLayer({ id, create: () => { const owner = {}; const layer = canvasLayer((ctx, args, cell) => {
-    const notice = args.data as CvdNotice | null | undefined;
-    if (!notice?.message) { clearStudyNotice(owner); return; }
-    if (routeStudyNotice(owner, cell, title, notice.message)) return;
-    ctx.fillStyle = args.theme.textColor; ctx.font = "10px sans-serif";
-    const width = Math.max(10, args.coords.width - 24), lines: string[] = []; let line = "";
-    for (const word of notice.message.split(" ")) {
-      const next = line ? `${line} ${word}` : word;
-      if (line && ctx.measureText(next).width > width) { lines.push(line); line = word; } else line = next;
-    }
-    if (line) lines.push(line);
-    const top = args.bounds.top + 14;
-    lines.forEach((text, index) => ctx.fillText(text, 12, top + index * 12, width));
-  }); return { ...layer, destroy() { clearStudyNotice(owner); layer.destroy(); } }; } });
+  for (const [id, title] of [["af-cvd", "Cumulative Volume Delta"], ["af-volume-delta", "Volume Delta"]]) {
+    registerRendererLayer({
+      id,
+      create: () => createStudyNoticeLayer(title, (ctx, args, message) => {
+        ctx.fillStyle = args.theme.textColor; ctx.font = "10px sans-serif";
+        const width = Math.max(10, args.coords.width - 24), lines: string[] = [];
+        let line = "";
+        for (const word of message.split(" ")) {
+          const next = line ? `${line} ${word}` : word;
+          if (line && ctx.measureText(next).width > width) { lines.push(line); line = word; } else line = next;
+        }
+        if (line) lines.push(line);
+        const top = args.bounds.top + 14;
+        lines.forEach((text, index) => ctx.fillText(text, 12, top + index * 12, width));
+      }),
+    });
+  }
   registerNativeIndicator(cvdDescriptor(studyTrades, (symbol, changed) =>
     marketService.onTick(tick => { if (tick.symbol === stripVenue(symbol)) { studyTradeSource.observe(tick); changed(tick); } }), archiveOptions));
   registerNativeIndicator(cvdDescriptor(studyTrades, (symbol, changed) =>

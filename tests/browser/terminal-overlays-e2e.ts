@@ -3,9 +3,11 @@ import { createRoot } from "react-dom/client";
 import { DARK_THEME, NativeRenderer, Vela, type OHLCV } from "@luxalgo/vela";
 import { PineWorkerEngine } from "@luxalgo/vela-pinets";
 import { bindCellContext } from "@/lib/chart/cellContext";
+import { attachStudyNoticeHost, currentStudyNotices } from "@/lib/chart/studyNotices";
 import { pineEngineOptions } from "@/lib/indicators/engineOptions";
 import { STRUCTURE_SCRIPT } from "@/lib/indicators/scripts";
 import { studyTradeSource } from "@/lib/orderflow/studyTradeSource";
+import { countIds } from "@/lib/orderflow/tradeCount";
 import { registerOrderflowPlugins } from "@/lib/orderflow/velaPlugins";
 import { popoutId, scopedName } from "@/lib/windowScope";
 import { AffenTerminalWindow } from "@/components/AffenTerminalWindow";
@@ -103,6 +105,40 @@ function verifyIndicatorStatus() {
     renderer.destroy();
     host.remove();
   }
+}
+
+function verifyStudyNoticeCanvases() {
+  const host = document.createElement("div");
+  host.style.cssText = "width:450px;height:250px";
+  document.body.append(host);
+  const cell = { id: "notice-test", symbol: "BTCUSDT", timeframe: "1m", replay: false };
+  const unbind = bindCellContext(host, () => cell);
+  const renderer = new NativeRenderer();
+  renderer.mount(host, DARK_THEME);
+  const sizedCanvases = () => [...host.querySelectorAll("canvas")].filter(canvas => canvas.width && canvas.height);
+  try {
+    const initial = new Set(sizedCanvases());
+    for (const id of [...Object.values(countIds), "af-cvd", "af-volume-delta"]) {
+      const message = `Source coverage for ${id}`;
+      renderer.setNativeData(id, { message });
+      renderer.resize();
+      const added = sizedCanvases().filter(canvas => !initial.has(canvas));
+      if (added.length !== 1) throw new Error(`${id} should allocate one canvas for an embedded notice`);
+
+      const detach = attachStudyNoticeHost(cell.id);
+      try {
+        renderer.resize();
+        if (added[0].width !== 0 || currentStudyNotices(cell)[0]?.message !== message) {
+          throw new Error(`${id} should route to the accessible notice host and release its canvas`);
+        }
+        renderer.setNativeData(id, null);
+        renderer.resize();
+        if (currentStudyNotices(cell).length) throw new Error(`${id} left a stale notice`);
+      } finally { detach(); }
+      renderer.resize();
+      if (sizedCanvases().length !== initial.size) throw new Error(`${id} left an unused notice canvas`);
+    }
+  } finally { renderer.destroy(); unbind(); host.remove(); }
 }
 
 function captureRgba(chart: Vela): { width: number; height: number; data: Uint8ClampedArray } {
@@ -283,6 +319,7 @@ async function runNativeOverlaysE2E(): Promise<MainRouteResult["chartOverlays"]>
 
   registerOrderflowPlugins();
   verifyIndicatorStatus();
+  verifyStudyNoticeCanvases();
   const disposeCtx = bindCellContext(
     chartEl,
     () => ({ id: "e2e-cell", symbol: "BTCUSDT", timeframe: "1m", replay: false, replayThrough: null }),
