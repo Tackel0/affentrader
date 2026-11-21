@@ -1420,6 +1420,32 @@ async function run() {
         strategyLoadsOnDemandChecked = true;
       }
       if (vp.width === 390 && !opts.liveApis) {
+        activeLabel = "mobile liquidation heatmap study";
+        await tapWorkspaceTarget(cdp, '.workspace-toolbar [aria-label="Indicators"]', 36);
+        await waitForPagePredicate(cdp, '!!document.querySelector(\'.indicator-modal input[aria-label="Search indicators"]\')', "indicator picker opens");
+        await cdp.send("Runtime.evaluate", { expression: `document.querySelector('.indicator-modal input').focus()` });
+        await cdp.send("Input.insertText", { text: "Liquidation Levels" });
+        await waitForPagePredicate(cdp, 'document.querySelector(".indicator-modal .indicator-result strong")?.textContent === "Liquidation Levels Heatmap"', "find the liquidation heatmap study");
+        await tapWorkspaceTarget(cdp, ".indicator-modal .indicator-result", 36);
+        const studyActions = '.indicator-chip [aria-label="Actions for Liq estimate"]';
+        await waitForPagePredicate(cdp, `!!document.querySelector(${JSON.stringify(studyActions)})`, "estimate appears in the chart legend");
+        await tapWorkspaceTarget(cdp, '.indicator-modal [aria-label="Close dialog"]', 44);
+        await waitForPagePredicate(cdp, '!document.querySelector(".indicator-modal")', "indicator picker closes after adding the study");
+        await tapWorkspaceTarget(cdp, studyActions, 36);
+        await waitForPagePredicate(cdp, '!!document.querySelector(".indicator-action-list")', "liquidation study actions open");
+        await tapWorkspaceTarget(cdp, ".indicator-action-list button:nth-child(2)", 36);
+        await waitForPagePredicate(cdp, `(() => {
+          const dialog = [...document.querySelectorAll('[role="dialog"]')].find(node => node.querySelector('h2')?.textContent === 'Liq estimate · Settings');
+          return dialog?.textContent.includes('Hypothetical leverages') && dialog?.textContent.includes('Spot charts use hypothetical perpetual positions');
+        })()`, "liquidation settings display leverage and source assumptions");
+        recordAudit(vp, "/ liquidation heatmap settings", await inspectViewportDom(cdp, true));
+        await tapWorkspaceTarget(cdp, '.indicator-settings-modal [aria-label="Close dialog"]', 44);
+        await waitForPagePredicate(cdp, '!document.querySelector(".indicator-settings-modal")', "liquidation settings close");
+        await tapWorkspaceTarget(cdp, studyActions, 36);
+        await waitForPagePredicate(cdp, '!!document.querySelector(".indicator-action-list")', "liquidation study actions reopen");
+        await tapWorkspaceTarget(cdp, ".indicator-action-list button:nth-child(3)", 36);
+        await waitForPagePredicate(cdp, `!document.querySelector(${JSON.stringify(studyActions)})`, "remove the liquidation study on mobile");
+
         activeLabel = "universal mobile symbol search";
         await tapWorkspaceTarget(cdp, ".workspace-toolbar .symbol-selector", 36);
         await waitForPagePredicate(cdp, '!!document.querySelector(\'.search-modal input[aria-label="Search symbols"]\')', "symbol search opens");

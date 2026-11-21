@@ -50,6 +50,7 @@ export function studyArguments(inputs: Record<string, string | number | boolean>
   }
   if (definitionId === "vpvr") return `${inputs.rows ?? 40} rows ${inputs.valueAreaPct ?? 70}%${inputs.volumeSource === "Classified executions" ? " trades" : ""}`;
   if (definitionId === "depth-heatmap") return `${inputs.sampleMs ?? 1000}ms ${inputs.retentionMinutes ?? 10}m`;
+  if (definitionId === "liquidation-heatmap") return `${inputs.leverages ?? "10× / 20× / 40×"} · ${inputs.lookback ?? 180} bars`;
   if (definitionId === "cvd") {
     const anchor = inputs.anchor === "Collection" ? "Collection" : inputs.anchor === "Session" ? `Session ${inputs.sessionZone ?? "UTC"}` : `${inputs.anchor ?? "Month"} UTC`;
     return `${anchor}${inputs.mode === "Average" ? " · Average" : ""}${inputs.calculation === "Bar delta" ? " Δ" : ""}`;

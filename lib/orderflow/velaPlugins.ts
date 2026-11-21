@@ -78,6 +78,7 @@ import { paintVolumeTails, TailsRenderCache } from "./volumeTailsRenderer";
 import { registerFixedTails } from "@/lib/drawings/fixedTailsPlugin";
 import { rollingProfileDescriptor } from "./rollingProfileIndicator";
 import { clearStudyNotice, currentStudyNotices, routeStudyNotice } from "@/lib/chart/studyNotices";
+import { registerLiquidationHeatmap } from "./liquidationHeatmapStudy";
 const studyTrades = (symbol: string) => studyTradeSource.read(stripVenue(symbol), marketService.tradesFor(symbol));
 const replayTrades = (symbol: string, timeframe: string, through: number | null) => {
   const state = useChartStore.getState();
@@ -123,6 +124,7 @@ function createStudyNoticeLayer(title: string, paint: (ctx: CanvasRenderingConte
 export function registerOrderflowPlugins() {
   if (registered) return;
   registered = true;
+  registerLiquidationHeatmap();
   for (const kind of ["bar", "visible"] as const) {
     registerNativeIndicator(footprintOverlayDescriptor(kind, studyTrades, (symbol, receive) => marketService.onTick(tick => {
       if (tick.symbol === stripVenue(symbol)) { studyTradeSource.observe(tick); receive(tick); }

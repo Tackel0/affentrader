@@ -55,7 +55,7 @@ export function addStudy(def: IndicatorDefinition) {
     return;
   }
   if (
-    ["volume", "cvd", "depth-heatmap"].includes(def.id) &&
+    ["volume", "cvd", "depth-heatmap", "liquidation-heatmap"].includes(def.id) &&
     store.indicators.some((i) => i.definitionId === def.id)
   ) {
     store.toast("Study already added", `${def.name} is already on this chart.`);
@@ -334,7 +334,7 @@ function IndicatorSettingsForm({
     <Modal
       title={`${indicator.name} · Settings`}
       onClose={onClose}
-      className="small-modal"
+      className="small-modal indicator-settings-modal"
     >
       <form
         onChangeCapture={() => setValidationError("")}
@@ -369,6 +369,7 @@ function IndicatorSettingsForm({
           {indicator.definitionId === "session-profile" || indicator.definitionId === "rolling-profile" ? <p className="form-help">Built from retained classified trades, with partial coverage. Rolling profiles use the newest N loaded bars, including the forming live bar. Replay uses explicitly loaded archived observations through completed candles only; gaps remain unknown.</p> : null}
           {indicator.definitionId === "vpvr" ? <p className="form-help">Choose an OHLCV estimate or classified executions. The estimate distributes candle volume across high/low rows by candle direction. Classified mode places observed buy/sell quantities at execution prices and can include a loaded archive. Coverage may have gaps; no OHLCV fallback is used when trades are missing. Replay uses archived observations through completed candles only.</p> : null}
           {indicator.definitionId === "depth-heatmap" ? <p className="form-help">Collects the last received top-of-book snapshot per sample interval in this running study, up to 600 columns. Colors show resting bid/ask quantities, not trades or cancellations. Gaps longer than three seconds stay empty. Live history starts when the study is enabled. To use observed snapshots in Replay, turn on Capture depth for Replay in the Order flow panel before the period you want to inspect. Simulation and IEX/Yahoo do not supply depth. Auto rows use observed price spacing.</p> : null}
+          {indicator.definitionId === "liquidation-heatmap" ? <p className="form-help">Estimates isolated perpetual liquidation levels from completed crypto candle closes under the selected leverage and maintenance margin assumptions. Brighter rows carry more modeled candle volume. Rows end at a subsequent close with a crossed price level or missing data. Spot charts use hypothetical perpetual positions. Position sizes, exchange margin tiers, funding and fees are unknown.</p> : null}
           {indicator.definitionId === "volume-bubbles" ? <p className="form-help">Price tick override 0 uses public venue precision for Binance, Kraken and Hyperliquid. Manual rows multiply that tick by Ticks per row; Auto rows adapt to the view on the same grid. A positive override keeps its explicit value. Missing metadata does not create a guessed exchange tick. Replay uses current precision metadata unless overridden; historical rule changes are not reconstructed.</p> : null}
           {indicator.definitionId === "cvd" || indicator.definitionId === "volume-delta" ? <p className="form-help">Total uses classified buy minus sell quantity. Average compares mean trade size per side and needs explicit print counts. Coverage starts with retained observations; gaps remain unknown. Replay uses only an explicitly loaded archive through completed candles.</p> : null}
           {volumeTails ? <p className="form-help">Supply accumulates sells from the observed high; demand accumulates buys from the observed low. Each targets Threshold % of combined volume and includes the crossing price bin. Means use zone midpoints; weighted means use side volume at bin centers. Partial classified executions only; no candle-direction estimate. Week/month sessions are UTC. Day windows use source-calendar RTH/ETH, the chart session, named UTC hours or custom UTC HHMM times. Without a source calendar, Full day/RTH/ETH use the configured day clock.</p> : null}
@@ -384,7 +385,7 @@ function IndicatorSettingsForm({
             .filter(input => indicator.definitionId !== "session-tails" || tailsInputVisible(input.key, draft.inputs))
             .map(input => <IndicatorInputControl key={input.key} input={input} value={draft.inputs[input.key] ?? input.defval}
               onChange={value => setDraft({ ...draft, inputs: { ...draft.inputs, [input.key]: value } })} />)}
-          {!indicator.script && !volumeTails && !["vwap", "tpo-overlay", "footprint", "visible-footprint", "session-profile", "rolling-profile", "cvd", "volume-delta", "vpvr", "depth-heatmap", "trade-count", "trade-count-delta", "ctcd", "volume-bubbles", "bar-stats"].includes(indicator.definitionId) ? <label>
+          {!indicator.script && !volumeTails && !["vwap", "tpo-overlay", "footprint", "visible-footprint", "session-profile", "rolling-profile", "cvd", "volume-delta", "vpvr", "depth-heatmap", "liquidation-heatmap", "trade-count", "trade-count-delta", "ctcd", "volume-bubbles", "bar-stats"].includes(indicator.definitionId) ? <label>
             Price source
             <select value={draft.source} onChange={event => setDraft({ ...draft, source: event.target.value as IndicatorInstance["source"] })}>
               {["close", "open", "high", "low", "hl2", "hlc3"].map(source => <option key={source}>{source}</option>)}
@@ -400,7 +401,7 @@ function IndicatorSettingsForm({
               !(signedCvdColumns && ["upColor", "downColor"].includes(input.key)))).map(input => <IndicatorInputControl key={input.key} input={input} value={draft.inputs[input.key] ?? input.defval}
             exactColor={candleFamily} alphaColor={["footprint", "visible-footprint"].includes(indicator.definitionId)}
             onChange={value => setDraft({ ...draft, inputs: { ...draft.inputs, [input.key]: value } })} />)}
-          {!indicator.script && !volumeTails && !["vwap", "tpo-overlay", "footprint", "visible-footprint", "session-profile", "rolling-profile", "vpvr", "depth-heatmap", "bar-stats"].includes(indicator.definitionId) && !candlePlot && !countDelta && !signedCvdColumns ? (
+          {!indicator.script && !volumeTails && !["vwap", "tpo-overlay", "footprint", "visible-footprint", "session-profile", "rolling-profile", "vpvr", "depth-heatmap", "liquidation-heatmap", "bar-stats"].includes(indicator.definitionId) && !candlePlot && !countDelta && !signedCvdColumns ? (
             <>
               <p className="form-section-label">STYLE</p>
               <label>
@@ -438,17 +439,17 @@ function IndicatorSettingsForm({
               Edit the source in the Pine editor to customize additional plots.
             </p>
           ) : null}
-          {!["tpo-overlay", "footprint", "visible-footprint", "session-profile", "rolling-profile", "depth-heatmap", "bar-stats"].includes(indicator.definitionId) ? <label>
+          {!["tpo-overlay", "footprint", "visible-footprint", "session-profile", "rolling-profile", "depth-heatmap", "liquidation-heatmap", "bar-stats"].includes(indicator.definitionId) ? <label>
             Values in the status line
             <input type="checkbox" checked={draft.valuesInStatusLine !== false}
               onChange={event => setDraft({ ...draft, valuesInStatusLine: event.target.checked })} />
           </label> : null}
-          {!["tpo-overlay", "footprint", "visible-footprint", "session-profile", "rolling-profile", "volume", "vpvr", "depth-heatmap", "bar-stats"].includes(indicator.definitionId) && <label>
+          {!["tpo-overlay", "footprint", "visible-footprint", "session-profile", "rolling-profile", "volume", "vpvr", "depth-heatmap", "liquidation-heatmap", "bar-stats"].includes(indicator.definitionId) && <label>
             Values on the price scale
             <input type="checkbox" checked={draft.valuesOnPriceScale !== false}
               onChange={event => setDraft({ ...draft, valuesOnPriceScale: event.target.checked })} />
           </label>}
-          {!["tpo-overlay", "footprint", "visible-footprint", "session-profile", "rolling-profile", "volume", "vpvr", "depth-heatmap", "bar-stats"].includes(indicator.definitionId) && <p className="form-help">Shows current numeric plots on their own scale. Plot display restrictions and hidden axes take precedence. Crowded labels can be omitted; Data window values remain available.</p>}
+          {!["tpo-overlay", "footprint", "visible-footprint", "session-profile", "rolling-profile", "volume", "vpvr", "depth-heatmap", "liquidation-heatmap", "bar-stats"].includes(indicator.definitionId) && <p className="form-help">Shows current numeric plots on their own scale. Plot display restrictions and hidden axes take precedence. Crowded labels can be omitted; Data window values remain available.</p>}
           {!["tpo-overlay", "footprint", "visible-footprint", "session-profile", "rolling-profile", "bar-stats"].includes(indicator.definitionId) && !statusLinePreferences(useChartStore.getState().statusLine).indicatorValues ? <p className="form-help">Indicator values are hidden in Chart settings → Status line. Enable them there to show values for this study.</p> : null}
           <label>
             Visible

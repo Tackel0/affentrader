@@ -1,4 +1,5 @@
 import type { IndicatorDefinition } from "@/types/trading";
+import { defaultLiquidationHeatmap, LIQUIDATION_HEATMAP } from "@/lib/orderflow/liquidationHeatmap";
 import {
   ICHIMOKU_SCRIPT,
   KNN_SCRIPT,
@@ -147,6 +148,11 @@ export const INDICATORS: IndicatorDefinition[] = [
   {
     id: "depth-heatmap", name: "Liquidity Heatmap", shortName: "Depth", category: "Order flow", kind: "orderflow", nativeId: "af-depth-heatmap", defaults: {},
     description: "Sampled live order-book liquidity at observed prices; partial top levels, offered quantities rather than executions. No historical-depth or Replay fallback.",
+  },
+  {
+    id: "liquidation-heatmap", name: "Liquidation Levels Heatmap", shortName: "Liq estimate",
+    category: "Order flow", kind: "orderflow", nativeId: LIQUIDATION_HEATMAP, defaults: defaultLiquidationHeatmap,
+    description: "Estimated long and short liquidation zones using completed crypto candles and hypothetical leverage. Spot charts are reference-only.",
   },
   {
     id: "fixed-profile",

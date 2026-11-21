@@ -8,6 +8,7 @@ import { pineEngineOptions } from "@/lib/indicators/engineOptions";
 import { STRUCTURE_SCRIPT } from "@/lib/indicators/scripts";
 import { studyTradeSource } from "@/lib/orderflow/studyTradeSource";
 import { countIds } from "@/lib/orderflow/tradeCount";
+import { LIQUIDATION_HEATMAP } from "@/lib/orderflow/liquidationHeatmap";
 import { registerOrderflowPlugins } from "@/lib/orderflow/velaPlugins";
 import { popoutId, scopedName } from "@/lib/windowScope";
 import { AffenTerminalWindow } from "@/components/AffenTerminalWindow";
@@ -446,6 +447,11 @@ async function runNativeOverlaysE2E(): Promise<MainRouteResult["chartOverlays"]>
     "af-volume-nodes",
     () => chart.addNativeIndicator("af-volume-nodes", { inputs: { rows: 24, showHvn: true, showLvn: true } }),
     100,
+  );
+  await measureOverlay(
+    LIQUIDATION_HEATMAP,
+    () => chart.addNativeIndicator(LIQUIDATION_HEATMAP, { inputs: { leverages: "20× / 50× / 100×" } }),
+    300,
   );
   const sigHandle = await measureOverlay(
     "af-orderflow-signals",
