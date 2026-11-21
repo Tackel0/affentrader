@@ -25,6 +25,7 @@ export type TradePager = (params: {
   symbol: string;
   limit: number;
   fromId?: number;
+  signal?: AbortSignal;
 }) => Promise<TradeRow[]>;
 export interface TradeRow {
   /** Aggregate trade id. */
@@ -246,6 +247,7 @@ export const browserTradePager: TradePager = async ({
   symbol,
   limit,
   fromId,
+  signal,
 }) => {
   const params = new URLSearchParams({
     resource: "aggTrades",
@@ -253,8 +255,9 @@ export const browserTradePager: TradePager = async ({
     limit: String(limit),
   });
   if (fromId !== undefined) params.set("fromId", String(fromId));
+  const timeout = AbortSignal.timeout(16000);
   const response = await fetch(`/api/market?${params}`, {
-    signal: AbortSignal.timeout(16000),
+    signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
   });
   if (!response.ok) throw new Error("Trade history unavailable");
   return response.json();

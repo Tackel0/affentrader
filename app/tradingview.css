@@ -45,7 +45,7 @@
 .indicator-action-list button:hover,.indicator-action-list button:focus-visible {background:var(--hover);}
 .layout-eight .study-legend,.layout-six .study-legend {display:none;}
 @media (max-width: 768px), (max-width: 1366px) and (pointer: coarse) {
-  :is(.indicator-modal, .indicator-actions-modal, .indicator-settings-modal) .modal-header > .icon-button {
+  :is(.indicator-modal, .indicator-actions-modal, .indicator-settings-modal, .chart-coverage-modal) .modal-header > .icon-button {
     width: 44px;
     height: 44px;
     min-width: 44px;
@@ -57,6 +57,7 @@
   .indicator-settings-modal .settings-form :is(select, input:not([type="checkbox"])) { min-height: 44px; }
   .indicator-settings-modal .form-help { font-size: 11px; }
   .chart-coverage { min-width: 44px; min-height: 44px; }
+  .chart-type-host .chart-type-popover button { min-height: 44px; }
   .study-legend .chip-actions {display:none;}
   .chart-heading .study-legend .indicator-chip .chip-more {display:inline-flex;opacity:1;width:36px;height:36px;min-width:36px;min-height:36px;flex-shrink:0;}
   .study-legend .indicator-chips .indicator-chip {min-height:36px;}

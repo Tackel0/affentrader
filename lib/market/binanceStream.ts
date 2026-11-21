@@ -3,8 +3,13 @@ import { aggregateTradeCount } from "./tradeCounts";
 import { wireDecimal as decimal, wireObject } from "./marketWire";
 
 export function binanceTrade(row: Record<string, unknown>, symbol: string): Tick | null {
-  const { s, a, T, m } = row;
-  if (row.e !== "aggTrade" || s !== symbol || typeof a !== "number" || !Number.isSafeInteger(a) || a < 0 ||
+  if (row.e !== "aggTrade" || row.s !== symbol) return null;
+  return binanceAggregateTrade(row, symbol);
+}
+
+export function binanceAggregateTrade(row: Record<string, unknown>, symbol: string): Tick | null {
+  const { a, T, m } = row;
+  if (typeof a !== "number" || !Number.isSafeInteger(a) || a < 0 ||
     typeof T !== "number" || !Number.isSafeInteger(T) || T <= 0 || T > 8.64e15 || typeof m !== "boolean") return null;
   const price = decimal(row.p), quantity = decimal(row.q);
   if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(quantity) || quantity <= 0) return null;

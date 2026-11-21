@@ -9,6 +9,7 @@ import {
 import { useChartStore } from "@/stores/useChartStore";
 import { useAlertStore } from "@/stores/useAlertStore";
 import { FootprintHistory } from "./footprintHistory";
+import { createFootprintBackfill } from "./footprintBackfill";
 import { publishFootprintSurface, clearFootprintSurface } from "./footprintReadout";
 import { footprintHoverModifier, paintFootprintHover } from "./footprintHover";
 import { createFootprintMagnifierSurface } from "./footprintMagnifierSurface";
@@ -18,7 +19,7 @@ import { FOOTPRINT_OVERLAY_IDS, FOOTPRINT_OVERLAY_TITLES, footprintOverlayDescri
 import { createFootprintOverlayCache, paintFootprintOverlay } from "./footprintOverlayRenderer";
 import { createFootprintReveal, footprintBodyModulation, footprintRawSpacing } from "./footprintReveal";
 import { createFootprintGridSource, footprintGridNotice } from "./footprintGrid";
-import { requestCellFrame } from "@/lib/chart/cellContext";
+import { requestCellFrame, type CellContext } from "@/lib/chart/cellContext";
 import { marketService, stripVenue } from "@/lib/market/service";
 import { providerOf } from "@/lib/symbolId";
 import { canvasLayer, invalidateCanvasLayers } from "@/lib/chart/canvasLayer";
@@ -80,6 +81,11 @@ import { rollingProfileDescriptor } from "./rollingProfileIndicator";
 import { clearStudyNotice, currentStudyNotices, routeStudyNotice } from "@/lib/chart/studyNotices";
 import { registerLiquidationHeatmap } from "./liquidationHeatmapStudy";
 const studyTrades = (symbol: string) => studyTradeSource.read(stripVenue(symbol), marketService.tradesFor(symbol));
+function footprintBackfillSymbol(cell: CellContext) {
+  const state = useChartStore.getState();
+  return !cell.replay && !isTickInterval(cell.timeframe) && state.feedMode !== "simulation" &&
+    state.dataSources[`${cell.symbol}:${cell.timeframe}`] === "exchange" ? stripVenue(cell.symbol) : "";
+}
 const replayTrades = (symbol: string, timeframe: string, through: number | null) => {
   const state = useChartStore.getState();
   return state.feedMode !== "simulation" && state.dataSources[`${symbol}:${timeframe}`] === "exchange" ? studyTradeSource.replay(stripVenue(symbol), through) : undefined;
@@ -132,6 +138,8 @@ export function registerOrderflowPlugins() {
     registerRendererLayer({ id: FOOTPRINT_OVERLAY_IDS[kind], placement: "above-data", repaintOnCursor: true, create: () => {
       const token = Symbol("footprint-overlay"), cache = createFootprintOverlayCache();
       let key: string | undefined, cellId: string | undefined, channel: FootprintOverlayChannel | undefined, modulates = false;
+      let canvas: HTMLCanvasElement | undefined;
+      const backfill = createFootprintBackfill(() => { if (canvas) requestCellFrame(canvas); });
       let cachedSurface: { key: string; surface: import("./footprintReadout").FootprintSurface } | undefined;
       const magnifier = createFootprintMagnifierSurface();
       const hover = footprintHoverModifier(() => { magnifier.clear(); if (cellId) invalidateCanvasLayers(cellId); });
@@ -139,13 +147,15 @@ export function registerOrderflowPlugins() {
         magnifier.clear(); modulates = false; cellId = cell.id; if (key) clearFootprintSurface(key, token);
         const next = args.data as FootprintOverlayChannel | undefined;
         if (channel && channel !== next) { channel.repaint = undefined; clearStudyNotice(channel); cache.reveal.reset(); cachedSurface = undefined; }
-        channel = next; if (!channel) { cache.reveal.reset(); cachedSurface = undefined; return; }
+        channel = next; if (!channel) { backfill.clear(); cache.reveal.reset(); cachedSurface = undefined; return; }
         channel.repaint = () => invalidateCanvasLayers(cell.id);
         const identity = channel.identity;
-        if (!identity || identity.symbol !== cell.symbol || identity.timeframe !== cell.timeframe || identity.live !== !cell.replay || identity.revision !== archiveOptions.revision(cell.symbol) || cell.replay && identity.through !== (cell.replayThrough ?? null)) { clearStudyNotice(channel); cache.reveal.reset(); cachedSurface = undefined; return; }
+        if (!identity || identity.symbol !== cell.symbol || identity.timeframe !== cell.timeframe || identity.live !== !cell.replay || identity.revision !== archiveOptions.revision(cell.symbol) || cell.replay && identity.through !== (cell.replayThrough ?? null)) { backfill.clear(); clearStudyNotice(channel); cache.reveal.reset(); cachedSurface = undefined; return; }
         key = `${cell.id}:${channel.id}`;
         let message = channel.message;
         try {
+          const historyNotice = backfill.read(footprintBackfillSymbol(cell), channel.history, args);
+          if (historyNotice) message += ` ${historyNotice}`;
           const result = paintFootprintOverlay(ctx, args, channel, cache, hover.shift, magnifier), state = useChartStore.getState();
           if (result && channel.history) {
             modulates = kind === "bar";
@@ -172,7 +182,7 @@ export function registerOrderflowPlugins() {
       });
       return { ...layer, animating: () => cache.reveal.animating,
         modulateBase: () => modulates && channel?.style ? footprintBodyModulation(cache.reveal.opacity, [channel.style.position]) : null,
-        mount(canvas: HTMLCanvasElement) { layer.mount(canvas); hover.mount(canvas); magnifier.mount(canvas); }, destroy() { magnifier.destroy(); cache.reveal.reset(); hover.destroy(); if (key) clearFootprintSurface(key, token); if (channel) { channel.repaint = undefined; clearStudyNotice(channel); } layer.destroy(); } };
+        mount(element: HTMLCanvasElement) { canvas = element; layer.mount(element); hover.mount(element); magnifier.mount(element); }, destroy() { backfill.clear(); canvas = undefined; magnifier.destroy(); cache.reveal.reset(); hover.destroy(); if (key) clearFootprintSurface(key, token); if (channel) { channel.repaint = undefined; clearStudyNotice(channel); } layer.destroy(); } };
     } });
   }
   registerFixedProfileConstruction();
@@ -378,6 +388,7 @@ export function registerOrderflowPlugins() {
       const reveal = createFootprintReveal();
       let nativeCanvas: HTMLCanvasElement | undefined;
       const grid = createFootprintGridSource(() => { if (nativeCanvas) requestCellFrame(nativeCanvas); });
+      const backfill = createFootprintBackfill(() => { if (nativeCanvas) requestCellFrame(nativeCanvas); });
       let modulation: ReturnType<typeof footprintBodyModulation> | null = null;
       const magnifier = createFootprintMagnifierSurface();
       const hover = footprintHoverModifier(() => { magnifier.clear(); if (layerId) invalidateCanvasLayers(layerId); });
@@ -407,7 +418,7 @@ export function registerOrderflowPlugins() {
         clearFootprintSurface(cell.id, token);
         clearFootprintMenuFrame(cell.id, token);
         updates.set(args.priceStyle === "footprint" && !cell.replay ? { id: cell.id, symbol: stripVenue(cell.symbol) } : undefined);
-        if (args.priceStyle !== "footprint") { reveal.reset(); clearStudyNotice(updates); collection = undefined; clearDerivedIssue(cell.id, token); return; }
+        if (args.priceStyle !== "footprint") { backfill.clear(); reveal.reset(); clearStudyNotice(updates); collection = undefined; clearDerivedIssue(cell.id, token); return; }
         const state = useChartStore.getState();
         const instances = resolveFootprintInstances(args.settings), placements = footprintPlacements(args, instances);
         const selectedId = `fp${args.settings?.readoutInstance ?? 1}`;
@@ -415,6 +426,7 @@ export function registerOrderflowPlugins() {
         const style = inspected.style;
         const replay = cell.replay ? replayTrades(cell.symbol, cell.timeframe, cell.replayThrough ?? null) : undefined;
         if (cell.replay && !replay) {
+          backfill.clear();
           reveal.reset(); paintFootprintInstanceCandles(ctx, args, instances, placements, 0);
           collection = undefined;
           clearDerivedIssue(cell.id, token);
@@ -437,6 +449,7 @@ export function registerOrderflowPlugins() {
           history.add(replay ? replay.trades : studyTrades(cell.symbol));
           collection = { key, symbol: stripVenue(cell.symbol), history, replay: cell.replay };
         }
+        const historyNotice = backfill.read(footprintBackfillSymbol(cell), collection?.history, args);
         collection?.history.retainViews(instances.map(instance => instance.id));
         for (const id of unfinishedCaches.keys()) if (!instances.some(instance => instance.id === id)) unfinishedCaches.delete(id);
         for (const id of pocCaches.keys()) if (!instances.some(instance => instance.id === id)) pocCaches.delete(id);
@@ -483,7 +496,7 @@ export function registerOrderflowPlugins() {
         const coverage = collection?.history.coverage;
         if (coverage) {
           const epoch = state.marketEpochs[cell.symbol] ?? 0, sourceStamp = rangeProfileSourceStamp(cell.symbol, cell.timeframe);
-          const sourceLabel = `${replay?.label ?? archiveOptions.label(cell.symbol) ?? "Collected executions"} · ${gridNotice}`;
+          const sourceLabel = `${replay?.label || archiveOptions.label(cell.symbol) || historyNotice || "Collected executions"} · ${gridNotice}`;
           const surfaceKey = JSON.stringify([cell.id, cell.symbol, cell.timeframe, epoch, sourceStamp, coverage.trades, coverage.dropped, coverage.simulated, step, inspected.id,
             replay?.through ?? null, sourceLabel, bars.at(-1)?.delta, bars.at(-1)?.volume, style.imbalanceRatio, style.imbalanceMinVolume, style.ignoreZeroOpposite,
             style.stackedRows, style.averageTradeSize, style.cellValues, style.volumeMode, style.volumeSplit, style.valueAreaPercent, style.valueAreaVisible, style.pocExtend,
@@ -525,7 +538,7 @@ export function registerOrderflowPlugins() {
           replay ? { timeframe: cell.timeframe, through: replay.through } : undefined, magnifier);
         if (width < 22 || opacity <= .01 || bars.length === 0) {
           const hint = providerOf(cell.symbol) === "yahoo" ? "Footprints need a classified trade stream: use Binance, Kraken or Hyperliquid." : isTickInterval(cell.timeframe) ? "Footprints require a time interval." : bars.length ? `Zoom in to read ${footprintModeLabel(style.volumeMode)} cells. Partial collected history.` : replay ? "No recorded executions revealed; missing history is unknown." : "Collecting trades; footprints begin at connection. Missing history is unknown.";
-          if (routeStudyNotice(updates, cell, "Footprint", `${step > 0 ? hint : "Footprint rows are waiting for price precision."} · ${gridNotice}`)) return;
+          if (routeStudyNotice(updates, cell, "Footprint", `${step > 0 ? hint : "Footprint rows are waiting for price precision."} · ${gridNotice}${historyNotice ? ` · ${historyNotice}` : ""}`)) return;
           ctx.fillStyle = palette.note;
           ctx.font = "11px sans-serif";
           ctx.fillText(
@@ -541,7 +554,7 @@ export function registerOrderflowPlugins() {
           );
           return;
         }
-        if (routeStudyNotice(updates, cell, "Footprint", `${replay ? "REPLAY · " : ""}${coverage?.simulated ? "SIMULATED · " : ""}${footprintModeLabel(style.volumeMode)} · ${coverage?.trades ?? 0} collected trades · partial history; gaps unknown. ${replay?.label ?? archiveOptions.label(cell.symbol) ?? "Collection begins at connection."} · ${gridNotice}`)) return;
+        if (routeStudyNotice(updates, cell, "Footprint", `${replay ? "REPLAY · " : ""}${coverage?.simulated ? "SIMULATED · " : ""}${footprintModeLabel(style.volumeMode)} · ${coverage?.trades ?? 0} collected trades · partial history; gaps unknown. ${[replay?.label || archiveOptions.label(cell.symbol), historyNotice].filter(Boolean).join(" ") || "Collection begins at connection."} · ${gridNotice}`)) return;
         ctx.fillStyle = args.theme.textColor; ctx.font = "10px sans-serif";
         ctx.fillStyle = args.theme.background; ctx.fillRect(48, bounds.top + bounds.height - 23, Math.max(10, coords.width - 52), 20);
         ctx.fillStyle = args.theme.textColor;
@@ -550,7 +563,7 @@ export function registerOrderflowPlugins() {
         if (!paintedCandles) { reveal.reset(); modulation = null; paintFootprintInstanceCandles(ctx, args, instances, placements, 0); }
       });
       return { ...layer, animating: () => reveal.animating, modulateBase: (args: RendererLayerArgs) => args.priceStyle === "footprint" ? modulation : null,
-        mount(canvas: HTMLCanvasElement) { nativeCanvas = canvas; layer.mount(canvas); hover.mount(canvas); magnifier.mount(canvas); }, destroy() { magnifier.destroy(); nativeCanvas = undefined; grid.dispose(); reveal.reset(); hover.destroy(); clearStudyNotice(updates); for (const off of detachArchive.values()) off(); detachArchive.clear(); if (layerId) { clearDerivedIssue(layerId, token); clearFootprintSurface(layerId, token); clearFootprintMenuFrame(layerId, token); } updates.destroy(); layer.destroy(); } };
+        mount(canvas: HTMLCanvasElement) { nativeCanvas = canvas; layer.mount(canvas); hover.mount(canvas); magnifier.mount(canvas); }, destroy() { backfill.clear(); magnifier.destroy(); nativeCanvas = undefined; grid.dispose(); reveal.reset(); hover.destroy(); clearStudyNotice(updates); for (const off of detachArchive.values()) off(); detachArchive.clear(); if (layerId) { clearDerivedIssue(layerId, token); clearFootprintSurface(layerId, token); clearFootprintMenuFrame(layerId, token); } updates.destroy(); layer.destroy(); } };
     },
   });
   registerChartType({

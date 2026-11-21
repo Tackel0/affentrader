@@ -518,10 +518,15 @@ function buildMockApiPayload(urlStr) {
       return rows;
     }
     if (resource === "aggTrades") {
-      return [
-        { a: 1, p: "91250.00", q: "0.25", f: 1, l: 1, T: now - 2000, m: false, M: true },
-        { a: 2, p: "91248.50", q: "0.18", f: 2, l: 2, T: now - 1000, m: true, M: true },
-      ];
+      const boundary = Math.floor(now / 900_000) * 900_000;
+      const fromId = url.searchParams.get("fromId");
+      const samples = [[1001, 95], [1002, 31], [2001, 1], [2002, 0.8]];
+      const limit = Number(url.searchParams.get("limit") ?? 1000);
+      const page = fromId === null ? samples.slice(-limit).filter(([a]) => a >= 2001)
+        : samples.filter(([a]) => a >= Number(fromId) && a < Number(fromId) + limit);
+      return page.map(([a, minutes], i) => ({
+        a, p: i % 2 ? "91848.50" : "91850.00", q: i % 2 ? "0.18" : "0.25", f: a, l: a, T: boundary - minutes * 60_000, m: i % 2 === 1,
+      }));
     }
     if (resource === "ticker/price") {
       return url.searchParams.get("symbol")
@@ -1114,6 +1119,7 @@ async function run() {
     });
 
     let advertisedRevision = null;
+    const requestedTradePages = [];
     const externalSessionLink = !opts.baseUrl && !opts.liveApis
       ? `http://localhost:${new URL(baseUrl).port}/session-link`
       : null;
@@ -1233,6 +1239,10 @@ async function run() {
             /* ignore */
           }
           const healthOverride = pathname === "/api/health" && advertisedRevision;
+          if (pathname === "/api/market") {
+            const query = new URL(reqUrl).searchParams;
+            if (query.get("resource") === "aggTrades") requestedTradePages.push(query.get("fromId"));
+          }
           if (healthOverride || MOCKED_API_PREFIXES.has(pathname)) {
             const body = JSON.stringify(healthOverride
               ? { ok: true, revision: healthOverride }
@@ -1445,6 +1455,30 @@ async function run() {
         await waitForPagePredicate(cdp, '!!document.querySelector(".indicator-action-list")', "liquidation study actions reopen");
         await tapWorkspaceTarget(cdp, ".indicator-action-list button:nth-child(3)", 36);
         await waitForPagePredicate(cdp, `!document.querySelector(${JSON.stringify(studyActions)})`, "remove the liquidation study on mobile");
+
+        activeLabel = "mobile Footprint history and coverage";
+        const beforeFootprint = requestedTradePages.length;
+        await tapWorkspaceTarget(cdp, ".chart-type-button", 36);
+        const chooseType = async (name) => {
+          const selector = `.chart-type-popover [title="${name}"]`;
+          await waitForPagePredicate(cdp, `!!document.querySelector(${JSON.stringify(selector)})`, `chart type picker offers ${name}`);
+          await cdp.send("Runtime.evaluate", { expression: `document.querySelector(${JSON.stringify(selector)}).scrollIntoView({ block: 'nearest' })` });
+          await tapWorkspaceTarget(cdp, selector, 44);
+        };
+        await chooseType("Bid × Ask, total volume or delta at each price");
+        await waitForPagePredicate(cdp, '!!document.querySelector(\'.chart-type-button[aria-label="Chart type: Footprint"]\') && !!document.querySelector(".chart-coverage")', "Footprint and its coverage control render");
+        await tapWorkspaceTarget(cdp, ".chart-coverage", 44);
+        await waitForPagePredicate(cdp, `(() => {
+          const coverage = document.querySelector('.chart-coverage-details')?.textContent ?? '';
+          return coverage.includes('4 collected trades') && coverage.includes('Binance · observed trades from') && coverage.includes('gaps possible');
+        })()`, "two historical trade pages appear in mobile Footprint coverage");
+        const pages = requestedTradePages.slice(beforeFootprint);
+        if (pages.length !== 2 || pages[0] !== null || pages[1] !== "1001") throw new Error(`Unexpected Footprint trade pages ${JSON.stringify(pages)}`);
+        recordAudit(vp, "/ Footprint history coverage", await inspectViewportDom(cdp, true));
+        await tapWorkspaceTarget(cdp, '.chart-coverage-modal [aria-label="Close dialog"]', 44);
+        await tapWorkspaceTarget(cdp, ".chart-type-button", 36);
+        await chooseType("Japanese candlesticks");
+        await waitForPagePredicate(cdp, '!!document.querySelector(\'.chart-type-button[aria-label="Chart type: Candles"]\')', "restore Candles after Footprint coverage audit");
 
         activeLabel = "universal mobile symbol search";
         await tapWorkspaceTarget(cdp, ".workspace-toolbar .symbol-selector", 36);

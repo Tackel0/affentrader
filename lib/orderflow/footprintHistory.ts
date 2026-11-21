@@ -159,6 +159,7 @@ export class FootprintHistory {
     return view.cached ??= [...view.buckets.entries()].sort((a, b) => a[0] - b[0]).map(([time, bucket]) =>
       bucket.output ??= footprintRows(time, bucket.rows, settings.ratio, settings));
   }
+  get simulated() { return this.source === true; }
   get coverage() { return { trades: this.ids.size, bars: this.buckets.size, dropped: this.dropped, rejected: this.rejected,
-    first: this.buckets.size ? Math.min(...this.buckets.keys()) : null, simulated: this.source === true }; }
+    first: this.buckets.size ? Math.min(...this.buckets.keys()) : null, simulated: this.simulated }; }
 }

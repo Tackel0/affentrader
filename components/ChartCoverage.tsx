@@ -13,7 +13,7 @@ export function ChartCoverage({ cellId, host }: { cellId: string; host: RefObjec
   const cell = host.current ? contextForCanvas(host.current) : undefined, notices = cell ? currentStudyNotices(cell, all) : [];
   return <>
     {!!notices.length && <button className="chart-coverage" type="button" aria-label={`Data coverage (${notices.length})`} onClick={() => setOpen(true)}>Data coverage · {notices.length}</button>}
-    {open && createPortal(<Modal title="Chart data coverage" onClose={() => setOpen(false)} className="small-modal"><div className="form-body chart-coverage-details">
+    {open && createPortal(<Modal title="Chart data coverage" onClose={() => setOpen(false)} className="small-modal chart-coverage-modal"><div className="form-body chart-coverage-details">
       <p className="form-help">{cell ? `${cell.symbol} · ${cell.timeframe}${cell.replay ? " · REPLAY" : ""}` : "Waiting for chart context"}</p>
       <p className="form-help">Current chart sources and calculation notices. Observed or estimated quantities do not establish complete exchange coverage.</p>
       {notices.length ? notices.map(notice => <section key={notice.id}><h3>{notice.title}</h3><p>{notice.message}</p></section>) : <p>No current notices for this chart.</p>}
