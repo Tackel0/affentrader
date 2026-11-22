@@ -153,19 +153,21 @@ export function useVelaChart(container: RefObject<HTMLDivElement | null>) {
         constructedEpoch.current = state.feedEpoch;
         const trackedFeed = trackChartFeed(marketService.velaFeed);
         off.push(trackedFeed.close);
+        const phoneChart = typeof window !== "undefined" && typeof window.matchMedia === "function"
+          && window.matchMedia("(max-width: 768px) and (pointer: coarse)").matches;
         instance = new vela.Vela(
           container.current,
           {
             symbol: state.symbol,
             timeframe: state.timeframe,
-            bars: 600,
+            bars: phoneChart ? 300 : 600,
             live: true,
             drawings: { toolbar: false },
             volume: false,
             priceStyle: state.chartType,
             logScale: state.logarithmic,
             theme: chartTheme(useWorkspaceStore.getState().theme),
-            animations: { intro: false, zoom: 100, pan: 80 },
+            animations: phoneChart ? { intro: false, zoom: 0, pan: 0 } : { intro: false, zoom: 100, pan: 80 },
             currentPriceLine: true,
           },
           { dataFeed: trackedFeed.feed },

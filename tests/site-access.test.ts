@@ -7,6 +7,7 @@ import { proxy } from "@/proxy";
 const salt = "a".repeat(32);
 const settings = { passwordHash: `${salt}:${scryptSync("test-password", salt, 64).toString("hex")}`, secret: "b".repeat(64) };
 function configure() {
+  vi.stubEnv("AFFENTRADER_REQUIRE_SITE_PASSWORD", "1");
   vi.stubEnv("AFFENTRADER_SITE_PASSWORD_HASH", settings.passwordHash);
   vi.stubEnv("AFFENTRADER_SITE_SESSION_SECRET", settings.secret);
 }
@@ -14,7 +15,24 @@ function request(path: string, init?: ConstructorParameters<typeof NextRequest>[
 afterEach(() => vi.unstubAllEnvs());
 
 describe("private site access", () => {
-  it("fails closed without valid server configuration", async () => {
+  it("allows direct workspace access without website password by default while keeping account login and same-origin protection", async () => {
+    vi.stubEnv("AFFENTRADER_REQUIRE_SITE_PASSWORD", "");
+    vi.stubEnv("AFFENTRADER_SITE_PASSWORD_HASH", settings.passwordHash);
+    vi.stubEnv("AFFENTRADER_SITE_SESSION_SECRET", settings.secret);
+    const root = await proxy(request("/"));
+    expect(root.headers.get("x-middleware-next")).toBe("1");
+    const loginHtml = await (await proxy(request("/login"))).text();
+    expect(loginHtml).toContain("Konto anmelden");
+    expect(loginHtml).toContain('action="/api/account/login"');
+    expect(loginHtml).not.toContain('action="/login"');
+    const crossWrite = await proxy(request("/api/stock-base", {
+      method: "POST",
+      headers: { origin: "https://foreign.test", "sec-fetch-site": "cross-site" },
+    }));
+    expect(crossWrite.status).toBe(403);
+  });
+  it("fails closed when site password gate is explicitly enabled without valid server configuration", async () => {
+    vi.stubEnv("AFFENTRADER_REQUIRE_SITE_PASSWORD", "1");
     vi.stubEnv("AFFENTRADER_SITE_PASSWORD_HASH", "");
     expect(siteAccessConfig()).toBeNull();
     expect((await proxy(request("/"))).status).toBe(503);

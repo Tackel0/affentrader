@@ -9,19 +9,29 @@ import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
 
 export function useReplayDepthCapture() {
   useEffect(() => {
+    const isPhone = typeof window !== "undefined" && typeof window.matchMedia === "function"
+      && window.matchMedia("(max-width: 768px) and (pointer: coarse)").matches;
     let mounted = true;
     let writing = false;
+    let active = !isPhone || Boolean(replayDepth.recording);
+    let restored = false;
     const pending = new Map<string, StoredDepth>();
     const storageFailed = () => { replayDepth.storageError = "Local depth storage is unavailable. Current captures are held in this tab."; };
-    void replayDepthDb.update([], true).then(rows => {
-      if (!mounted) return;
-      const now = Date.now();
-      for (const row of rows) {
-        if (row.receivedAt > now || row.book?.symbol !== row.symbol || !Array.isArray(row.book.bids) || !Array.isArray(row.book.asks)) continue;
-        replayDepth.restore(row.book, row.receivedAt);
-      }
-      replayDepth.storageError = "";
-    }).catch(storageFailed);
+
+    const loadStored = () => {
+      if (restored) return;
+      restored = true;
+      void replayDepthDb.update([], true).then(rows => {
+        if (!mounted) return;
+        const now = Date.now();
+        for (const row of rows) {
+          if (row.receivedAt > now || row.book?.symbol !== row.symbol || !Array.isArray(row.book.bids) || !Array.isArray(row.book.asks)) continue;
+          replayDepth.restore(row.book, row.receivedAt);
+        }
+        replayDepth.storageError = "";
+      }).catch(storageFailed);
+    };
+    if (active) loadStored();
 
     const flush = async () => {
       if (writing || !pending.size) return;
@@ -38,7 +48,14 @@ export function useReplayDepthCapture() {
         if (!mounted && pending.size) void flush();
       }
     };
+    const offRecord = replayDepth.subscribe(() => {
+      if (!active && replayDepth.recording) {
+        active = true;
+        loadStored();
+      }
+    });
     const off = marketService.onBook(book => {
+      if (!active || !replayDepth.recording) return;
       const state = useChartStore.getState();
       if (state.feedMode !== "auto" || state.symbol !== book.symbol || useWorkspaceStore.getState().replay.active) return;
       const receivedAt = Date.now();
@@ -51,11 +68,12 @@ export function useReplayDepthCapture() {
       });
       if (pending.size > 600) pending.delete(pending.keys().next().value!);
     });
-    const save = () => { void flush(); };
-    const timer = setInterval(save, 2000);
+    const save = () => { if (pending.size) void flush(); };
+    const timer = setInterval(save, isPhone ? 5000 : 2000);
     window.addEventListener("pagehide", save);
     return () => {
       mounted = false;
+      offRecord();
       off();
       clearInterval(timer);
       window.removeEventListener("pagehide", save);

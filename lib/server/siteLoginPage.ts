@@ -19,22 +19,31 @@ function shell(content: string): string {
 </style></head><body><main class="card"><div class="brand">AFFENTERMINAL</div>${content}${legalFooter}${deployment}</main></body></html>`;
 }
 
-export function siteLoginPage(next: string, error = "", mode: SignInMode = "legacy", google = false): string {
-  const signIn = mode === "account";
-  const register = mode === "register";
+export function siteLoginPage(
+  next: string,
+  error = "",
+  mode: SignInMode = "account",
+  google = false,
+  passwordGate = false,
+): string {
+  const effectiveMode: SignInMode = !passwordGate && mode === "legacy" ? "account" : mode;
+  const signIn = effectiveMode === "account";
+  const register = effectiveMode === "register";
   const hidden = `<input type="hidden" name="next" value="${escapeHtml(next)}">`;
   const googleLink = google && !register ? `<a class="action" href="${escapeHtml(`/api/account/google/start?${new URLSearchParams({ next })}`)}">Mit Google anmelden</a>` : "";
   const nav = [
     ...(signIn ? [] : [`<a href="${escapeHtml(signInLink("account", next))}">Konto anmelden</a>`]),
     ...(register ? [] : [`<a href="${escapeHtml(signInLink("register", next))}">Konto erstellen</a>`]),
-    ...(mode === "legacy" ? [] : [`<a href="${escapeHtml(signInLink("legacy", next))}">Website-Passwort</a>`]),
+    ...(passwordGate && effectiveMode !== "legacy" ? [`<a href="${escapeHtml(signInLink("legacy", next))}">Website-Passwort</a>`] : []),
+    ...(!passwordGate ? [`<a href="${escapeHtml(next)}">Ohne Konto weiter</a>`] : []),
   ].join("");
-  const form = mode === "legacy" ? `<p>Öffne den Workspace mit dem Website-Passwort oder nutze dein persönliches Konto.</p>
+  const form = effectiveMode === "legacy" ? `<p>Öffne den Workspace mit dem Website-Passwort oder nutze dein persönliches Konto.</p>
     <form action="/login" method="post">${hidden}<label for="password">Website-Passwort</label><input id="password" name="password" type="password" autocomplete="current-password" maxlength="512" required autofocus><button type="submit">Website öffnen</button></form>`
-    : `<form action="/api/account/${register ? "register" : "login"}" method="post">${hidden}
+    : `<p>${register ? "Erstelle ein kostenloses Konto, um Charts, Watchlists und Layouts automatisch über alle Geräte zu synchronisieren." : "Melde dich mit deinem Konto an, um deinen Workspace über alle Geräte zu synchronisieren."}</p>
+    <form action="/api/account/${register ? "register" : "login"}" method="post">${hidden}
     <label for="email">E-Mail</label><input id="email" name="email" type="email" autocomplete="username" maxlength="254" required autofocus>
-    <label for="password">${register ? "Eigenes Passwort" : "Passwort"}</label><input id="password" name="password" type="password" autocomplete="${register ? "new-password" : "current-password"}" ${register ? 'minlength="10"' : ""} maxlength="512" required>
-    ${register ? '<label for="invite">Website-Passwort zur Freischaltung</label><input id="invite" name="invite" type="password" autocomplete="off" maxlength="512" required>' : ""}
+    <label for="password">${register ? "Eigenes Passwort (mind. 10 Zeichen)" : "Passwort"}</label><input id="password" name="password" type="password" autocomplete="${register ? "new-password" : "current-password"}" ${register ? 'minlength="10"' : ""} maxlength="512" required>
+    ${register && passwordGate ? '<label for="invite">Website-Passwort zur Freischaltung</label><input id="invite" name="invite" type="password" autocomplete="off" maxlength="512" required>' : ""}
     <button type="submit">${register ? "Konto erstellen" : "Anmelden"}</button></form>`;
   return shell(`<h1>${register ? "Konto erstellen" : signIn ? "Konto anmelden" : "Privater Workspace"}</h1>${form}${googleLink}
     ${error ? `<p class="error" role="alert">${escapeHtml(error)}</p>` : ""}<nav aria-label="Anmeldeoptionen">${nav}</nav>
@@ -55,8 +64,8 @@ export function accountOverviewPage(current: { email: string; googleLinked: bool
     <form action="/api/account/sessions" method="post"><button type="submit">Andere Kontositzungen beenden</button></form></details>` : "";
   const message = current && updated === "password" ? "Passwort geändert. Andere Kontositzungen wurden beendet."
     : current && updated === "sessions" ? "Andere Kontositzungen wurden beendet." : "";
-  return shell(`<h1>Konto</h1>${current ? `<p class="email">${escapeHtml(current.email)}</p><p>Dein persönlicher Workspace synchronisiert sich beim Öffnen des Hauptcharts.</p>`
-    : '<p>Du nutzt den Workspace mit dem Website-Passwort. Melde dich an oder erstelle ein persönliches Konto für die geräteübergreifende Synchronisierung.</p><nav><a href="/login?mode=account">Konto anmelden</a><a href="/login?mode=register">Konto erstellen</a></nav>'}
+  return shell(`<h1>Konto</h1>${current ? `<p class="email">${escapeHtml(current.email)}</p><p>Dein persönlicher Workspace synchronisiert sich automatisch über alle Geräte.</p>`
+    : '<p>Du nutzt AffenTerminal aktuell lokal in diesem Browser. Melde dich an oder erstelle ein kostenloses Konto für die automatische Synchronisierung über alle Geräte.</p><nav><a href="/login?mode=account">Konto anmelden</a><a href="/login?mode=register">Konto erstellen</a></nav>'}
     ${connection}${error ? `<p class="error" role="alert">${escapeHtml(error)}</p>` : ""}${message ? `<p role="status">${message}</p>` : ""}${security}<a class="action" href="/">Zum Workspace</a>
-    <form action="/logout" method="post"><button type="submit">Abmelden</button></form>`);
+    ${current ? '<form action="/logout" method="post"><button type="submit">Abmelden</button></form>' : ""}`);
 }

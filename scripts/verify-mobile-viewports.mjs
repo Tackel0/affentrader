@@ -1404,14 +1404,14 @@ async function run() {
       );
     };
 
-    // Step 1: Audit /login across all 4 viewports before authenticating
+    // Step 1: Audit /login (account sign-in) across all 4 viewports
     for (const vp of VIEWPORTS) {
       activeLabel = `${vp.name}:/login`;
       await setViewport(vp);
       await cdp.send("Page.navigate", { url: `${baseUrl}/login` });
       await waitForPagePredicate(
         cdp,
-        'document.readyState === "complete" && !!document.querySelector(\'form[action="/login"] input[name="password"]\')',
+        'document.readyState === "complete" && !!document.querySelector(\'form[action="/api/account/login"] input[name="email"]\')',
         `${vp.name} /login form`,
       );
       await settleUi(cdp, 150);
@@ -1419,45 +1419,24 @@ async function run() {
       recordAudit(vp, "/login", audit);
     }
 
-    // Step 2: Authenticate via the real /login form
-    activeLabel = "auth-login";
-    if (loginPassword) {
-      const submitRes = await cdp.send("Runtime.evaluate", {
-        expression: `(() => {
-          const input = document.querySelector('form[action="/login"] input[name="password"]');
-          const form = document.querySelector('form[action="/login"]');
-          if (!input || !form) return false;
-          input.value = ${JSON.stringify(loginPassword)};
-          form.submit();
-          return true;
-        })()`,
-        returnByValue: true,
-      });
-      if (submitRes?.result?.value !== true) {
-        throw new Error("Failed to locate /login password form for authentication.");
-      }
-      await waitForPagePredicate(
-        cdp,
-        'window.location.pathname === "/" && document.readyState === "complete"',
-        "post-login redirect to /",
-      );
-    }
+    // Step 2: Open workspace directly without website password
+    activeLabel = "open-workspace";
+    await cdp.send("Page.navigate", { url: `${baseUrl}/` });
+    await waitForPagePredicate(
+      cdp,
+      'window.location.pathname === "/" && document.readyState === "complete" && !!document.querySelector(".trading-app")',
+      "direct workspace access on /",
+    );
     if (externalSessionLink) {
       activeLabel = "mobile session resume";
       await setViewport(VIEWPORTS[0]);
-      const { cookies } = await cdp.send("Network.getCookies", { urls: [baseUrl] });
-      const session = cookies.find(cookie => cookie.name === "affentrader-site-session");
-      if (!session?.httpOnly || session.session || session.sameSite !== "Lax"
-        || session.expires < Date.now() / 1000 + 29 * 86400) {
-        throw new Error("The browser did not retain a persistent, HttpOnly, 30-day Lax session");
-      }
       const destination = `${baseUrl}/terminal?view=opps`;
       await cdp.send("Page.navigate", { url: externalSessionLink });
       await waitForPagePredicate(cdp, `document.querySelector('a')?.href === ${JSON.stringify(destination)}`, "external terminal link");
       await cdp.send("Runtime.evaluate", { expression: 'document.querySelector("a").click()', userGesture: true });
-      await waitForPagePredicate(cdp, `location.href === ${JSON.stringify(destination)} && !!document.querySelector(".affen-window-shell")`, "external link resumes the workspace session");
+      await waitForPagePredicate(cdp, `location.href === ${JSON.stringify(destination)} && !!document.querySelector(".affen-window-shell")`, "external link opens the workspace");
       await cdp.send("Page.reload");
-      await waitForPagePredicate(cdp, `location.href === ${JSON.stringify(destination)} && !!document.querySelector(".affen-window-shell")`, "reload resumes the workspace session");
+      await waitForPagePredicate(cdp, `location.href === ${JSON.stringify(destination)} && !!document.querySelector(".affen-window-shell")`, "reload keeps the workspace open");
       sessionResumeChecked = true;
     }
 
@@ -2098,10 +2077,8 @@ async function run() {
         const url = new URL(shortcut.url, baseUrl);
         if (url.origin !== baseUrl) throw new Error(`PWA shortcut for ${name} must remain on this site`);
         const unauthenticated = await fetch(url, { redirect: "manual" });
-        const redirect = new URL(unauthenticated.headers.get("location") ?? "/", baseUrl);
-        if (unauthenticated.status !== 303 || redirect.pathname !== "/login"
-          || redirect.searchParams.get("next") !== url.pathname + url.search) {
-          throw new Error(`The login gate did not retain the ${name} shortcut destination`);
+        if (unauthenticated.status !== 200) {
+          throw new Error(`Expected open PWA shortcut ${name} to return 200, received ${unauthenticated.status}`);
         }
         await unauthenticated.body?.cancel();
         await cdp.send("Page.navigate", { url: url.href });
@@ -2241,24 +2218,12 @@ async function run() {
       activeLabel = "offline navigation";
       await setViewport(VIEWPORTS[0]);
       await waitForPagePredicate(cdp, "!!navigator.serviceWorker.controller", "active service worker");
-      await cdp.send("Runtime.evaluate", { expression: `(() => {
-        const form = Object.assign(document.createElement("form"), { method: "post", action: "/logout" });
-        document.body.append(form);
-        form.submit();
-      })()` });
-      await waitForPagePredicate(cdp, 'location.pathname === "/login"', "same-origin logout clears the session");
-      await cdp.send("Page.navigate", { url: `${baseUrl}/terminal?view=opps` });
-      await waitForPagePredicate(
-        cdp,
-        `location.pathname === "/login" && !!document.querySelector('form[action="/login"]')`,
-        "online navigation still requires login",
-      );
       activeLabel = "personal workspace synchronization";
       const accountPassword = randomBytes(16).toString("hex");
       const accountEmail = "viewport-account@example.test";
       const registration = await fetch(`${baseUrl}/api/account/register`, {
         method: "POST", redirect: "manual", headers: { origin: baseUrl },
-        body: new URLSearchParams({ email: accountEmail, password: accountPassword, invite: loginPassword }),
+        body: new URLSearchParams({ email: accountEmail, password: accountPassword }),
       });
       if (registration.status !== 303) throw new Error(`Account registration returned HTTP ${registration.status}`);
       const cookies = registration.headers.getSetCookie().map(line => line.split(";", 1)[0]);
@@ -2310,7 +2275,7 @@ async function run() {
         document.body.append(form);
         form.submit();
       })()` });
-      await waitForPagePredicate(cdp, 'location.pathname === "/login" && !document.cookie.includes("affentrader-workspace-profile=")', "account logout clears the active workspace profile");
+      await waitForPagePredicate(cdp, 'location.pathname === "/" && !document.cookie.includes("affentrader-workspace-profile=")', "account logout clears the active workspace profile");
       activeLabel = "offline navigation";
       if (serverProc.exitCode === null && serverProc.signalCode === null) {
         const stopped = once(serverProc, "exit", { signal: AbortSignal.timeout(8_000) });

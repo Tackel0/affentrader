@@ -76,16 +76,30 @@ type CloseListener = (
 /** Above this many quote-only symbols one all-market ticker stream is cheaper. */
 const INDIVIDUAL_TICKER_LIMIT = 150;
 const TRADE_WINDOW_SIZE = 5000;
+const MOBILE_TRADE_WINDOW_SIZE = 600;
+const MOBILE_TRADE_DISPLAY_MS = 250;
+const MOBILE_QUOTE_FLUSH_MS = 350;
+const MOBILE_BOOK_FLUSH_MS = 250;
+
+function isCompactTouchRuntime(): boolean {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+  return window.matchMedia("(max-width: 768px) and (pointer: coarse)").matches;
+}
 
 /** Retain raw observations for tick subscribers and materialize a newest-first tape only when read. */
 class RecentTrades {
   private entries: Tick[] = [];
   private next = 0;
   private cached: Tick[] | undefined;
+  private readonly capacity: number;
+
+  constructor(capacity = isCompactTouchRuntime() ? MOBILE_TRADE_WINDOW_SIZE : TRADE_WINDOW_SIZE) {
+    this.capacity = capacity;
+  }
 
   push(tick: Tick) {
     this.entries[this.next] = tick;
-    this.next = (this.next + 1) % TRADE_WINDOW_SIZE;
+    this.next = (this.next + 1) % this.capacity;
     this.cached = undefined;
   }
 
@@ -94,7 +108,7 @@ class RecentTrades {
     const newest = new Array<Tick>(this.entries.length);
     let cursor = this.next;
     for (let index = 0; index < newest.length; index++) {
-      cursor = cursor > 0 ? cursor - 1 : TRADE_WINDOW_SIZE - 1;
+      cursor = cursor > 0 ? cursor - 1 : this.capacity - 1;
       newest[index] = this.entries[cursor];
     }
     this.cached = newest;
@@ -289,6 +303,62 @@ export class MarketService {
   tradesFor(symbol: string): Tick[] {
     return (this.tradesBySymbol.get(symbol) ?? this.tradesBySymbol.get(stripVenue(symbol)))?.snapshot() ?? [];
   }
+  private lastTradeDisplayAt = 0;
+  private deferredQuotes = new Map<string, Quote>();
+  private deferredQuoteTimer: ReturnType<typeof setTimeout> | null = null;
+  private deferredBook: OrderBook | null = null;
+  private deferredBookTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastBookFlushAt = 0;
+
+  private flushDeferredQuotes(epoch: number) {
+    this.deferredQuoteTimer = null;
+    if (epoch !== this.generation || !this.deferredQuotes.size) {
+      this.deferredQuotes.clear();
+      return;
+    }
+    const items = [...this.deferredQuotes.values()];
+    this.deferredQuotes.clear();
+    if (typeof document !== "undefined" && document.hidden) return;
+    const next = { ...useChartStore.getState().quotes };
+    for (const quote of items) next[quote.symbol] = quote;
+    useChartStore.getState().set({ quotes: next });
+    for (const quote of items) {
+      if (epoch !== this.generation || !this.publish("quote", this.quoteListeners, quote)) break;
+    }
+  }
+
+  private setStoreOrderBook(book: OrderBook, epoch: number) {
+    if (epoch !== this.generation) return;
+    const state = useChartStore.getState();
+    if (state.symbol !== book.symbol) return;
+    if (!isCompactTouchRuntime()) {
+      state.set({ orderBook: book });
+      return;
+    }
+    if (typeof document !== "undefined" && document.hidden) return;
+    const needsBookUi = state.bottomOpen && (state.bottomTab === "orderflow" || state.bottomTab === "dom");
+    if (!needsBookUi) return;
+    const now = Date.now();
+    if (now - this.lastBookFlushAt >= MOBILE_BOOK_FLUSH_MS && !this.deferredBookTimer) {
+      this.lastBookFlushAt = now;
+      state.set({ orderBook: book });
+      return;
+    }
+    this.deferredBook = book;
+    if (!this.deferredBookTimer) {
+      this.deferredBookTimer = setTimeout(() => {
+        this.deferredBookTimer = null;
+        const queued = this.deferredBook;
+        this.deferredBook = null;
+        if (!queued || epoch !== this.generation) return;
+        const current = useChartStore.getState();
+        if (current.symbol !== queued.symbol) return;
+        this.lastBookFlushAt = Date.now();
+        current.set({ orderBook: queued });
+      }, MOBILE_BOOK_FLUSH_MS);
+    }
+  }
+
   private scheduleDisplay(symbol: string, timeframe: string, epoch: number, candles?: OHLCV[]) {
     if (this.displayFrame) {
       const pending = this.displayFrame;
@@ -305,13 +375,19 @@ export class MarketService {
       this.displayFrame = null;
       const state = useChartStore.getState();
       if (epoch !== this.generation || state.symbol !== pending.symbol) return;
-      const trades = this.tradesFor(pending.symbol);
+      if (typeof document !== "undefined" && document.hidden && isCompactTouchRuntime()) return;
+      const mobile = isCompactTouchRuntime();
+      const now = Date.now();
+      const needsTape = !mobile || (state.bottomOpen && (state.bottomTab === "orderflow" || state.bottomTab === "dom"));
+      const refreshTrades = needsTape && (!mobile || now - this.lastTradeDisplayAt >= MOBILE_TRADE_DISPLAY_MS);
+      const trades = refreshTrades ? this.tradesFor(pending.symbol) : state.trades;
+      if (refreshTrades) this.lastTradeDisplayAt = now;
       const candles = pending.candles;
       // A market change or a history repair may supersede the queued candle.
       const currentCandles = pending.timeframe === state.timeframe && candles !== state.candles &&
         candles === this.barsFor(pending.symbol, pending.timeframe) ? candles : undefined;
       if (trades !== state.trades || currentCandles) {
-        state.set({ trades, ...(currentCandles ? { candles: currentCandles } : {}) });
+        state.set({ ...(trades !== state.trades ? { trades } : {}), ...(currentCandles ? { candles: currentCandles } : {}) });
       }
     });
     this.displayFrame = pending;
@@ -508,6 +584,16 @@ export class MarketService {
       globalThis.cancelAnimationFrame?.(this.displayFrame.id);
       this.displayFrame = null;
     }
+    if (this.deferredQuoteTimer) {
+      clearTimeout(this.deferredQuoteTimer);
+      this.deferredQuoteTimer = null;
+    }
+    this.deferredQuotes.clear();
+    if (this.deferredBookTimer) {
+      clearTimeout(this.deferredBookTimer);
+      this.deferredBookTimer = null;
+    }
+    this.deferredBook = null;
     this.hlQueue = [];
     this.hlDraining = false;
     clearTimeout(this.hlDrainTimer);
@@ -1068,7 +1154,7 @@ export class MarketService {
         this.lastTraffic = now;
         const book = { symbol, ...depth, time: now, simulated: false };
         if (!this.publish("book", this.bookListeners, book)) return;
-        if (isCurrent() && symbol === useChartStore.getState().symbol) useChartStore.getState().set({ orderBook: book });
+        if (isCurrent()) this.setStoreOrderBook(book, epoch);
       }
     };
     socket.onerror = () => socket.close();
@@ -1261,7 +1347,7 @@ export class MarketService {
             this.hlLastTraffic = now;
             const snapshot:OrderBook={symbol,bids:book.bids,asks:book.asks,time:book.time,simulated:false};
             if (!this.publish("book", this.bookListeners, snapshot)) return;
-            if(symbol===useChartStore.getState().symbol)useChartStore.getState().set({orderBook:snapshot});
+            this.setStoreOrderBook(snapshot, epoch);
           }
         }
       } catch (error) {
@@ -1766,6 +1852,11 @@ export class MarketService {
       this.quoteBatch[symbol] = quote;
       this.batchedEvents.push(quote);
       if (markLive) state.set({ feedStatus: "live" });
+    } else if (isCompactTouchRuntime() && symbol !== state.symbol && !simulated) {
+      this.deferredQuotes.set(symbol, quote);
+      if (!this.deferredQuoteTimer) {
+        this.deferredQuoteTimer = setTimeout(() => this.flushDeferredQuotes(epoch), MOBILE_QUOTE_FLUSH_MS);
+      }
     } else {
       state.set({
         quotes: { ...state.quotes, [symbol]: quote },

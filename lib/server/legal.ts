@@ -246,10 +246,10 @@ ${renderContactBlock(op)}
 <h2>2. Hosting &amp; Server-Logfiles</h2>
 <p>Diese Web-Anwendung wird über <strong>Microsoft Azure Container Apps</strong> (Rechenzentrumsregion <em>Germany West Central</em>, Frankfurt am Main, Deutschland) betrieben. Beim Aufruf der Seiten werden technisch erforderliche Verbindungsdaten (u. a. IP-Adresse, Zeitpunkt des Zugriffs, aufgerufener Pfad, HTTP-Statuscode, Browser-Typ) kurzzeitig in Server- und Plattformprotokollen verarbeitet, um den sicheren und stabilen Betrieb sowie die Abwehr von Missbrauch sicherzustellen. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse an der technischen Sicherheit und Verfügbarkeit).</p>
 
-<h2>3. Zugangsschutz, Benutzerkonten &amp; technisch notwendige Cookies</h2>
-<p>AffenTerminal verwendet ausschließlich technisch notwendige Cookies (§ 25 Abs. 2 Nr. 2 TDDDG), um deine Anmeldesitzung und dein aktives Workspace-Profil bereitzustellen (<code>affentrader_site</code>, <code>affentrader_account</code>, <code>affentrader_profile</code>). Es werden keine Werbe-, Tracking- oder Analyse-Cookies von Drittanbietern eingesetzt.</p>
+<h2>3. Benutzerkonten &amp; technisch notwendige Cookies</h2>
+<p>AffenTerminal kann ohne Registrierung genutzt werden. Bei Nutzung eines persönlichen Kontos verwenden wir ausschließlich technisch notwendige Cookies (§ 25 Abs. 2 Nr. 2 TDDDG), um deine Anmeldesitzung und dein aktives Workspace-Profil bereitzustellen (<code>affentrader-account-session</code>, <code>affentrader-workspace-profile</code>). Es werden keine Werbe-, Tracking- oder Analyse-Cookies von Drittanbietern eingesetzt.</p>
 <ul>
-  <li><strong>Privater Zugang (Website-Passwort):</strong> Es wird lediglich ein signiertes, HttpOnly-geschütztes Sitzungs-Cookie gesetzt.</li>
+  <li><strong>Nutzung ohne Konto:</strong> Deine Einstellungen bleiben rein lokal in deinem Browser gespeichert; es werden keine Kontodaten auf dem Server angelegt.</li>
   <li><strong>Persönliches Konto (optional):</strong> Wenn du ein Konto erstellst, verarbeiten wir deine E-Mail-Adresse, ein sicher gehashtes Passwort (scrypt) sowie deine gespeicherten Workspace-Einstellungen zur geräteübergreifenden Synchronisierung (Art. 6 Abs. 1 lit. b DSGVO).</li>
   <li><strong>Anmeldung mit Google (optional):</strong> Sofern aktiviert und von dir ausdrücklich gewählt, erfolgt die Authentifizierung über Google OAuth (Google Ireland Limited / Google LLC). Dabei wird deine Google-Konto-ID und E-Mail-Adresse zur Konto-Zuordnung verarbeitet (Art. 6 Abs. 1 lit. b DSGVO).</li>
 </ul>

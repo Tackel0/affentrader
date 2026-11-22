@@ -23,7 +23,7 @@ import { browserAlertOwner, editAlerts } from "@/lib/alerts/browserOwnership";
 import { useAlpacaStore } from "@/stores/useAlpacaStore";
 import { useTradeRecorder } from "./useTradeRecorder";
 import { useReplayDepthCapture } from "./useReplayDepthCapture";
-export function useMarketData() {
+export function useMarketData(options?: { watchQuotesActive?: boolean; phoneMode?: boolean }) {
   useTradeRecorder();
   useReplayDepthCapture();
   const role = useAlertOwnership();
@@ -48,7 +48,11 @@ export function useMarketData() {
     layout = useWorkspaceStore((s) => s.layout);
   const visible = cells.slice(0, LAYOUTS.find((l) => l.id === layout)!.count);
   const ruleMarkets = ruleMarketSubscriptions(rules);
-  const quotedLists = lists.filter(list => list.id !== LIQUID_MARKETS_ID || list.id === activeListId);
+  const phoneMode = Boolean(options?.phoneMode);
+  const watchQuotesActive = options?.watchQuotesActive ?? true;
+  const quotedLists = phoneMode
+    ? (watchQuotesActive ? lists.filter(list => list.id === activeListId) : [])
+    : lists.filter(list => list.id !== LIQUID_MARKETS_ID || list.id === activeListId);
   const symbolsKey = [
     ...new Set([
       symbol,
@@ -61,14 +65,19 @@ export function useMarketData() {
   ]
     .sort()
     .join(",");
-  const quoteKey = [
+  const rawQuoteSymbols = [
     ...new Set([...quotedLists.flatMap((l) => l.symbols).filter((s) => !s.startsWith("###")), ...ruleMarkets.quotes]),
-  ]
+  ];
+  const quoteKey = (phoneMode ? rawQuoteSymbols.slice(0, 80) : rawQuoteSymbols)
     .sort()
     .join(",");
-  const quotePriority = [...new Set([...visibleWatchSymbols, ...(lists.find(list => list.id === activeListId)?.symbols ?? [])])]
-    .filter(symbol => symbol.startsWith("HL:") || symbol.startsWith("IEX:") || symbol.startsWith("BYBIT:") ||
-      (activeListId === LIQUID_MARKETS_ID && symbol.startsWith("YF:"))).slice(0, 150).join(",");
+  const quotePriority = (phoneMode && !watchQuotesActive
+    ? []
+    : [...new Set([...visibleWatchSymbols, ...(lists.find(list => list.id === activeListId)?.symbols ?? [])])]
+        .filter(symbol => symbol.startsWith("HL:") || symbol.startsWith("IEX:") || symbol.startsWith("BYBIT:") ||
+          (activeListId === LIQUID_MARKETS_ID && symbol.startsWith("YF:")))
+        .slice(0, phoneMode ? 50 : 150)
+  ).join(",");
   useEffect(() => {
     marketService.start(
       symbolsKey.split(","),

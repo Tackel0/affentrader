@@ -95,13 +95,11 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
   const recordingFailed = useTradeArchiveStore(state => Boolean(state.status.error));
   const iexStatus = useAlpacaStore(s => s.status);
   const alpacaEnabled = useAlpacaStore(s => s.enabled);
-  useMarketData();
-  useChartToolHotkeys();
-  useSync();
-  useWindowLink();
   const symbol = useChartStore((s) => s.symbol),
     status = useChartStore((s) => s.feedStatus),
-    sidebar = useChartStore((s) => s.sidebarTab);
+    sidebar = useChartStore((s) => s.sidebarTab),
+    bottomOpen = useChartStore((s) => s.bottomOpen),
+    bottomTab = useChartStore((s) => s.bottomTab);
   const theme = useWorkspaceStore((s) => s.theme);
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -115,6 +113,13 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
   const [tabletLayout, setTabletLayout] = useState(() => window.matchMedia(TABLET_WORKSPACE_QUERY).matches);
   const [drawingToolsOpen, setDrawingToolsOpen] = useState(false);
   const [phoneTradingOpen, setPhoneTradingOpen] = useState(false);
+  useMarketData({
+    phoneMode: phoneChart,
+    watchQuotesActive: !phoneChart || (sidebarOpen && sidebar === "watchlist") || (bottomOpen && bottomTab === "heatmap"),
+  });
+  useChartToolHotkeys();
+  useSync();
+  useWindowLink();
   useEffect(() => {
     const query = window.matchMedia(PHONE_CHART_QUERY);
     const tablet = window.matchMedia(TABLET_WORKSPACE_QUERY);

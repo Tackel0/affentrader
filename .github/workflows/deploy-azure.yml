@@ -306,6 +306,7 @@ jobs:
           OK=0
           for attempt in $(seq 1 24); do
             HEALTH_CODE=$(curl -sS --max-time 15 -o /tmp/live-health.json -w "%{http_code}" "${LIVE_BASE}/api/health" || echo "000")
+            ROOT_CODE=$(curl -sS --max-time 15 -o /dev/null -w "%{http_code}" "${LIVE_BASE}/" || echo "000")
             LOGIN_CODE=$(curl -sS --max-time 15 -o /tmp/live-login.html -w "%{http_code}" "${LIVE_BASE}/login" || echo "000")
             ACCOUNT_CODE=$(curl -sS --max-time 15 -o /tmp/live-account.html -w "%{http_code}" "${LIVE_BASE}/login?mode=account" || echo "000")
             REGISTER_CODE=$(curl -sS --max-time 15 -o /tmp/live-register.html -w "%{http_code}" "${LIVE_BASE}/login?mode=register" || echo "000")
@@ -332,6 +333,7 @@ jobs:
             fi
             if [ "$HEALTH_CODE" = "200" ] && grep -q '"ok":true' /tmp/live-health.json \
               && grep -Fq "\"revision\":\"${APP_NAME}--${SUFFIX}\"" /tmp/live-health.json \
+              && [ "$ROOT_CODE" = "200" ] \
               && [ "$LOGIN_CODE" = "200" ] && [ "$MANIFEST_CODE" = "200" ] && [ "$ICON_CODE" = "200" ] && [ "$SW_CODE" = "200" ] \
               && [ "$IMPRESSUM_CODE" = "200" ] && [ "$RISK_CODE" = "200" ] && [ "$PRIVACY_CODE" = "200" ] && [ "$IMPRESSUM_OK" -eq 1 ] \
               && [ "$ACCOUNT_CODE" = "200" ] && grep -Fq 'action="/api/account/login"' /tmp/live-account.html \
@@ -342,7 +344,7 @@ jobs:
               OK=1
               break
             fi
-            echo "Attempt ${attempt}/24: health=${HEALTH_CODE} login=${LOGIN_CODE} impressum=${IMPRESSUM_CODE} risk=${RISK_CODE} privacy=${PRIVACY_CODE} account=${ACCOUNT_CODE} register=${REGISTER_CODE} manifest=${MANIFEST_CODE} icon=${ICON_CODE} sw=${SW_CODE} (waiting for ${EXPECTED_ISO})"
+            echo "Attempt ${attempt}/24: health=${HEALTH_CODE} root=${ROOT_CODE} login=${LOGIN_CODE} impressum=${IMPRESSUM_CODE} risk=${RISK_CODE} privacy=${PRIVACY_CODE} account=${ACCOUNT_CODE} register=${REGISTER_CODE} manifest=${MANIFEST_CODE} icon=${ICON_CODE} sw=${SW_CODE} (waiting for ${EXPECTED_ISO})"
             sleep 5
           done
           rm -f /tmp/live-login.html /tmp/live-account.html /tmp/live-register.html /tmp/live-health.json /tmp/live-impressum.html

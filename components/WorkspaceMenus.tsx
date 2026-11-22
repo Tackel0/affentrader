@@ -128,7 +128,9 @@ export function MainMenu({
           <hr />
           <button onClick={() => { useAlpacaStore.setState({ open: true }); setOpen(false); }}><Cloud size={16}/>Market data connections…</button>
           <button onClick={() => { useTradeArchiveStore.setState({ open: true }); setOpen(false); }}><Download size={16}/>Local orderflow archive…</button>
-          <form action="/logout" method="post"><button type="submit"><LockKeyhole size={16}/>Website sperren / Abmelden</button></form>
+          {hasPersonalAccount ? (
+            <form action="/logout" method="post"><button type="submit"><LockKeyhole size={16}/>Abmelden</button></form>
+          ) : null}
           <button
             onClick={() => {
               onExport();

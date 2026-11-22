@@ -23,7 +23,7 @@ export function StockBaseChart({ row }: { row: ChartRow }) {
     const context = canvas.getContext("2d");
     if (!context) return;
     const draw = () => {
-      const width = canvas.clientWidth, height = canvas.clientHeight, ratio = window.devicePixelRatio || 1;
+      const width = canvas.clientWidth, height = canvas.clientHeight, ratio = Math.min(window.devicePixelRatio || 1, 2);
       if (width < 100 || height < 50) return;
       canvas.width = Math.round(width * ratio);
       canvas.height = Math.round(height * ratio);

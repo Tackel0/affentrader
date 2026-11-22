@@ -78,6 +78,7 @@ const settings = {
 };
 
 function stubSiteAccessEnv() {
+  vi.stubEnv("AFFENTRADER_REQUIRE_SITE_PASSWORD", "1");
   vi.stubEnv("AFFENTRADER_SITE_PASSWORD_HASH", settings.passwordHash);
   vi.stubEnv("AFFENTRADER_SITE_SESSION_SECRET", settings.secret);
 }

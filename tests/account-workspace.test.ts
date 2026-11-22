@@ -39,7 +39,7 @@ afterEach(async () => {
 });
 
 async function create(email: string) {
-  const response = await register(post("/api/account/register", { email, invite, password }));
+  const response = await register(post("/api/account/register", { email, password }));
   expect(response.status).toBe(303);
   const token = response.cookies.get(ACCOUNT_COOKIE)!.value;
   const profile = response.cookies.get(ACCOUNT_SCOPE_COOKIE)!.value;
@@ -47,11 +47,13 @@ async function create(email: string) {
 }
 
 describe("personal workspaces", () => {
-  it("protects invitation signup, logs in with a normalized address and revokes the session on logout", async () => {
-    expect((await register(post("/api/account/register", { email: "test@example.com", password, invite }, "https://other.example"))).status).toBe(403);
+  it("allows open signup without website password, enforces invite only when gated, and revokes sessions on logout", async () => {
+    expect((await register(post("/api/account/register", { email: "test@example.com", password }, "https://other.example"))).status).toBe(403);
+    vi.stubEnv("AFFENTRADER_REQUIRE_SITE_PASSWORD", "1");
     expect((await register(post("/api/account/register", { email: "test@example.com", password, invite: "wrong" }))).status).toBe(403);
+    vi.stubEnv("AFFENTRADER_REQUIRE_SITE_PASSWORD", "");
     const first = await create("Test@example.com");
-    expect((await register(post("/api/account/register", { email: "test@example.com", password, invite }))).status).toBe(409);
+    expect((await register(post("/api/account/register", { email: "test@example.com", password }))).status).toBe(409);
     expect((await signIn(post("/api/account/login", { email: "test@example.com", password: "incorrect" }))).status).toBe(401);
     const login = await signIn(post("/api/account/login", { email: "TEST@example.com", password, next: "//elsewhere.example" }));
     expect(login.status).toBe(303);

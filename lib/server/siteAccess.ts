@@ -5,6 +5,19 @@ export const SESSION_DAYS = 30;
 export const SESSION_SECONDS = SESSION_DAYS * 24 * 60 * 60;
 export interface SiteAccessConfig { passwordHash: string; secret: string }
 
+export function sitePasswordRequired(): boolean {
+  return process.env.AFFENTRADER_REQUIRE_SITE_PASSWORD === "1";
+}
+
+let fallbackSessionSecret: string | null = null;
+
+export function siteSessionSecret(): string {
+  const configured = process.env.AFFENTRADER_SITE_SESSION_SECRET ?? "";
+  if (/^[a-f0-9]{64,}$/.test(configured)) return configured;
+  fallbackSessionSecret ??= randomBytes(32).toString("hex");
+  return fallbackSessionSecret;
+}
+
 export function siteAccessConfig(): SiteAccessConfig | null {
   const passwordHash = process.env.AFFENTRADER_SITE_PASSWORD_HASH ?? "";
   const secret = process.env.AFFENTRADER_SITE_SESSION_SECRET ?? "";

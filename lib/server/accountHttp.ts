@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { ACCOUNT_SCOPE_COOKIE } from "@/lib/accountScope";
 import { ACCOUNT_COOKIE, AccountError, changeAccountPassword, createAccountSession, createPasswordAccount, loginPasswordAccount, readAccountSession, revokeAccountSession, revokeOtherAccountSessions, type Account } from "./accounts";
 import { isSameOriginRequest } from "./security";
-import { matchesSitePassword, safeReturnPath, SESSION_SECONDS, SITE_COOKIE, siteAccessConfig, takeLoginAttempt } from "./siteAccess";
+import { matchesSitePassword, safeReturnPath, SESSION_SECONDS, SITE_COOKIE, siteAccessConfig, sitePasswordRequired, takeLoginAttempt } from "./siteAccess";
 import { accountOverviewPage, siteLoginPage, type SignInMode } from "./siteLoginPage";
 
 export const accountHeaders = {
@@ -82,9 +82,10 @@ async function readAccountForm(request: NextRequest) {
 
 export async function passwordAccountForm(request: NextRequest, mode: Extract<SignInMode, "account" | "register">) {
   let next = "/";
-  const failure = (status: number, message: string) => accountHtml(siteLoginPage(next, message, mode, Boolean(googleSettings())), status);
-  const config = siteAccessConfig();
-  if (!config) return failure(503, "Der Workspace-Zugang ist noch nicht eingerichtet.");
+  const passwordGate = sitePasswordRequired();
+  const failure = (status: number, message: string) => accountHtml(siteLoginPage(next, message, mode, Boolean(googleSettings()), passwordGate), status);
+  const config = passwordGate ? siteAccessConfig() : null;
+  if (passwordGate && !config) return failure(503, "Der Workspace-Zugang ist noch nicht eingerichtet.");
   if (!isSameOriginRequest(request, { allowMissingOrigin: false, fallbackHost: request.nextUrl.host })) return failure(403, "Öffne die Anmeldung auf diesem Workspace erneut.");
   if (!takeLoginAttempt()) return failure(429, "Zu viele Anmeldeversuche. Bitte warte eine Minute.");
   try {
@@ -92,7 +93,9 @@ export async function passwordAccountForm(request: NextRequest, mode: Extract<Si
     next = safeReturnPath(form.get("next"));
     const email = form.get("email") ?? "", password = form.get("password") ?? "";
     if (mode === "register") {
-      if (!await matchesSitePassword(form.get("invite") ?? "", config)) return failure(403, "Das Website-Passwort zur Freischaltung ist ungültig.");
+      if (passwordGate && config && !await matchesSitePassword(form.get("invite") ?? "", config)) {
+        return failure(403, "Das Website-Passwort zur Freischaltung ist ungültig.");
+      }
       return await accountSignInResponse(request, await createPasswordAccount(email, password), next);
     }
     const session = await loginPasswordAccount(email, password);

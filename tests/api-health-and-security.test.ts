@@ -111,8 +111,11 @@ describe("/api/health & proxy hardening", () => {
     // Unauthenticated health probe (with or without bogus key header) must not materialize .data/access-key.txt
     await expect(access(path.join(tempDir, "access-key.txt"))).rejects.toThrow();
 
-    // POST /api/health remains auth-gated
+    // Cross-origin POST /api/health is rejected in open mode, and returns 401 when site password gate is enabled
+    expect((await proxy(new NextRequest("http://localhost:3000/api/health", { method: "POST", headers: { origin: "https://evil.example" } }))).status).toBe(403);
+    vi.stubEnv("AFFENTRADER_REQUIRE_SITE_PASSWORD", "1");
     expect((await proxy(new NextRequest("http://localhost:3000/api/health", { method: "POST" }))).status).toBe(401);
+    vi.stubEnv("AFFENTRADER_REQUIRE_SITE_PASSWORD", "");
   });
 
   it("allows GET /api/health even when site access env vars are unset", async () => {
