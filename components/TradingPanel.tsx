@@ -7,6 +7,7 @@ import {OrderModification} from "./OrderModification";
 import {OrderExitLevelsDialog} from "./OrderExitLevelsDialog";
 import {OrderPresetControls} from "./OrderPresets";
 import {PositionActions} from "./PositionActions";
+import { AssetBadge } from "./ui";
 import { X } from "lucide-react";
 import { useChartStore } from "@/stores/useChartStore";
 import { activeAccount, usePaperStore, type Ticket } from "@/stores/usePaperStore";
@@ -135,7 +136,7 @@ function OrderTicket() {
       }}
     >
       <div className="ticket-heading">
-        <strong>{symbolLabel(symbol)}</strong>
+        <strong className="asset-inline"><AssetBadge symbol={symbol} size="xs" />{symbolLabel(symbol)}</strong>
         <span className="mono">{price ? formatPrice(price) : "—"}</span>
         <span className={`mode-badge ${mode}`}>{mode === "replay" ? "REPLAY ACCOUNT" : "PAPER"}</span>
       </div>
@@ -274,7 +275,8 @@ function PositionsTable({ account }: { account: Account }) {
           return (
             <tr key={p.symbol}>
               <td>
-                <button className="link-button" onClick={() => useChartStore.getState().set({ symbol: p.symbol })}>
+                <button className="link-button asset-inline" onClick={() => useChartStore.getState().set({ symbol: p.symbol })}>
+                  <AssetBadge symbol={p.symbol} size="xs" />
                   {symbolLabel(p.symbol)}
                 </button>
               </td>
@@ -320,7 +322,7 @@ function OrdersTable({ orders, working }: { orders: Order[]; working: boolean })
         {rows.map((o) => (
           <tr key={o.id}>
             <td className="mono">{new Date(o.createdAt).toLocaleTimeString()}</td>
-            <td>{symbolLabel(o.symbol)}</td>
+            <td><span className="asset-inline"><AssetBadge symbol={o.symbol} size="xs" />{symbolLabel(o.symbol)}</span></td>
             <td className={o.side === "buy" ? "positive" : "negative"}>{o.side}</td>
             <td>{o.type.replace("_", " ")}{o.reduceOnly ? " · reduce" : ""}</td>
             <td className="mono">{o.quantity}</td>

@@ -1,13 +1,16 @@
 "use client";
 import {
+  memo,
   useEffect,
   useId,
   useRef,
+  useState,
   type ReactNode,
   type ButtonHTMLAttributes,
 } from "react";
 import { X } from "lucide-react";
 import { getSymbol } from "@/lib/symbols";
+import { assetIconUrl } from "@/lib/assetIcon";
 export function IconButton({
   label,
   children,
@@ -111,33 +114,66 @@ export function Modal({
     </div>
   );
 }
-export function AssetBadge({
+const loadedAssetIcons = new Set<string>();
+const failedAssetIcons = new Set<string>();
+
+export const AssetBadge = memo(function AssetBadge({
   symbol,
   size = "small",
 }: {
   symbol: string;
-  size?: "small" | "large";
+  size?: "xs" | "small" | "large";
 }) {
   const asset = getSymbol(symbol);
+  const src = assetIconUrl(symbol);
+  const [state, setState] = useState<"idle" | "loaded" | "error">(() =>
+    loadedAssetIcons.has(src) ? "loaded" : failedAssetIcons.has(src) ? "error" : "idle",
+  );
+  useEffect(() => {
+    setState(loadedAssetIcons.has(src) ? "loaded" : failedAssetIcons.has(src) ? "error" : "idle");
+  }, [src]);
+  const fallback =
+    asset.base === "BTC"
+      ? "₿"
+      : asset.base === "ETH"
+        ? "Ξ"
+        : asset.base === "SOL"
+          ? "≋"
+          : asset.base.slice(0, 1);
   return (
     <span
-      className={`asset-badge ${size}`}
+      className={`asset-badge ${size}${state === "loaded" ? " has-image" : ""}`}
       style={{
         background: `${asset.color}1b`,
         color: asset.color,
         borderColor: `${asset.color}35`,
       }}
     >
-      {asset.base === "BTC"
-        ? "₿"
-        : asset.base === "ETH"
-          ? "Ξ"
-          : asset.base === "SOL"
-            ? "≋"
-            : asset.base.slice(0, 1)}
+      <span className="asset-badge-fallback" aria-hidden="true">{fallback}</span>
+      {state !== "error" ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          key={src}
+          src={src}
+          alt=""
+          aria-hidden="true"
+          className="asset-badge-img"
+          loading="lazy"
+          decoding="async"
+          draggable={false}
+          onLoad={() => {
+            loadedAssetIcons.add(src);
+            setState("loaded");
+          }}
+          onError={() => {
+            failedAssetIcons.add(src);
+            setState("error");
+          }}
+        />
+      ) : null}
     </span>
   );
-}
+});
 export function Sparkline({
   values,
   positive = true,

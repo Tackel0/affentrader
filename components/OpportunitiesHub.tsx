@@ -20,6 +20,7 @@ import {
   type TradeOpportunity,
 } from "@/lib/screener/opportunities";
 import { STOCK_BASE_MARKETS, STOCK_BASE_PAGE_SIZE } from "@/lib/screener/stockBase";
+import { AssetBadge } from "./ui";
 import { exchangeOfTicker } from "@/lib/markets";
 import { isYahooTicker } from "@/lib/symbolId";
 import { formatPrice } from "@/lib/symbols";
@@ -436,7 +437,7 @@ export function OpportunitiesHub({
               return <tr key={row.id} className={isSelected ? "selected-row" : undefined} onClick={() => selectRow(row)}>
                 <td><button type="button" className="button opportunity-row-button" aria-pressed={isSelected} aria-label={`${row.ticker} · ${row.setupLabel}`}
                   onClick={event => { event.stopPropagation(); selectRow(row); }} title={`${row.name} · ${row.sector}`}>
-                  <strong>{row.ticker}</strong><small>{row.setupLabel}</small>
+                  <strong className="asset-inline"><AssetBadge symbol={`YF:${row.ticker}`} size="xs" />{row.ticker}</strong><small>{row.setupLabel}</small>
                 </button></td>
                 <td><span className={`opportunity-entry-state ${status === "ready" ? "positive" : status === "invalid" ? "negative" : ""}`}>{setupReadinessLabels[status]}</span><small className="mono">{formatPrice(row.levels.lastClose)} {row.currency}</small></td>
                 <td className="mono">{row.score}</td>
@@ -463,7 +464,7 @@ export function OpportunitiesHub({
             resultsRef.current?.scrollIntoView?.({ block: "start" });
           }}>Zur Trefferliste</button>
           <header className="opportunity-detail-heading">
-            <div><h3>{selected.ticker} <span>{selected.name}</span></h3><p>{selected.setupLabel} · {categoryLabel(selected.category)}</p>
+            <div><h3 className="asset-inline"><AssetBadge symbol={`YF:${selected.ticker}`} size="small" />{selected.ticker} <span>{selected.name}</span></h3><p>{selected.setupLabel} · {categoryLabel(selected.category)}</p>
               <p>Schluss {formatPrice(selected.levels.lastClose)} {selected.currency} · {readiness && setupReadinessLabels[readiness.status]}</p></div>
             <div><strong>{selected.score}/100</strong><small>{selected.session} · Long</small></div>
           </header>

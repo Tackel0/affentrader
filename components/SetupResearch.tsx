@@ -12,6 +12,7 @@ import type { YahooQuote } from "@/lib/market/yahoo";
 import { formatPrice } from "@/lib/symbols";
 import { isYahooTicker } from "@/lib/symbolId";
 import { COMPACT_WORKSPACE_QUERY } from "@/lib/chart/bottomPanelResize";
+import { AssetBadge } from "./ui";
 
 const outcomeLabels: Record<SetupOutcome, string> = {
   waiting: "Limit offen bis", entered: "Nach Einstieg offen bis", target: "Ziel 1 erreicht", stopped: "Stop erreicht",
@@ -158,7 +159,7 @@ export function SetupResearch({ externalWindow }: { externalWindow: boolean }) {
         const filled = events.find(event => event.ruleId === ids[0]);
         const stopped = events.find(event => event.ruleId === ids[1]);
         return <article key={row.id} className="terminal-research-card">
-          <header><strong>{row.ticker} · {row.label}</strong><span>{row.score}/100</span></header>
+          <header><strong className="asset-inline"><AssetBadge symbol={row.symbol} size="xs" />{row.ticker} · {row.label}</strong><span>{row.score}/100</span></header>
           <p className="form-help">Signal {row.session} · {row.currency}{row.reconstructed ? " · technisch rekonstruiert" : ` · Scan ${new Date(row.observedAt).toLocaleString("de-DE")}`}</p>
           {!history && <p>{stopped ? "Stop gemeldet" : setupReadinessLabels[state]}{distance !== null && !stopped ? ` · ${distance.toFixed(2)} % zur Zone` : ""}{filled && !stopped ? " · Einstieg gemeldet" : ""}</p>}
           <p className="mono">Zone {row.levels.entryZone.map(price => formatPrice(price)).join("–")} · Stop {formatPrice(row.levels.invalidation)} · Ziele {formatPrice(row.levels.target1)} / {formatPrice(row.levels.target2)}</p>

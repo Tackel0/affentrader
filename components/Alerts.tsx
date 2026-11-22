@@ -21,7 +21,7 @@ import { describeSymbol, formatPrice, getSymbol, TIMEFRAMES } from "@/lib/symbol
 import { symbolLabel } from "@/lib/symbolId";
 import { requestNotifications, unlockAudio } from "@/lib/alerts/notifications";
 import type { AlertCondition, PriceAlert } from "@/types/trading";
-import { IconButton, Modal } from "./ui";
+import { AssetBadge, IconButton, Modal } from "./ui";
 import { RuleForm } from "./RuleForm";
 import { useServerStore } from "@/stores/useServerStore";
 import { serverAlerts } from "@/lib/alerts/serverClient";
@@ -135,12 +135,7 @@ export function AlertsPanel() {
               .map((a) => (
                 <div key={a.id} className="alert-card">
                   <div className="alert-card-title">
-                    <Bell
-                      size={14}
-                      className={
-                        a.status === "active" ? "text-accent" : "muted"
-                      }
-                    />
+                    <AssetBadge symbol={a.symbol} size="xs" />
                     <strong>{a.name}</strong>
                     <span className={`alert-status ${a.status}`}>
                       {a.status}
@@ -527,7 +522,7 @@ function AlertForm({
         <div className="form-body">
           {tabs}
           <div className="alert-symbol-badge">
-            <Bell size={17} />
+            <AssetBadge symbol={form.symbol} size="small" />
             <strong>{symbolLabel(form.symbol)}</strong>
             <span>{describeSymbol(form.symbol).caption}</span>
           </div>

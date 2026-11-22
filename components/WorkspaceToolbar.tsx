@@ -22,7 +22,7 @@ import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
 import { useLinkStore } from "@/stores/useLinkStore";
 import { openAffenTerminalWindow } from "@/lib/windowScope";
 
-import { IconButton, Modal } from "./ui";
+import { AssetBadge, IconButton, Modal } from "./ui";
 import {ChartToolbarOverflow} from "./ChartToolbarOverflow";
 import {
   ChartTypeMenu,
@@ -77,7 +77,8 @@ export function WorkspaceToolbar({
   const search = (
     <button className="symbol-selector" aria-label={`Search symbols · ${symbolLabel(symbol)}`}
       onClick={() => useChartStore.getState().set({ searchOpen: true, searchTarget: "chart" })}>
-      <Search size={16} />
+      <Search size={15} />
+      <AssetBadge symbol={symbol} size="xs" />
       <strong>{symbolLabel(symbol)}</strong>
       {phoneStatus ? (
         <span className="phone-symbol-status" title={phoneStatus.description}>

@@ -1733,3 +1733,65 @@ body {
   }
 }
 
+/* Crisp circular Retina asset logos across Watchlist, Search, Chart, Alerts, Screener, Portfolio, Paper Trading & Terminal */
+.asset-badge {
+  position: relative;
+  overflow: hidden;
+  border-radius: 50%;
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+.asset-badge.xs {
+  width: 18px;
+  height: 18px;
+  font-size: 11px;
+}
+.watchlist-asset > .asset-badge {
+  width: 22px;
+  height: 22px;
+  font-size: 12px;
+}
+.detail-title > .asset-badge,
+.symbol-detail .detail-title > .asset-badge {
+  width: 36px;
+  height: 36px;
+  font-size: 20px;
+}
+.asset-badge.has-image {
+  border-color: color-mix(in srgb, var(--border) 70%, rgba(255, 255, 255, 0.16)) !important;
+  background: transparent !important;
+}
+.asset-badge-fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  line-height: 1;
+}
+.asset-badge.has-image .asset-badge-fallback {
+  opacity: 0;
+}
+.asset-badge-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  border-radius: 50%;
+  opacity: 0;
+  transition: opacity 110ms ease-out;
+  pointer-events: none;
+}
+.asset-badge.has-image .asset-badge-img {
+  opacity: 1;
+}
+.asset-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+
