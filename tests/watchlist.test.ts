@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   columnValue,
+  isSection,
   makeSection,
   MAX_LIST_SYMBOLS,
   normalizeSymbol,
@@ -11,6 +12,8 @@ import {
 import { useWatchlistStore } from "@/stores/useWatchlistStore";
 import { parseWorkspace } from "@/lib/workspace";
 import type { Quote } from "@/types/trading";
+import { LIQUID_MARKETS_ID, liquidMarketListing } from "@/lib/watchlistPresets";
+import { isSymbolId } from "@/lib/symbolId";
 
 const quote = (symbol: string, price: number, changePercent: number, volume = 100): Quote => ({
   symbol,
@@ -107,6 +110,24 @@ describe("watchlist store", () => {
       activeId: "a",
       sort: null,
     });
+  });
+  it("creates the preset with unique chartable US listings and benchmark futures", () => {
+    useWatchlistStore.getState().openLiquidMarkets();
+    const { activeId, lists } = useWatchlistStore.getState();
+    const preset = lists.find(list => list.id === LIQUID_MARKETS_ID)!;
+    const symbols = preset.symbols.filter(entry => !isSection(entry));
+    expect(activeId).toBe(LIQUID_MARKETS_ID);
+    expect(symbols).toHaveLength(90);
+    expect(new Set(symbols).size).toBe(symbols.length);
+    expect(symbols.every(isSymbolId)).toBe(true);
+    const expectedVenues = {
+      "YF:NVDA": "NASDAQ", "YF:AMD": "NASDAQ", "YF:JPM": "NYSE", "YF:SPY": "NYSE Arca",
+      "YF:CL=F": "NYMEX", "YF:GC=F": "COMEX", "YF:SI=F": "COMEX",
+    };
+    for (const [symbol, venue] of Object.entries(expectedVenues)) {
+      expect(symbols).toContain(symbol);
+      expect(liquidMarketListing(symbol)?.exchange).toBe(venue);
+    }
   });
   it("caps lists at the Premium size and reports the overflow", () => {
     const text = Array.from({ length: MAX_LIST_SYMBOLS + 50 }, (_, i) => `T${i.toString(36).toUpperCase().padStart(4, "0")}USDT`).join("\n");

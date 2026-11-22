@@ -3,6 +3,8 @@ import { accountScopedName } from "@/lib/accountScope";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { Watchlist, WatchFlag } from "@/types/trading";
+import { yahooSymbol } from "@/lib/symbolId";
+import { LIQUID_MARKET_GROUPS, LIQUID_MARKETS_ID, LIQUID_MARKETS_NAME } from "@/lib/watchlistPresets";
 import {
   DEFAULT_COLUMNS,
   isSection,
@@ -22,6 +24,7 @@ interface WatchlistState {
   rename: (id: string, name: string) => void;
   remove: (id: string) => void;
   select: (id: string) => void;
+  openLiquidMarkets: () => void;
   duplicate: (id: string) => void;
   clear: (id: string) => void;
   addSymbol: (symbol: string) => void;
@@ -117,6 +120,19 @@ export const useWatchlistStore = create<WatchlistState>()(
         }),
       select: (id) =>
         set((s) => (s.lists.some((l) => l.id === id) ? { activeId: id } : {})),
+      openLiquidMarkets: () =>
+        set((s) => {
+          if (s.lists.some((list) => list.id === LIQUID_MARKETS_ID)) return { activeId: LIQUID_MARKETS_ID };
+          if (s.lists.length >= MAX_LISTS) return s;
+          const symbols = LIQUID_MARKET_GROUPS.flatMap(({ name, listings }) => [
+            makeSection(name), ...listings.map(([ticker]) => yahooSymbol(ticker)),
+          ]);
+          return {
+            lists: [...s.lists, { id: LIQUID_MARKETS_ID, name: LIQUID_MARKETS_NAME, symbols }],
+            activeId: LIQUID_MARKETS_ID,
+            sort: null,
+          };
+        }),
       duplicate: (id) =>
         set((s) => {
           const source = s.lists.find((l) => l.id === id);

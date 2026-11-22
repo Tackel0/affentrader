@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 import React from "react";
-import { act, cleanup, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { Watchlist } from "@/components/Watchlist";
 import { useQuoteRanges } from "@/hooks/useQuoteRanges";
 import { useOptionsFlow } from "@/hooks/useOptionsFlow";
 import { useChartStore } from "@/stores/useChartStore";
 import { useWatchlistStore } from "@/stores/useWatchlistStore";
+import { LIQUID_MARKETS_ID, LIQUID_MARKETS_NAME } from "@/lib/watchlistPresets";
 import type { Quote } from "@/types/trading";
 
 vi.mock("@/hooks/useQuoteRanges", () => ({ useQuoteRanges: vi.fn() }));
@@ -29,6 +30,32 @@ afterEach(() => {
   useWatchlistStore.setState(initialWatchlist);
   vi.mocked(useOptionsFlow).mockReturnValue({ enabled: false, sample: null });
   vi.clearAllMocks();
+});
+
+it("opens the standard markets from the picker and preserves personal lists and preset edits", () => {
+  const personal = { id: "own", name: "Meine Liste", symbols: ["ETHUSDT"], flags: { ETHUSDT: "blue" as const } };
+  useWatchlistStore.setState({ activeId: personal.id, lists: [personal] });
+  const { container } = render(<Watchlist />);
+  const picker = () => container.querySelector<HTMLButtonElement>(".watchlist-select > button")!;
+
+  fireEvent.click(picker());
+  expect(useWatchlistStore.getState().lists).toEqual([personal]);
+  fireEvent.click(screen.getByRole("button", { name: /US-Märkte & Rohstoffe/ }));
+  expect(picker().textContent).toBe(LIQUID_MARKETS_NAME);
+  expect(screen.getByText("Magnificent 7")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "NVDA · NASDAQ" }));
+  expect(useChartStore.getState().symbol).toBe("YF:NVDA");
+  fireEvent.click(screen.getByRole("button", { name: "Remove NVDA" }));
+  fireEvent.click(picker());
+  fireEvent.click(screen.getByRole("button", { name: /Meine Liste/ }));
+  fireEvent.click(picker());
+  fireEvent.click(screen.getByRole("button", { name: /US-Märkte & Rohstoffe/ }));
+
+  const { lists } = useWatchlistStore.getState();
+  expect(lists).toHaveLength(2);
+  expect(lists[0]).toEqual(personal);
+  expect(lists[1].id).toBe(LIQUID_MARKETS_ID);
+  expect(lists[1].symbols).not.toContain("YF:NVDA");
 });
 
 it("shows options directions and distinguishes stocks without classified samples", () => {

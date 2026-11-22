@@ -6,6 +6,13 @@ This document is the single self-contained architectural, operational, and itera
 
 ## 1. Completed Modules & Current Status
 
+### US markets and commodities watchlist 2026-11-22
+
+- `watchlistPresets.ts` defines 90 US listings and USD commodity benchmarks across nine sections. The preset includes the Magnificent 7, semiconductors, sector and index funds, WTI, gold, silver, and other NYMEX, COMEX, and CBOT futures.
+- `Watchlist.tsx` offers the preset in the existing picker. Opening it creates an editable list through `openLiquidMarkets`. It uses regular account and key backup paths, preserves existing lists, and can be added again after deletion. Rows show the listing exchange alongside the ticker or commodity name. Quotes use the existing Yahoo Finance feed and can be delayed.
+- `useMarketData` subscribes to preset-only symbols while the list is selected. `MarketService.startYahoo` gives chart and active preset quotes priority within the existing 120-symbol budget, prevents overlapping polls within one subscription, and discards replies for replaced subscriptions.
+- The 390px touch audit exposed undersized controls on the populated watchlist. `workspace-chrome.css` gives watchlist controls at least 36px on coarse pointers. The full gate passed type generation, type checking, 2,842 tests, the production build, Chrome E2E, and 90 viewport scenarios with zero document overflow. The preset browser fixture verified that commodity quotes are requested on selection and that the former watchlist can be reopened.
+
 ### Account management 2026-11-22
 
 - `/konto` adds password changes and sign-out for other account sessions. Password changes verify the current password and replace all sessions with a fresh session for the current device in the same durable write. A password login verifies the stored hash again when issuing its session.

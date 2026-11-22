@@ -608,7 +608,12 @@ function buildMockApiPayload(urlStr) {
   if (url.pathname === "/api/yahoo") {
     const kind = url.searchParams.get("kind");
     if (kind === "chart") return { meta: {}, rows: [], adj: [], events: {} };
-    if (kind === "spark") return { quotes: [] };
+    if (kind === "spark") {
+      const tickers = (url.searchParams.get("symbols") ?? "").split(",");
+      return { quotes: tickers.includes("NVDA")
+        ? { NVDA: { price: 147.25, previousClose: 146, high: 148, low: 146, time: Date.now() } }
+        : {} };
+    }
     if (kind === "search" && url.searchParams.get("q") === "TSLA")
       return { hits: [{ symbol: "TSLA", name: "Tesla, Inc.", exchange: "NASDAQ", type: "stock" }] };
     return { hits: [] };
@@ -1147,6 +1152,7 @@ async function run() {
 
     let advertisedRevision = null;
     const requestedTradePages = [];
+    let presetQuotesRequested = false;
     const externalSessionLink = !opts.baseUrl && !opts.liveApis
       ? `http://localhost:${new URL(baseUrl).port}/session-link`
       : null;
@@ -1287,6 +1293,10 @@ async function run() {
             const query = new URL(reqUrl).searchParams;
             if (query.get("resource") === "aggTrades") requestedTradePages.push(query.get("fromId"));
           }
+          if (pathname === "/api/yahoo") {
+            const query = new URL(reqUrl).searchParams;
+            if (query.get("kind") === "spark" && query.get("symbols")?.split(",").includes("GC=F")) presetQuotesRequested = true;
+          }
           const accountSync = pathname === "/api/sync" && Object.keys(params.request?.headers ?? {})
             .some(name => name.toLowerCase() === "x-affentrader-workspace-profile");
           if (healthOverride || (MOCKED_API_PREFIXES.has(pathname) && !accountSync)) {
@@ -1343,6 +1353,7 @@ async function run() {
     let sidebarSheetsChecked = 0;
     let phoneDrawingOverlayChecked = false;
     let phoneChartFocusChecked = false;
+    let liquidMarketsWatchlistChecked = false;
     let sessionResumeChecked = false;
     let strategyLoadsOnDemandChecked = false;
     const tabletChartFocusViewports = [];
@@ -1713,6 +1724,27 @@ async function run() {
               && document.querySelector(".sidebar-sheet-resizer")?.hasAttribute("aria-valuenow")`,
             `${label} mobile resize controls`,
           );
+          if (button === "Watchlists") {
+            activeLabel = "US markets and commodities watchlist";
+            if (presetQuotesRequested) throw new Error("The unopened standard watchlist requested commodity quotes");
+            await tapWorkspaceTarget(cdp, ".watchlist-select > button", 36);
+            await waitForPagePredicate(cdp, '!!document.querySelector(\'.watchlist-menu [title="Standard-Watchlist hinzufügen"]\')', "standard watchlist is available from the picker");
+            await tapWorkspaceTarget(cdp, '.watchlist-menu [title="Standard-Watchlist hinzufügen"]', 36);
+            await waitForPagePredicate(cdp, `(() => {
+              const venue = document.querySelector('.watchlist-asset .watch-venue');
+              return document.querySelector('.watchlist-select > button')?.textContent.includes('US-Märkte & Rohstoffe')
+                && document.querySelector('.watchlist-section')?.textContent.includes('Magnificent 7')
+                && venue?.textContent === 'NASDAQ' && venue.getClientRects().length > 0
+                && document.querySelector('.watchlist-row .watch-cell')?.textContent.includes('147.25');
+            })()`, "the standard watchlist renders the listing and its quote");
+            if (!presetQuotesRequested) throw new Error("The active standard watchlist did not request commodity quotes");
+            recordAudit(vp, "/ US markets and commodities watchlist", await inspectViewportDom(cdp, true));
+            await tapWorkspaceTarget(cdp, ".watchlist-select > button", 36);
+            await waitForPagePredicate(cdp, '!!document.querySelector(".watchlist-menu button:not(.selected)")', "existing watchlist is still available");
+            await tapWorkspaceTarget(cdp, ".watchlist-menu button:not(.selected)", 36);
+            await waitForPagePredicate(cdp, '!document.querySelector(".watchlist-select > button")?.textContent.includes("US-Märkte & Rohstoffe")', "existing watchlist can be reopened");
+            liquidMarketsWatchlistChecked = true;
+          }
           await verifyTouchResize(cdp, ".sidebar-sheet-resizer", label, consoleErrors);
           sidebarSheetsChecked++;
         }
@@ -2215,6 +2247,7 @@ async function run() {
           compactDockSnapChecked,
           sidebarSheetsChecked,
           phoneDrawingOverlayChecked,
+          liquidMarketsWatchlistChecked,
           phoneChartFocusChecked,
           tabletChartFocusViewports,
           compactNavigationViewports: COMPACT_NAV_VIEWPORTS.map(v => v.name),

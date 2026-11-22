@@ -579,6 +579,7 @@ export class MarketService {
     }
     if (changed.yahoo) {
       if (this.yahooTimer) clearInterval(this.yahooTimer);
+      this.yahooTimer = null;
       this.startYahoo(this.generation);
     }
     if (changed.kraken) {
@@ -1498,14 +1499,16 @@ export class MarketService {
   }
   /** Poll Yahoo Finance for stocks, forex and indices (no push feed). */
   private startYahoo(epoch: number) {
-    const yahoo = () =>
-      [...this.symbols, ...this.quoteSymbols].filter((s) => providerOf(s) === "yahoo");
-    if (!yahoo().length) return;
+    const symbols = [...new Set([...this.symbols, ...this.quotePriority, ...this.quoteSymbols])]
+      .filter(symbol => providerOf(symbol) === "yahoo").slice(0, 120);
+    if (!symbols.length) return;
+    let loading = false;
     const poll = async () => {
-      const symbols = yahoo().slice(0, 120);
+      if (loading) return;
+      loading = true;
       try {
         const quotes = await yahooQuotes(symbols.map(tickerOf));
-        if (epoch !== this.generation) return;
+        if (epoch !== this.generation || this.yahooTimer !== timer) return;
         this.batchQuotes(() => {
           for (const symbol of symbols) {
             const q = quotes[tickerOf(symbol)];
@@ -1537,10 +1540,13 @@ export class MarketService {
           store.set({ feedStatus: "live" });
       } catch {
         /* the next poll retries */
+      } finally {
+        loading = false;
       }
     };
+    const timer = setInterval(() => void poll(), 10_000);
+    this.yahooTimer = timer;
     void poll();
-    this.yahooTimer = setInterval(() => void poll(), 10_000);
   }
   /** Fold a polled price into every aggregated interval of a non-crypto symbol. */
   private acceptYahoo(symbol: string, price: number, time: number) {

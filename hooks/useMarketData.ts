@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { marketService } from "@/lib/market/service";
 import { useChartStore } from "@/stores/useChartStore";
 import { useWatchlistStore } from "@/stores/useWatchlistStore";
+import { LIQUID_MARKETS_ID } from "@/lib/watchlistPresets";
 import { useAlertStore } from "@/stores/useAlertStore";
 import { AlertEvaluator } from "@/lib/alerts/engine";
 import {
@@ -47,6 +48,7 @@ export function useMarketData() {
     layout = useWorkspaceStore((s) => s.layout);
   const visible = cells.slice(0, LAYOUTS.find((l) => l.id === layout)!.count);
   const ruleMarkets = ruleMarketSubscriptions(rules);
+  const quotedLists = lists.filter(list => list.id !== LIQUID_MARKETS_ID || list.id === activeListId);
   const symbolsKey = [
     ...new Set([
       symbol,
@@ -60,12 +62,13 @@ export function useMarketData() {
     .sort()
     .join(",");
   const quoteKey = [
-    ...new Set([...lists.flatMap((l) => l.symbols).filter((s) => !s.startsWith("###")), ...ruleMarkets.quotes]),
+    ...new Set([...quotedLists.flatMap((l) => l.symbols).filter((s) => !s.startsWith("###")), ...ruleMarkets.quotes]),
   ]
     .sort()
     .join(",");
   const quotePriority = [...new Set([...visibleWatchSymbols, ...(lists.find(list => list.id === activeListId)?.symbols ?? [])])]
-    .filter(symbol => symbol.startsWith("HL:") || symbol.startsWith("IEX:") || symbol.startsWith("BYBIT:")).slice(0, 150).join(",");
+    .filter(symbol => symbol.startsWith("HL:") || symbol.startsWith("IEX:") || symbol.startsWith("BYBIT:") ||
+      (activeListId === LIQUID_MARKETS_ID && symbol.startsWith("YF:"))).slice(0, 150).join(",");
   useEffect(() => {
     marketService.start(
       symbolsKey.split(","),

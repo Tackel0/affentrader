@@ -33,6 +33,7 @@ import {
   FLAG_COLORS,
   FLAG_ORDER,
   isSection,
+  MAX_LISTS,
   MAX_LIST_SYMBOLS,
   sectionName,
   serializeWatchlist,
@@ -41,6 +42,8 @@ import {
   type SortSpec,
   type WatchColumn,
 } from "@/lib/watchlist";
+import { LIQUID_MARKETS_ID, LIQUID_MARKETS_NAME, LIQUID_MARKETS_SIZE, liquidMarketListing } from "@/lib/watchlistPresets";
+import { registerSymbolInfo, symbolInfo } from "@/lib/symbolId";
 import { downloadFile } from "@/lib/files";
 import type { Quote, WatchFlag } from "@/types/trading";
 import { AssetBadge, IconButton, Modal, Sparkline } from "./ui";
@@ -55,7 +58,11 @@ const TOUCH_ROW = 40;
 const MAX_VIEW = 396;
 const EMPTY_FLAGS: Record<string, WatchFlag> = {};
 const EMPTY_QUOTES: Record<string, Quote> = {};
-const openSymbol = (symbol: string) => useChartStore.getState().set({ symbol });
+const openSymbol = (symbol: string) => {
+  const listing = liquidMarketListing(symbol);
+  if (listing && !symbolInfo(symbol)) registerSymbolInfo(listing);
+  useChartStore.getState().set({ symbol });
+};
 const COLUMN_WIDTH: Record<WatchColumn, number> = {
   last: 74,
   change: 58,
@@ -159,6 +166,9 @@ const SymbolRow = memo(function SymbolRow({
 }: RowProps) {
   const quote = useChartStore((s) => s.quotes[symbol]);
   const asset = getSymbol(symbol);
+  const listing = liquidMarketListing(symbol);
+  const label = listing?.type === "future" ? listing.name : asset.base;
+  const flowLabel = optionsFlow ? optionsBiasLabels[optionsFlow.bias] : optionsStatus;
   return (
     <div
       className={`watchlist-row dynamic ${active ? "selected" : ""} ${selected ? "multi" : ""}`}
@@ -180,17 +190,19 @@ const SymbolRow = memo(function SymbolRow({
         ><span className="flag-dot" aria-hidden="true" style={flag ? { background: FLAG_COLORS[flag], borderColor: FLAG_COLORS[flag] } : undefined} /></button>
         <button
           className="watchlist-asset"
+          aria-label={listing ? [label, listing.exchange, flowLabel].filter(Boolean).join(" · ") : undefined}
+          title={listing ? `${listing.name} · ${listing.exchange} · Yahoo Finance (ggf. zeitverzögert)` : undefined}
           onClick={(e) => (e.ctrlKey || e.metaKey || e.shiftKey ? onSelect(symbol, e) : onOpen(symbol))}
         >
           <AssetBadge symbol={symbol} />
           <span>
-            <strong>{asset.base}</strong>
-            <small className={optionsStatus || optionsFlow ? "watch-flow" : undefined} data-bias={optionsFlow?.bias}
+            <strong>{label}</strong>
+            <small className={optionsStatus || optionsFlow ? "watch-flow" : listing ? "watch-venue" : undefined} data-bias={optionsFlow?.bias}
               title={optionsFlow ? `${optionsBiasLabels[optionsFlow.bias]} · ${optionsFlow.classified} Ausführungen · OPRA · ${new Date(optionsFlow.asOf).toLocaleString("de-DE")}` : optionsStatus}>
               {optionsFlow?.bias === "bullish" ? "↑ Bullisch" :
                 optionsFlow?.bias === "bearish" ? "↓ Bärisch" :
                 optionsFlow?.bias === "balanced" ? "↔ Gemischt" :
-                optionsStatus || optionsFlow ? "Flow —" : describeSymbol(symbol).quote}
+                optionsStatus || optionsFlow ? "Flow —" : listing?.exchange ?? describeSymbol(symbol).quote}
             </small>
           </span>
         </button>
@@ -507,6 +519,7 @@ export function Watchlist() {
     return () => query.removeListener(syncRowHeight);
   }, []);
   const flagRef = useDismiss(flagMenu !== null, () => setFlagMenu(null));
+  const rowsRef = useRef<HTMLDivElement>(null);
   const active = store.lists.find((l) => l.id === store.activeId) ?? store.lists[0];
   const flags = active.flags ?? EMPTY_FLAGS;
   const columns = store.columns;
@@ -514,12 +527,13 @@ export function Watchlist() {
     const needle = filter.trim().toUpperCase();
     const filtering = needle || flagFilter;
     const base = filtering ? active.symbols.filter((e) => !isSection(e)) : active.symbols;
-    return base.filter(
-      (e) =>
-        isSection(e) ||
-        ((!needle || e.includes(needle) || getSymbol(e).name.toUpperCase().includes(needle)) &&
-          (!flagFilter || flags[e] === flagFilter)),
-    );
+    return base.filter((entry) => {
+      if (isSection(entry)) return true;
+      if (flagFilter && flags[entry] !== flagFilter) return false;
+      if (!needle || entry.includes(needle)) return true;
+      const listing = liquidMarketListing(entry);
+      return (listing ? `${listing.name} ${listing.exchange}` : getSymbol(entry).name).toUpperCase().includes(needle);
+    });
   }, [active.symbols, flags, filter, flagFilter]);
   const sort = store.sort;
   const selectEntries = useMemo(() => {
@@ -584,6 +598,12 @@ export function Watchlist() {
   const reorder = useCallback((from: string, to: string) => {
     if (from !== to) useWatchlistStore.getState().reorder(from, to);
   }, []);
+  const closeListMenu = () => {
+    setMenu(false);
+    setSelected(new Set());
+    setScroll(0);
+    if (rowsRef.current) rowsRef.current.scrollTop = 0;
+  };
   const others = store.lists.filter((l) => l.id !== active.id);
   return (
     <>
@@ -595,14 +615,28 @@ export function Watchlist() {
           </button>
           {menu ? (
             <div className="dropdown watchlist-menu">
+              {!store.lists.some((list) => list.id === LIQUID_MARKETS_ID) && (
+                <button
+                  disabled={store.lists.length >= MAX_LISTS}
+                  title="Standard-Watchlist hinzufügen"
+                  onClick={() => {
+                    store.openLiquidMarkets();
+                    setFilter("");
+                    setFlagFilter(null);
+                    closeListMenu();
+                  }}
+                >
+                  {LIQUID_MARKETS_NAME}
+                  <span>{LIQUID_MARKETS_SIZE}</span>
+                </button>
+              )}
               {store.lists.map((l) => (
                 <button
                   key={l.id}
                   className={l.id === active.id ? "selected" : ""}
                   onClick={() => {
                     store.select(l.id);
-                    setMenu(false);
-                    setSelected(new Set());
+                    closeListMenu();
                   }}
                 >
                   {l.name}
@@ -718,6 +752,7 @@ export function Watchlist() {
       ) : null}
       <div
         className="watchlist-rows virtual"
+        ref={rowsRef}
         style={{ height: viewHeight || undefined, overflowY: entries.length * rowHeight > MAX_VIEW ? "auto" : "visible" }}
         onScroll={(e) => setScroll(e.currentTarget.scrollTop)}
       >
@@ -742,7 +777,7 @@ export function Watchlist() {
                 <SymbolRow
                   symbol={entry}
                   optionsFlow={flow.sample?.result[optionsFlowTicker(entry) ?? ""]}
-                  optionsStatus={optionsFlowTicker(entry) ? flow.sample?.unavailable[optionsFlowTicker(entry)!] ??
+                  optionsStatus={optionsFlowTicker(entry) && (flow.enabled || !liquidMarketListing(entry)) ? flow.sample?.unavailable[optionsFlowTicker(entry)!] ??
                     (flow.enabled ? "OPRA-Stichprobe · Fensterausschnitt" : "Alpaca-OPRA-Zugang für Optionsflow verbinden") : undefined}
                   columns={columns}
                   rowHeight={rowHeight}

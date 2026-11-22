@@ -95,6 +95,30 @@
 .sidebar-sheet-resizer { display: none; }
 .watchlist-instrument { display: flex; min-width: 0; align-items: center; gap: 4px; }
 .watchlist-instrument .watchlist-asset { flex: 1; }
+.watchlist-instrument .watchlist-asset .watch-venue {
+  display: block;
+  color: var(--muted);
+  font-size: 9px;
+  white-space: nowrap;
+}
+.watchlist-menu { top: 100%; max-height: min(45dvh, 320px); overflow-y: auto; }
+@media (pointer: coarse) {
+  .right-sidebar[aria-label="Watchlist sidebar"] :is(
+    .watchlist-select > button, .watchlist-menu button, .watchlist-more-menu button,
+    .watchlist-filter input, .flag-filter button, .flag-menu button,
+    .watchlist-columns > button, .watchlist-section > button, .watchlist-asset,
+    .watch-cell-button, .add-symbol-row, .watchlist-flag,
+    .selection-bar :is(button, select), .symbol-detail :is(.link-button, .detail-alert)
+  ) {
+    min-height: 36px;
+    min-width: 36px;
+  }
+  .right-sidebar[aria-label="Watchlist sidebar"] .panel-heading .icon-button { width: 36px; min-width: 36px; height: 36px; }
+  .watchlist-instrument { gap: 0; }
+  .watchlist-instrument .watchlist-asset { gap: 3px; }
+  .watchlist-asset > span:last-child { min-width: 0; }
+  .watchlist-asset :is(strong, .watch-venue) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
 .watchlist-instrument .watchlist-asset .watch-flow[data-bias] {
   display: inline-block;
   color: var(--text);
@@ -278,13 +302,6 @@
     box-shadow: none;
   }
   .right-sidebar .sidebar-sheet-resizer { display: none; }
-  .right-sidebar[aria-label="Watchlist sidebar"] :is(.watchlist-select > button, .watchlist-columns > button, .watchlist-asset, .watch-cell-button, .add-symbol-row, .watchlist-flag) {
-    min-height: 36px;
-  }
-  .right-sidebar[aria-label="Watchlist sidebar"] :is(.watchlist-flag, .panel-heading .icon-button) { width: 36px; min-width: 36px; height: 36px; }
-  .right-sidebar[aria-label="Watchlist sidebar"] .watchlist-asset { min-width: 36px; gap: 3px; }
-  .right-sidebar[aria-label="Watchlist sidebar"] .watchlist-instrument { gap: 0; }
-  .right-sidebar[aria-label="Watchlist sidebar"] :is(.watchlist-menu, .flag-menu) button { min-height: 36px; min-width: 36px; }
 }
 /* Alert timing is shared by price, technical and watchlist forms. */
 .alert-timing-fields { display: grid; gap: 12px; }
