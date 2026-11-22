@@ -23,6 +23,7 @@ export function MarketConnections() {
       <h3>Alpaca · US stocks & ETFs</h3>
       <p className="form-help">Open a delayed SIP chart for consolidated US market history. The active chart checks for new unadjusted bars once per minute with a 16-minute cutoff.</p>
       <p className="form-help">The free Alpaca Basic plan provides real-time IEX data for US-listed stocks. An Alpaca API key is required. This is IEX exchange activity only, not the consolidated Nasdaq/NYSE market or full US volume.</p>
+      <p className="form-help">Options flow uses the same Alpaca connection and requires OPRA access.</p>
       <p className="form-help">Charts use unadjusted IEX bars, including available extended hours. The Yahoo session and dividend controls do not apply. Minute and longer intervals are supported; the stream updates completed minute bars. IEX has no aggressor-side or Level 2 data here: Bid × Ask Footprint, delta/CVD and DOM are unavailable.</p>
       <p className="form-help">Each history request uses at most 20,000 source minute or day bars. Longer intervals can therefore return fewer candles. Minutes without eligible IEX trades stay absent. Watchlist changes and ranges are observed since connection, not consolidated 24-hour statistics.</p>
       <p role="status">Connection: <strong>{state.status}</strong>{state.symbols.length ? ` · ${state.symbols.length}/30 symbols` : ""}</p>

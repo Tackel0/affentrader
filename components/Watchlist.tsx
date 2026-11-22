@@ -45,6 +45,8 @@ import { AssetBadge, IconButton, Modal, Sparkline } from "./ui";
 import { useDismiss } from "./WorkspaceMenus";
 import { baseVolume, notionalVolume, periodLabel, quoteRange, rangeDescription } from "@/lib/market/quoteMetrics";
 import { useQuoteRanges } from "@/hooks/useQuoteRanges";
+import { useOptionsFlow } from "@/hooks/useOptionsFlow";
+import { optionsBiasLabels, optionsFlowTicker, type OptionsFlowSummary } from "@/lib/market/optionsFlow";
 
 const DESKTOP_ROW = 30;
 const TOUCH_ROW = 40;
@@ -122,6 +124,8 @@ function Cell({ column, quote }: { column: WatchColumn; quote?: Quote }) {
 
 interface RowProps {
   symbol: string;
+  optionsFlow?: OptionsFlowSummary;
+  optionsStatus?: string;
   columns: WatchColumn[];
   rowHeight: number;
   flag?: WatchFlag;
@@ -137,6 +141,8 @@ interface RowProps {
 
 const SymbolRow = memo(function SymbolRow({
   symbol,
+  optionsFlow,
+  optionsStatus,
   columns,
   rowHeight,
   flag,
@@ -177,7 +183,12 @@ const SymbolRow = memo(function SymbolRow({
           <AssetBadge symbol={symbol} />
           <span>
             <strong>{asset.base}</strong>
-            <small>{describeSymbol(symbol).quote}</small>
+            <small title={optionsFlow ? `${optionsBiasLabels[optionsFlow.bias]} · OPRA-Momentaufnahme · ${new Date(optionsFlow.asOf).toLocaleString("de-DE")}` : optionsStatus}>
+              {optionsFlow?.bias === "bullish" ? <span className="positive">Flow ↑ Bull</span> :
+                optionsFlow?.bias === "bearish" ? <span className="negative">Flow ↓ Bär</span> :
+                optionsFlow?.bias === "balanced" ? "Flow gemischt" :
+                optionsStatus || optionsFlow ? "Flow —" : describeSymbol(symbol).quote}
+            </small>
           </span>
         </button>
       </div>
@@ -529,6 +540,10 @@ export function Watchlist() {
   const viewHeight = Math.min(entries.length * rowHeight, MAX_VIEW);
   const first = Math.max(0, Math.floor(scroll / rowHeight) - 4);
   const last = Math.min(entries.length, Math.ceil((scroll + viewHeight) / rowHeight) + 4);
+  const flow = useOptionsFlow(entries.slice(first, last).flatMap(entry => {
+    const ticker = optionsFlowTicker(entry);
+    return ticker ? [ticker] : [];
+  }));
   const visibleQuoteKey = entries.slice(first, last).filter(entry => entry.startsWith("HL:")).join(",");
   useEffect(() => {
     useChartStore.getState().set({ visibleWatchSymbols: visibleQuoteKey ? visibleQuoteKey.split(",") : [] });
@@ -719,6 +734,9 @@ export function Watchlist() {
               <div key={entry} style={{ position: "absolute", top: (first + i) * rowHeight, left: 0, right: 0 }}>
                 <SymbolRow
                   symbol={entry}
+                  optionsFlow={flow.sample?.result[optionsFlowTicker(entry) ?? ""]}
+                  optionsStatus={optionsFlowTicker(entry) ? flow.sample?.unavailable[optionsFlowTicker(entry)!] ??
+                    (flow.enabled ? "OPRA-Stichprobe · Fensterausschnitt" : "Alpaca-OPRA-Zugang für Optionsflow verbinden") : undefined}
                   columns={columns}
                   rowHeight={rowHeight}
                   flag={flags[entry]}
