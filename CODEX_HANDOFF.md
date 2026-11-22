@@ -6,6 +6,13 @@ This document is the single self-contained architectural, operational, and itera
 
 ## 1. Completed Modules & Current Status
 
+### Legal compliance & secret-only Impressum (`/impressum`, `/risikohinweis`, `/datenschutz`) 2026-11-22
+
+- **Zero-PII runtime legal pages (`lib/server/legal.ts`, `proxy.ts`):** Exposed `/impressum` (§ 5 DDG / § 18 Abs. 2 MStV / § 36 VSBG), `/risikohinweis` (comprehensive WpHG/KWG/WpIG/MiFID II non-advice disclaimer, total-loss & leverage warnings, backtest/data-accuracy disclaimers, liability limitations), and `/datenschutz` (GDPR Art. 13/14 covering Azure `germanywestcentral` hosting, strictly necessary session cookies, optional Google OAuth, direct browser market-data feeds, and push notifications) publicly on `GET`/`HEAD` before the login gate with strict `CSP`, `X-Frame-Options: DENY`, and `X-Robots-Tag: noindex, nofollow`. Operator details are loaded exclusively at runtime from server env `AFFENTRADER_IMPRESSUM_JSON` (or `AFFENTRADER_IMPRESSUM_*`) and are never committed to Git.
+- **Persistent legal navigation & disclaimers (`lib/server/siteLoginPage.ts`, `components/WorkspaceMenus.tsx`, `components/TradingWorkspace.tsx`, `components/AffenTerminalWindow.tsx`, `app/workspace-chrome.css`):** Added concise "Keine Anlageberatung" disclaimers and direct links to `/impressum`, `/risikohinweis`, and `/datenschutz` on `/login`, `/konto`, inside `MainMenu` (phone/tablet/desktop), in the desktop status footer, and in the external `/terminal` window footer.
+- **Azure Container Apps secret injection (`scripts/azure-impressum.sh`, `.github/workflows/deploy-azure.yml`):** Optional `AFFENTRADER_IMPRESSUM_JSON` secret is masked, written as an Azure Container App secret (`secretref:impressum-...`), and bound to `AFFENTRADER_IMPRESSUM_JSON` while keeping existing Azure env vars intact whenever the GitHub secret is absent. Live deploy smoke tests verify HTTP 200 on `/impressum`, `/risikohinweis`, and `/datenschutz`.
+- **Tests:** Added `tests/legal-pages.test.ts` using synthetic fixtures only (env parsing, XSS escaping, public pre-login access, 405 on POST, non-advice copy, login footer links).
+
 ### Change since US market close (Heatmap & Watchlist) 2026-11-22
 
 - **Timezone/DST-safe US Close anchor (`lib/market/usMarketClose.ts`):** `lastUsMarketCloseMs` resolves the latest completed US regular equity close (`16:00 America/New_York`, Mon–Fri) across EST/EDT transitions and weekends, paired with `usMarketPhase`, `changeSinceUsClose`, and `formatUsCloseAnchor`.

@@ -232,6 +232,14 @@ export function AffenTerminalWindow({
           />
         </ModuleErrorBoundary>
       </main>
+      <footer className="affen-legal-footer" aria-label="Rechtliches">
+        <span>Keine Anlageberatung · Marktdaten ohne Gewähr</span>
+        <nav className="affen-legal-links">
+          <a href="/risikohinweis">Risikohinweis</a>
+          <a href="/impressum">Impressum</a>
+          <a href="/datenschutz">Datenschutz</a>
+        </nav>
+      </footer>
     </div>
   );
 }

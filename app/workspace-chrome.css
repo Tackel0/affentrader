@@ -1118,6 +1118,58 @@
 }
 .detail-us-close small { color: var(--muted); }
 
+.footer-legal {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+}
+.footer-legal a {
+  color: var(--muted);
+  text-decoration: none;
+}
+.footer-legal a:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+@media (max-width: 1120px) {
+  .footer-legal,
+  .footer-legal-sep {
+    display: none;
+  }
+}
+.menu-legal-note {
+  margin: 4px 12px 6px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.affen-legal-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 14px;
+  padding: 6px 14px calc(6px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 11px;
+  color: var(--muted);
+}
+.affen-legal-links {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.affen-legal-links a {
+  color: var(--muted);
+  text-decoration: none;
+}
+.affen-legal-links a:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
 @media (max-width: 480px) {
   .tv-toolbar > .compare-toolbar-button,
   .tv-toolbar > [aria-label="Alert"],

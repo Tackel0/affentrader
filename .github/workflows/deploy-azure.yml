@@ -231,6 +231,7 @@ jobs:
           SECRET_ACR_PASS: ${{ secrets.ACR_PASSWORD }}
           GOOGLE_DEPLOY_CLIENT_ID: ${{ secrets.AFFENTRADER_GOOGLE_CLIENT_ID }}
           GOOGLE_DEPLOY_CLIENT_SECRET: ${{ secrets.AFFENTRADER_GOOGLE_CLIENT_SECRET }}
+          IMPRESSUM_DEPLOY_JSON: ${{ secrets.AFFENTRADER_IMPRESSUM_JSON }}
           CONTEXT_DIR: ${{ runner.temp }}/affentrader-aca-ctx
         run: |
           set -euo pipefail
@@ -279,13 +280,27 @@ jobs:
 
           source scripts/azure-google-oauth.sh
           configure_google_oauth
+          source scripts/azure-impressum.sh
+          configure_impressum
+
+          COMBINED_ENV_PAIRS=()
+          if [ "${#GOOGLE_ENV_ARGS[@]}" -gt 1 ]; then
+            COMBINED_ENV_PAIRS+=("${GOOGLE_ENV_ARGS[@]:1}")
+          fi
+          if [ "${#IMPRESSUM_ENV_PAIRS[@]}" -gt 0 ]; then
+            COMBINED_ENV_PAIRS+=("${IMPRESSUM_ENV_PAIRS[@]}")
+          fi
+          CONTAINER_ENV_ARGS=()
+          if [ "${#COMBINED_ENV_PAIRS[@]}" -gt 0 ]; then
+            CONTAINER_ENV_ARGS=(--set-env-vars "${COMBINED_ENV_PAIRS[@]}")
+          fi
 
           az containerapp update \
             --name "$APP_NAME" \
             --resource-group "$RESOURCE_GROUP" \
             --image "${ACR_LOGIN_SERVER}/${APP_NAME}:${TAG}" \
             --revision-suffix "$SUFFIX" \
-            "${GOOGLE_ENV_ARGS[@]}" \
+            "${CONTAINER_ENV_ARGS[@]}" \
             --output none
 
           OK=0
@@ -294,6 +309,9 @@ jobs:
             LOGIN_CODE=$(curl -sS --max-time 15 -o /tmp/live-login.html -w "%{http_code}" "${LIVE_BASE}/login" || echo "000")
             ACCOUNT_CODE=$(curl -sS --max-time 15 -o /tmp/live-account.html -w "%{http_code}" "${LIVE_BASE}/login?mode=account" || echo "000")
             REGISTER_CODE=$(curl -sS --max-time 15 -o /tmp/live-register.html -w "%{http_code}" "${LIVE_BASE}/login?mode=register" || echo "000")
+            IMPRESSUM_CODE=$(curl -sS --max-time 15 -o /tmp/live-impressum.html -w "%{http_code}" "${LIVE_BASE}/impressum" || echo "000")
+            RISK_CODE=$(curl -sS --max-time 15 -o /dev/null -w "%{http_code}" "${LIVE_BASE}/risikohinweis" || echo "000")
+            PRIVACY_CODE=$(curl -sS --max-time 15 -o /dev/null -w "%{http_code}" "${LIVE_BASE}/datenschutz" || echo "000")
             MANIFEST_CODE=$(curl -sS --max-time 15 -o /dev/null -w "%{http_code}" "${LIVE_BASE}/manifest.webmanifest" || echo "000")
             ICON_CODE=$(curl -sS --max-time 15 -o /dev/null -w "%{http_code}" "${LIVE_BASE}/icons/icon-192.png" || echo "000")
             SW_CODE=$(curl -sS --max-time 15 -o /dev/null -w "%{http_code}" "${LIVE_BASE}/sw.js" || echo "000")
@@ -305,9 +323,17 @@ jobs:
                 if [ "$GOOGLE_CODE" = "303" ]; then GOOGLE_OK=1; fi
               fi
             fi
+            IMPRESSUM_OK=1
+            if [ "$IMPRESSUM_DEPLOY_MANAGED" -eq 1 ]; then
+              IMPRESSUM_OK=0
+              if [ "$IMPRESSUM_CODE" = "200" ] && grep -Fq '<address>' /tmp/live-impressum.html; then
+                IMPRESSUM_OK=1
+              fi
+            fi
             if [ "$HEALTH_CODE" = "200" ] && grep -q '"ok":true' /tmp/live-health.json \
               && grep -Fq "\"revision\":\"${APP_NAME}--${SUFFIX}\"" /tmp/live-health.json \
               && [ "$LOGIN_CODE" = "200" ] && [ "$MANIFEST_CODE" = "200" ] && [ "$ICON_CODE" = "200" ] && [ "$SW_CODE" = "200" ] \
+              && [ "$IMPRESSUM_CODE" = "200" ] && [ "$RISK_CODE" = "200" ] && [ "$PRIVACY_CODE" = "200" ] && [ "$IMPRESSUM_OK" -eq 1 ] \
               && [ "$ACCOUNT_CODE" = "200" ] && grep -Fq 'action="/api/account/login"' /tmp/live-account.html \
               && [ "$REGISTER_CODE" = "200" ] && grep -Fq 'action="/api/account/register"' /tmp/live-register.html \
               && [ "$GOOGLE_OK" -eq 1 ] \
@@ -316,10 +342,10 @@ jobs:
               OK=1
               break
             fi
-            echo "Attempt ${attempt}/24: health=${HEALTH_CODE} login=${LOGIN_CODE} account=${ACCOUNT_CODE} register=${REGISTER_CODE} manifest=${MANIFEST_CODE} icon=${ICON_CODE} sw=${SW_CODE} (waiting for ${EXPECTED_ISO})"
+            echo "Attempt ${attempt}/24: health=${HEALTH_CODE} login=${LOGIN_CODE} impressum=${IMPRESSUM_CODE} risk=${RISK_CODE} privacy=${PRIVACY_CODE} account=${ACCOUNT_CODE} register=${REGISTER_CODE} manifest=${MANIFEST_CODE} icon=${ICON_CODE} sw=${SW_CODE} (waiting for ${EXPECTED_ISO})"
             sleep 5
           done
-          rm -f /tmp/live-login.html /tmp/live-account.html /tmp/live-register.html /tmp/live-health.json
+          rm -f /tmp/live-login.html /tmp/live-account.html /tmp/live-register.html /tmp/live-health.json /tmp/live-impressum.html
 
           if [ "$OK" -ne 1 ]; then
             echo "::error::Live verification failed to observe healthy revision ${SUFFIX} (${EXPECTED_ISO}) at ${LIVE_BASE}. Initiating automatic rollback."

@@ -5,6 +5,7 @@ import { siteLoginPage, type SignInMode } from "@/lib/server/siteLoginPage";
 import { ACCOUNT_COOKIE, readAccountSession, revokeAccountSession } from "@/lib/server/accounts";
 import { clearAccountCookies, googleSettings } from "@/lib/server/accountHttp";
 import { ACCOUNT_SCOPE_COOKIE } from "@/lib/accountScope";
+import { LEGAL_PATHS, renderLegalPage, type LegalPagePath } from "@/lib/server/legal";
 
 const privateHeaders = {
   "Cache-Control": "private, no-store, max-age=0",
@@ -102,6 +103,20 @@ export async function proxy(request: NextRequest) {
     response.headers.set("X-Content-Type-Options", "nosniff");
     response.headers.set("X-Frame-Options", "DENY");
     return response;
+  }
+  if (LEGAL_PATHS.has(path)) {
+    if (!["GET", "HEAD"].includes(request.method)) {
+      return new NextResponse("Method not allowed", { status: 405, headers: { ...privateHeaders, Allow: "GET, HEAD" } });
+    }
+    return new NextResponse(renderLegalPage(path as LegalPagePath), {
+      status: 200,
+      headers: {
+        ...privateHeaders,
+        "Content-Type": "text/html; charset=utf-8",
+        "Permissions-Policy": PERMISSIONS_POLICY,
+        "Content-Security-Policy": "default-src 'none'; img-src 'self'; manifest-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
+      },
+    });
   }
   const settings = siteAccessConfig();
   if (!settings) return new NextResponse("Der Website-Zugang ist noch nicht konfiguriert.", { status: 503, headers: privateHeaders });

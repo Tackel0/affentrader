@@ -22,6 +22,9 @@ import {
   User,
   UserPlus,
   LogIn,
+  Scale,
+  ShieldAlert,
+  FileText,
 } from "lucide-react";
 import type { DrawingTypeKey } from "@luxalgo/vela";
 import { LAYOUTS, useWorkspaceStore } from "@/stores/useWorkspaceStore";
@@ -290,6 +293,39 @@ export function MainMenu({
             marketService.reconnect();
             setOpen(false);
           }}>Reconnect market data</button>
+          <hr />
+          <div className="popover-label">Rechtliches</div>
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              window.location.assign("/impressum");
+            }}
+          >
+            <Scale size={16} />
+            Impressum
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              window.location.assign("/risikohinweis");
+            }}
+          >
+            <ShieldAlert size={16} />
+            Risikohinweis (Keine Anlageberatung)
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              window.location.assign("/datenschutz");
+            }}
+          >
+            <FileText size={16} />
+            Datenschutz
+          </button>
+          <p className="menu-legal-note">Keine Anlageberatung · Marktdaten ohne Gewähr.</p>
           {footer}
         </div>
       ) : null}

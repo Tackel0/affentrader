@@ -410,6 +410,12 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
           </a>{" "}
           & PineTS
         </span>
+        <span className="status-divider footer-legal-sep">|</span>
+        <nav className="footer-legal" aria-label="Rechtliches">
+          <a href="/risikohinweis">Keine Anlageberatung</a>
+          <a href="/impressum">Impressum</a>
+          <a href="/datenschutz">Datenschutz</a>
+        </nav>
         <span className="status-divider">|</span>
         <span>Browser workspace</span>
         <span className="status-version">v1.0</span>
