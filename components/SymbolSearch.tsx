@@ -240,6 +240,7 @@ export function SymbolSearch() {
       }
       onClose={close}
       className="search-modal"
+      initialFocusSelector='input[aria-label="Search symbols"]'
     >
       <div className="search-field">
         <Search size={19} />

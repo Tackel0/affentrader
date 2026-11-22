@@ -75,7 +75,7 @@ const OhlcReadout = memo(function OhlcReadout({ readout, loading, interrupted, u
   );
 });
 
-export function ChartCanvas({ compact = false }: { compact?: boolean }) {
+export function ChartCanvas({ compact = false, tradingControls = true }: { compact?: boolean; tradingControls?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const { chart, loading, readout } = useVelaChart(ref);
   useOverlays(chart);
@@ -112,7 +112,7 @@ export function ChartCanvas({ compact = false }: { compact?: boolean }) {
           {about.crypto ? <span className="market-open-dot" title="24/7 crypto market" /> : null}
         </div>
         <OhlcReadout readout={readout} loading={loading} interrupted={!replay && !!recovery} unavailable={unavailable} replay={replay} />
-        <ChartTrading symbol={symbol} cellId={useWorkspaceStore.getState().activeId}/>
+        {tradingControls && <ChartTrading symbol={symbol} cellId={useWorkspaceStore.getState().activeId} />}
         <WorkingOrderControls symbol={symbol}/>
         <ChartPositionBar symbol={symbol} cellId={useWorkspaceStore.getState().activeId}/>
         <IndicatorChips />

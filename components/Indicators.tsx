@@ -197,7 +197,7 @@ export function IndicatorChips() {
     useChartStore.getState().removeIndicator(actions.id);
     setActionsId(null);
     queueMicrotask(() => {
-      const selector = useChartStore.getState().indicators.length ? ".legend-fold" : '.workspace-toolbar [aria-label="Indicators"]';
+      const selector = useChartStore.getState().indicators.length ? ".legend-fold" : ':is(.workspace-toolbar, .phone-chart-actions) [aria-label="Indicators"]';
       document.querySelector<HTMLButtonElement>(selector)?.focus();
     });
   };

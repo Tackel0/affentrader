@@ -52,9 +52,11 @@ export function useDismiss(open: boolean, close: () => void) {
 export function MainMenu({
   onExport,
   onImport,
+  footer,
 }: {
   onExport: () => void;
   onImport: () => void;
+  footer?: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false),
     theme = useWorkspaceStore((s) => s.theme),
@@ -253,6 +255,7 @@ export function MainMenu({
             marketService.reconnect();
             setOpen(false);
           }}>Reconnect market data</button>
+          {footer}
         </div>
       ) : null}
     </div>

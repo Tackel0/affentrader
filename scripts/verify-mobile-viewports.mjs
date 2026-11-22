@@ -1452,24 +1452,41 @@ async function run() {
       sessionResumeChecked = true;
     }
 
+    const openWorkspacePanel = async (tab, tap = true) => {
+      const phone = (await cdp.send("Runtime.evaluate", {
+        expression: '!!document.querySelector(".phone-workspace")', returnByValue: true,
+      })).result.value;
+      if (phone) {
+        const directNav = { orderflow: "Order flow panel", terminal: "Terminal" }[tab];
+        if (directNav) {
+          const item = `nav.utility-rail [aria-label="${directNav}"]`;
+          if (tap) await tapWorkspaceTarget(cdp, item);
+          else await cdp.send("Runtime.evaluate", { expression: `document.querySelector(${JSON.stringify(item)}).click()` });
+          return;
+        }
+        await tapWorkspaceTarget(cdp, '.phone-chart-actions [aria-label="More workspace panels"]');
+        const item = `.phone-panel-list button[data-panel="${tab}"]`;
+        await waitForPagePredicate(cdp, `!!document.querySelector(${JSON.stringify(item)})`, `phone module picker offers ${tab}`);
+        await cdp.send("Runtime.evaluate", { expression: `document.querySelector(${JSON.stringify(item)}).scrollIntoView({ block: "nearest" })` });
+        await tapWorkspaceTarget(cdp, item);
+        return;
+      }
+      const opened = await cdp.send("Runtime.evaluate", { expression: `(() => {
+        const button = document.querySelector('.workspace-panel-strip button[data-panel=${JSON.stringify(tab)}]');
+        if (!button) return false;
+        if (!button.classList.contains("active")) button.click();
+        return true;
+      })()`, returnByValue: true });
+      if (!opened.result?.value) throw new Error(`Could not locate workspace panel ${tab}`);
+    };
+
     const verifyOrderflowDock = async (vp) => {
       activeLabel = `${vp.name}:/+orderflow`;
       const chartHeight = (await cdp.send("Runtime.evaluate", {
         expression: 'document.querySelector(".chart-grid").clientHeight',
         returnByValue: true,
       })).result?.value;
-      const openedOrderflow = await cdp.send("Runtime.evaluate", {
-        expression: `(() => {
-          const btn = document.querySelector('.workspace-panel-strip button[data-panel="orderflow"]');
-          if (!btn) return false;
-          if (!btn.classList.contains("active")) btn.click();
-          return true;
-        })()`,
-        returnByValue: true,
-      });
-      if (openedOrderflow?.result?.value !== true) {
-        throw new Error(`[${vp.name}] Could not locate BottomPanel Order flow tab`);
-      }
+      await openWorkspacePanel("orderflow");
       await waitForPagePredicate(
         cdp,
         '!!document.querySelector(\'.bottom-panel.expanded[data-tab="orderflow"] .detailed-orderflow\')',
@@ -1515,13 +1532,13 @@ async function run() {
         cdp,
         `(() => {
           const dock = document.querySelector('.bottom-panel[data-tab="orderflow"]:not(.expanded)');
-          return !!dock && dock.offsetHeight <= 40;
+          return document.querySelector('.phone-workspace') ? !document.querySelector('.bottom-panel') : !!dock && dock.offsetHeight <= 40;
         })()`,
         `${vp.name} Order flow collapses to its toolbar`,
       );
 
       if (vp.width === 390 && !opts.liveApis) {
-        await cdp.send("Runtime.evaluate", { expression: `document.querySelector('.workspace-panel-strip button[data-panel="dom"]').click()` });
+        await openWorkspacePanel("dom");
         await waitForPagePredicate(cdp, 'window.__publishMarketFixture()', "refresh book depth for the DOM");
         await waitForPagePredicate(cdp, `document.querySelectorAll('.dom-ladder [role="columnheader"]').length === 3`, "DOM opens with the Bid, Price and Ask columns");
         const table = await cdp.send("Runtime.evaluate", { expression: `(() => {
@@ -1578,14 +1595,20 @@ async function run() {
         await waitForPagePredicate(cdp, "window.__sidebarMounted === false", `${vp.name} chart startup skips the sidebar`);
       }
       recordAudit(vp, "/", await inspectViewportDom(cdp, vp.mobile));
+      if (vp.width <= 390) {
+        await waitForPagePredicate(cdp, `(() => {
+          const chart = document.querySelector('.chart-grid')?.getBoundingClientRect();
+          const tools = document.querySelector('.phone-chart-actions')?.getBoundingClientRect();
+          return chart?.height >= innerHeight * .8 && tools?.top >= chart.bottom - 1
+            && !document.querySelector('.bottom-panel, .range-toolbar, .chart-trading-controls');
+        })()`, `${vp.name} starts on the chart with reachable controls below it`);
+      }
       if (vp.width === 390 && !opts.liveApis && strategyChunks.length) {
         activeLabel = "strategy tester on-demand loading";
         if (strategyChunks.every(path => requestedChunks.has(path))) {
           throw new Error("The strategy tester finished downloading before its panel opened");
         }
-        await cdp.send("Runtime.evaluate", {
-          expression: `document.querySelector('.workspace-panel-strip [data-panel="strategy"]').click()`,
-        });
+        await openWorkspacePanel("strategy");
         await waitForPagePredicate(cdp, '!!document.querySelector(".bottom-panel.expanded .strategy-tester")', "open the strategy tester on demand");
         if (strategyChunks.some(path => !requestedChunks.has(path))) throw new Error("Opening the strategy tester did not load its JavaScript");
         await cdp.send("Runtime.evaluate", {
@@ -1594,8 +1617,21 @@ async function run() {
         strategyLoadsOnDemandChecked = true;
       }
       if (vp.width === 390 && !opts.liveApis) {
+        activeLabel = "phone range controls and chart trading"
+        const chartTools = '.phone-chart-actions [aria-label="More chart controls"]';
+        await tapWorkspaceTarget(cdp, chartTools);
+        await waitForPagePredicate(cdp, '!!document.querySelector(".phone-chart-actions .mobile-chart-controls")', "phone chart actions open");
+        await tapWorkspaceTarget(cdp, '.phone-chart-actions .mobile-chart-controls > button:first-child');
+        await waitForPagePredicate(cdp, '!!document.querySelector(".phone-range-dialog .range-shortcuts")', "date ranges and time zones open from chart actions");
+        await tapWorkspaceTarget(cdp, '.phone-range-dialog [aria-label="Close dialog"]');
+        await tapWorkspaceTarget(cdp, chartTools);
+        await tapWorkspaceTarget(cdp, '.phone-chart-actions .mobile-chart-controls > button:nth-child(2)');
+        await waitForPagePredicate(cdp, '!!document.querySelector(".chart-trading-controls")', "on-chart paper trading remains available");
+        await tapWorkspaceTarget(cdp, chartTools);
+        await tapWorkspaceTarget(cdp, '.phone-chart-actions .mobile-chart-controls > button:nth-child(2)');
+        await waitForPagePredicate(cdp, '!document.querySelector(".chart-trading-controls")', "chart trading controls collapse again");
         activeLabel = "mobile liquidation heatmap study";
-        await tapWorkspaceTarget(cdp, '.workspace-toolbar [aria-label="Indicators"]', 36);
+        await tapWorkspaceTarget(cdp, '.phone-chart-actions [aria-label="Indicators"]');
         await waitForPagePredicate(cdp, '!!document.querySelector(\'.indicator-modal input[aria-label="Search indicators"]\')', "indicator picker opens");
         await cdp.send("Runtime.evaluate", { expression: `document.querySelector('.indicator-modal input').focus()` });
         await cdp.send("Input.insertText", { text: "Liquidation Levels" });
@@ -1743,6 +1779,16 @@ async function run() {
             await waitForPagePredicate(cdp, '!!document.querySelector(".watchlist-menu button:not(.selected)")', "existing watchlist is still available");
             await tapWorkspaceTarget(cdp, ".watchlist-menu button:not(.selected)", 36);
             await waitForPagePredicate(cdp, '!document.querySelector(".watchlist-select > button")?.textContent.includes("US-Märkte & Rohstoffe")', "existing watchlist can be reopened");
+            if (!(await cdp.send("Runtime.evaluate", { expression: '!document.querySelector(".phone-watchlist .row-remove")', returnByValue: true })).result.value) {
+              throw new Error("Watchlist shows destructive actions before entering editing mode");
+            }
+            await tapWorkspaceTarget(cdp, ".phone-watchlist-actions button:first-child", 44);
+            await waitForPagePredicate(cdp, '!!document.querySelector(".phone-watchlist .row-remove")', "phone watchlist edit actions are accessible");
+            await tapWorkspaceTarget(cdp, ".phone-watchlist-actions button:first-child", 44);
+            await tapWorkspaceTarget(cdp, ".phone-watchlist .watchlist-asset", 36);
+            await waitForPagePredicate(cdp, '!document.querySelector(".right-sidebar") && document.querySelector(\'nav.utility-rail [aria-label="Chart"]\')?.getAttribute("aria-pressed") === "true"', "tapping an instrument returns to the chart");
+            await tapWorkspaceTarget(cdp, 'nav.utility-rail [aria-label="Watchlists"]');
+            await waitForPagePredicate(cdp, '!!document.querySelector(".phone-watchlist .sidebar-sheet-resizer[aria-valuenow]")', "watchlist reopens with its height controls");
             liquidMarketsWatchlistChecked = true;
           }
           await verifyTouchResize(cdp, ".sidebar-sheet-resizer", label, consoleErrors);
@@ -1758,18 +1804,8 @@ async function run() {
 
       // 3c: / + open BottomPanel (AffenTerminal embedded)
       activeLabel = `${vp.name}:/+terminal`;
-      const openedTerminal = await cdp.send("Runtime.evaluate", {
-        expression: `(() => {
-          const btn = document.querySelector('.workspace-panel-strip button[data-panel="terminal"]');
-          if (!btn) return false;
-          if (!btn.classList.contains("active")) btn.click();
-          return true;
-        })()`,
-        returnByValue: true,
-      });
-      if (openedTerminal?.result?.value !== true) {
-        throw new Error(`[${vp.name}] Could not locate BottomPanel Terminal tab`);
-      }
+      // Chromium can suppress a tap after the scripted drag series. The 360px flow covers the touch entry.
+      await openWorkspacePanel("terminal", vp.width !== 390 || opts.liveApis);
       await waitForPagePredicate(
         cdp,
         '!!document.querySelector(".bottom-panel.expanded .research-terminal.is-embedded")',

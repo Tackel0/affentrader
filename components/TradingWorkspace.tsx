@@ -31,7 +31,7 @@ import { useAlertStore } from "@/stores/useAlertStore";
 import { getSymbol, describeSymbol } from "@/lib/symbols";
 import { IconButton } from "./ui";
 import { ChartGrid } from "./ChartGrid";
-import { WorkspaceToolbar } from "./WorkspaceToolbar";
+import { PhoneChartActions, WorkspaceToolbar } from "./WorkspaceToolbar";
 import { ReplayBar } from "./ReplayBar";
 import { DrawingRail } from "./DrawingRail";
 import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
@@ -49,6 +49,7 @@ import { BottomPanel } from "./BottomPanel";
 import { ModuleErrorBoundary } from "./ModuleErrorBoundary";
 import { downloadFile } from "@/lib/files";
 import { useSetupJournal } from "@/stores/useSetupJournal";
+import type { BottomTab } from "@/types/trading";
 interface WorkspaceProps {
   deployment?: ReactNode;
   initialSidebar?: "watchlist" | "alerts";
@@ -58,6 +59,9 @@ const PHONE_CHART_QUERY = "(max-width: 600px), (max-width: 1024px) and (max-heig
 export default function TradingWorkspace({ deployment, initialSidebar }: WorkspaceProps) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
+    if (window.matchMedia(PHONE_CHART_QUERY).matches && useChartStore.getState().bottomOpen) {
+      useChartStore.getState().set({ bottomOpen: false });
+    }
     const setupId = new URLSearchParams(window.location.search).get("setup");
     const setup = setupId ? useSetupJournal.getState().records.find(row => row.id === setupId) : undefined;
     if (setup) {
@@ -104,9 +108,10 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
   const [showChartGrid, setShowChartGrid] = useState(false);
   const [phoneChart, setPhoneChart] = useState(() => window.matchMedia(PHONE_CHART_QUERY).matches);
   const [drawingToolsOpen, setDrawingToolsOpen] = useState(false);
+  const [phoneTradingOpen, setPhoneTradingOpen] = useState(false);
   useEffect(() => {
     const query = window.matchMedia(PHONE_CHART_QUERY);
-    const update = () => { setPhoneChart(query.matches); setDrawingToolsOpen(false); };
+    const update = () => { setPhoneChart(query.matches); setDrawingToolsOpen(false); setPhoneTradingOpen(false); };
     update();
     query.addEventListener("change", update);
     return () => query.removeEventListener("change", update);
@@ -168,7 +173,7 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
       ...(opening && window.matchMedia(COMPACT_WORKSPACE_QUERY).matches ? { bottomOpen: false } : {}),
     });
   };
-  const openPanel = (tab: "orderflow" | "terminal" | "pine") => {
+  const openPanel = (tab: BottomTab) => {
     if (window.matchMedia(COMPACT_WORKSPACE_QUERY).matches) {
       setSidebarOpen(false);
       setDrawingToolsOpen(false);
@@ -179,6 +184,10 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
     setSidebarOpen(false);
     setDrawingToolsOpen(false);
     useChartStore.getState().set({ bottomOpen: false });
+  };
+  const toggleDrawing = () => {
+    if (!drawingToolsOpen) openChart();
+    setDrawingToolsOpen(!drawingToolsOpen);
   };
   const workspaceFile = useRef<HTMLInputElement>(null);
   const command = (kind: "undo" | "redo" | "clear" | "settings" | "fit") =>
@@ -238,8 +247,13 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
     } catch (error) {
       useChartStore.getState().toast("Import failed", String(error), "error");
     }
-  };  return (
-    <main className={`trading-app theme-${theme}`}>
+  };
+  const market = describeSymbol(symbol);
+  const requiresAlpaca = symbol.startsWith("IEX:") && iexStatus !== "authenticated" || symbol.startsWith("SIP:") && !alpacaEnabled;
+  const dataLabel = status === "simulation" ? "Simulation" : requiresAlpaca ? "Datenzugang" : status !== "live" ? "Verbinden…"
+    : market.delayed ? "Verzögert" : "Live";
+  return (
+    <main className={`trading-app theme-${theme}${phoneChart ? " phone-workspace" : ""}`}>
       <NativeChartDialogs/>
       <MarketConnections/>
       <TradeArchive/>
@@ -250,13 +264,8 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
         onImport={() => workspaceFile.current?.click()}
         sidebarOpen={sidebarOpen}
         toggleSidebar={toggleSidebar}
-        phoneDrawing={phoneChart ? {
-          open: drawingToolsOpen,
-          toggle: () => {
-            if (!drawingToolsOpen) setSidebarOpen(false);
-            setDrawingToolsOpen(!drawingToolsOpen);
-          },
-        } : undefined}
+        phoneStatus={phoneChart ? { label: dataLabel, description: `${market.feed} · ${dataLabel}`, connected: status === "live" && !requiresAlpaca } : undefined}
+        phoneDeployment={phoneChart ? deployment : undefined}
       />
       <input
         hidden
@@ -273,21 +282,22 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
         {(!phoneChart || drawingToolsOpen) && <DrawingRail id="workspace-drawing-tools" />}
         <div className="center-workspace">
           <ModuleErrorBoundary moduleName="Chart Grid">
-            <ChartGrid compactLayout={compactLayout ? {
+            <ChartGrid tradingControls={!phoneChart || phoneTradingOpen} compactLayout={compactLayout ? {
               grid: showChartGrid,
               toggleGrid: () => setShowChartGrid(previous => !previous),
             } : undefined} />
           </ModuleErrorBoundary>
           <ReplayBar />
-          <RangeToolbar/>
+          {phoneChart ? <PhoneChartActions drawingOpen={drawingToolsOpen} toggleDrawing={toggleDrawing}
+            toggleSidebar={toggleSidebar} tradingOpen={phoneTradingOpen} toggleTrading={() => setPhoneTradingOpen(open => !open)} openPanel={openPanel} /> : <RangeToolbar />}
           <ModuleErrorBoundary moduleName="Bottom Panel" compact>
-            <BottomPanel />
+            <BottomPanel phone={phoneChart} />
           </ModuleErrorBoundary>
         </div>
         {sidebarOpen ? (
           <aside
             ref={sidebarRef}
-            className="right-sidebar"
+            className={`right-sidebar${phoneChart && sidebar === "watchlist" ? " phone-watchlist" : ""}`}
             aria-label={
               sidebar === "watchlist"
                 ? "Watchlist sidebar"
@@ -326,7 +336,7 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
               compact
             >
               {sidebar === "watchlist" ? (
-                <Watchlist />
+                <Watchlist phone={phoneChart} onOpenChart={phoneChart ? openChart : undefined} />
               ) : sidebar === "alerts" ? (
                 <AlertsPanel />
               ) : (

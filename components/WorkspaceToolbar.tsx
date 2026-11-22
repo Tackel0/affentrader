@@ -1,4 +1,5 @@
 "use client";
+import { useState, type ReactNode } from "react";
 import {currentPriceAlertDraft} from "@/lib/alerts/priceDraft";
 import { symbolLabel } from "@/lib/symbolId";
 import {
@@ -21,7 +22,7 @@ import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
 import { useLinkStore } from "@/stores/useLinkStore";
 import { openAffenTerminalWindow } from "@/lib/windowScope";
 
-import { IconButton } from "./ui";
+import { IconButton, Modal } from "./ui";
 import {ChartToolbarOverflow} from "./ChartToolbarOverflow";
 import {
   ChartTypeMenu,
@@ -35,18 +36,23 @@ import {
   SavedLayoutsMenu,
   IndicatorTemplateMenu,
 } from "./WorkspaceMenus";
+import { RangeToolbar } from "./RangeToolbar";
+import { PhoneWorkspacePanels } from "./WorkspacePanelTabs";
+import type { BottomTab } from "@/types/trading";
 export function WorkspaceToolbar({
   onExport,
   onImport,
   sidebarOpen,
   toggleSidebar,
-  phoneDrawing,
+  phoneStatus,
+  phoneDeployment,
 }: {
   onExport: () => void;
   onImport: () => void;
   sidebarOpen: boolean;
   toggleSidebar: () => void;
-  phoneDrawing?: { open: boolean; toggle: () => void };
+  phoneStatus?: { label: string; description: string; connected: boolean };
+  phoneDeployment?: ReactNode;
 }) {
   const symbol = useChartStore((s) => s.symbol),
     replay = useWorkspaceStore((s) => s.replay.active),
@@ -64,6 +70,26 @@ export function WorkspaceToolbar({
         .toast("Pop-up blockiert", "Bitte Pop-ups erlauben, um AffenTerminal im externen Fenster zu öffnen.", "error");
     }
   };
+  const search = (
+    <button className="symbol-selector" aria-label={`Search symbols · ${symbolLabel(symbol)}`}
+      onClick={() => useChartStore.getState().set({ searchOpen: true, searchTarget: "chart" })}>
+      <Search size={16} />
+      <strong>{symbolLabel(symbol)}</strong>
+    </button>
+  );
+  if (phoneStatus) return (
+    <div className="workspace-toolbar tv-toolbar phone-workspace-header" role="toolbar" aria-label="Chart toolbar">
+      <MainMenu onExport={onExport} onImport={onImport} footer={<div className="phone-menu-footer">
+        <span>Powered by <a href="https://github.com/luxalgo/vela" target="_blank" rel="noreferrer">Vela™</a> &amp; PineTS</span>
+        {phoneDeployment}
+      </div>} />
+      {search}
+      <span className="phone-market-status" title={phoneStatus.description}>
+        <span className={`status-dot ${phoneStatus.connected ? "green" : "amber"}`} aria-hidden="true" />
+        {phoneStatus.label}
+      </span>
+    </div>
+  );
   return (
     <div
       className="workspace-toolbar tv-toolbar"
@@ -81,17 +107,7 @@ export function WorkspaceToolbar({
         <ExternalLink size={15} />
         <span>AffenTerminal ↗</span>
       </button>
-      <button
-        className="symbol-selector"
-        onClick={() =>
-          useChartStore
-            .getState()
-            .set({ searchOpen: true, searchTarget: "chart" })
-        }
-      >
-        <Search size={14} />
-        <strong>{symbolLabel(symbol)}</strong>
-      </button>
+      {search}
       <CompareButton />
       <span className="toolbar-divider" />
       <IntervalPicker />
@@ -187,11 +203,38 @@ export function WorkspaceToolbar({
           <PanelRightOpen size={19} />
         )}
       </IconButton>
-      {phoneDrawing && <IconButton label="Drawing tools" className="phone-drawing-toggle"
-        aria-expanded={phoneDrawing.open} aria-controls={phoneDrawing.open ? "workspace-drawing-tools" : undefined} onClick={phoneDrawing.toggle}>
-        <PenTool size={19} />
-      </IconButton>}
       <ChartToolbarOverflow toggleSidebar={toggleSidebar}/>
+    </div>
+  );
+}
+
+export function PhoneChartActions({ drawingOpen, toggleDrawing, toggleSidebar, tradingOpen, toggleTrading, openPanel }: {
+  drawingOpen: boolean;
+  toggleDrawing: () => void;
+  toggleSidebar: () => void;
+  tradingOpen: boolean;
+  toggleTrading: () => void;
+  openPanel: (tab: BottomTab) => void;
+}) {
+  const [ranges, setRanges] = useState(false);
+  return (
+    <div className="phone-chart-actions tv-toolbar" role="toolbar" aria-label="Quick chart controls">
+      <IntervalPicker />
+      <ChartTypeMenu />
+      <IconButton label="Indicators" onClick={() => useChartStore.getState().set({ indicatorsOpen: true })}>
+        <ChartNoAxesCombined size={20} />
+      </IconButton>
+      <IconButton label="Drawing tools" className="phone-drawing-toggle" aria-expanded={drawingOpen}
+        aria-controls={drawingOpen ? "workspace-drawing-tools" : undefined} onClick={toggleDrawing}>
+        <PenTool size={19} />
+      </IconButton>
+      <PhoneWorkspacePanels onSelect={openPanel} />
+      <ChartToolbarOverflow toggleSidebar={toggleSidebar} phone={{
+        showRanges: () => setRanges(true), tradingOpen, toggleTrading,
+      }} />
+      {ranges && <Modal title="Zeitraum und Zeitzone" className="phone-action-sheet phone-range-dialog" onClose={() => setRanges(false)}>
+        <RangeToolbar onRangeSelected={() => setRanges(false)} />
+      </Modal>}
     </div>
   );
 }

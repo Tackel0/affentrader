@@ -44,7 +44,10 @@ import { bindLinkedCrosshair, publishLinkedCrosshair } from "@/lib/chart/crossha
 import { bindLinkedViewport } from "@/lib/chart/viewportLink";
 import { bindSatelliteQuote, type SatelliteQuote } from "@/lib/chart/satelliteQuote";
 import {bindSnapshotChart,snapshotSource} from "@/lib/chart/snapshotRegistry";
-export function ChartGrid({ compactLayout }: { compactLayout?: { grid: boolean; toggleGrid: () => void } }) {
+export function ChartGrid({ compactLayout, tradingControls = true }: {
+  compactLayout?: { grid: boolean; toggleGrid: () => void };
+  tradingControls?: boolean;
+}) {
   const layout = useWorkspaceStore((s) => s.layout),
     cells = useWorkspaceStore((s) => s.cells),
     activeId = useWorkspaceStore((s) => s.activeId),
@@ -96,11 +99,12 @@ export function ChartGrid({ compactLayout }: { compactLayout?: { grid: boolean; 
           data-cell-id={cell.id}
         >
           {activeId === cell.id ? (
-            <ChartCanvas compact={config.count > 4 && !singleId} />
+            <ChartCanvas compact={config.count > 4 && !singleId} tradingControls={tradingControls} />
           ) : (
             <SatelliteChart
               cell={cell}
               compact={config.count > 4 && !singleId}
+              tradingControls={tradingControls}
             />
           )}
           {config.count > 1 && !focused ? (
@@ -142,9 +146,11 @@ const SatelliteQuoteLabel = memo(function SatelliteQuoteLabel({ store }: { store
 function SatelliteChart({
   cell,
   compact,
+  tradingControls,
 }: {
   cell: WorkspaceCell;
   compact: boolean;
+  tradingControls: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const chartRef = useRef<Vela | null>(null);
@@ -321,7 +327,7 @@ function SatelliteChart({
           </span>
         </button>
         {quoteReady ? <SatelliteQuoteLabel store={quote} /> : null}
-        <ChartTrading symbol={cell.symbol} cellId={cell.id}/>
+        {tradingControls && <ChartTrading symbol={cell.symbol} cellId={cell.id} />}
         <WorkingOrderControls symbol={cell.symbol}/>
         <ChartPositionBar symbol={cell.symbol} cellId={cell.id}/>
       </div>

@@ -16,7 +16,7 @@ import {
   ArrowUpRight,
   Maximize2,
 } from "lucide-react";
-import { WorkspacePanelTabs } from "./WorkspacePanelTabs";
+import { workspacePanelLabel, WorkspacePanelTabs } from "./WorkspacePanelTabs";
 import { useChartStore } from "@/stores/useChartStore";
 import { describeSymbol, formatPrice, formatVolume, getSymbol } from "@/lib/symbols";
 import {
@@ -98,10 +98,10 @@ const examples: Record<string, string> = {
   "k-NN momentum": KNN_SCRIPT,
   "Ichimoku Cloud": ICHIMOKU_SCRIPT,
 };
-export function BottomPanel() {
+export function BottomPanel({ phone = false }: { phone?: boolean } = {}) {
   const open = useChartStore((s) => s.bottomOpen),
     tab = useChartStore((s) => s.bottomTab);
-  const resizable = open && (tab === "strategy" || TOOL_TABS.includes(tab));
+  const resizable = open && (phone || tab === "strategy" || TOOL_TABS.includes(tab));
   const contentId = useId();
   const panel = useRef<HTMLElement>(null);
   const content = useRef<HTMLDivElement>(null);
@@ -122,7 +122,17 @@ export function BottomPanel() {
       binding.dispose();
       resize.current = null;
     };
-  }, [resizable, tab]);
+  }, [resizable, tab, phone]);
+  if (phone && !open) return null;
+  const actions = <>
+    {resizable && <IconButton label="Toggle panel height" aria-controls={contentId} onClick={() => resize.current?.toggle()}>
+      <Maximize2 size={14} />
+    </IconButton>}
+    <IconButton label={open ? "Collapse bottom panel" : "Expand bottom panel"}
+      onClick={() => useChartStore.getState().set({ bottomOpen: !open })}>
+      {open ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
+    </IconButton>
+  </>;
   return (
     <section
       ref={panel}
@@ -140,23 +150,7 @@ export function BottomPanel() {
           tabIndex={0}
         />
       ) : null}
-      <WorkspacePanelTabs>
-        {resizable ? (
-          <IconButton
-            label="Toggle panel height"
-            aria-controls={contentId}
-            onClick={() => resize.current?.toggle()}
-          >
-            <Maximize2 size={14} />
-          </IconButton>
-        ) : null}
-        <IconButton
-          label={open ? "Collapse bottom panel" : "Expand bottom panel"}
-          onClick={() => useChartStore.getState().set({ bottomOpen: !open })}
-        >
-          {open ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
-        </IconButton>
-      </WorkspacePanelTabs>
+      {phone ? <div className="phone-panel-heading"><h2>{workspacePanelLabel(tab)}</h2>{actions}</div> : <WorkspacePanelTabs>{actions}</WorkspacePanelTabs>}
       {open ? (
         <div id={contentId} ref={content} className="bottom-panel-content">
           <ModuleErrorBoundary moduleName={`Bottom panel (${tab})`} resetKey={tab} compact>

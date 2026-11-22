@@ -4,6 +4,7 @@ import { Activity, Code2, BarChart3, Layers, Wallet, Rows3, PieChart, ListFilter
 import { useChartStore } from "@/stores/useChartStore";
 import type { BottomTab } from "@/types/trading";
 import { useDismiss } from "./WorkspaceMenus";
+import { IconButton, Modal } from "./ui";
 
 const PANELS = [
   { id: "overview", name: "Market overview", icon: Activity },
@@ -19,6 +20,27 @@ const PANELS = [
   { id: "calendar", name: "Calendar", icon: CalendarDays },
   { id: "heatmap", name: "Heatmap", icon: LayoutGrid },
 ] as const;
+
+export function workspacePanelLabel(tab: BottomTab) {
+  return PANELS.find(panel => panel.id === tab)?.name ?? "Workspace";
+}
+
+export function PhoneWorkspacePanels({ onSelect }: { onSelect: (tab: BottomTab) => void }) {
+  const [open, setOpen] = useState(false);
+  return <>
+    <IconButton label="More workspace panels" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}>
+      <LayoutGrid size={20} />
+    </IconButton>
+    {open && <Modal title="Workspace-Module" className="phone-action-sheet phone-workspace-panels" onClose={() => setOpen(false)}>
+      <div className="phone-panel-list">
+        {PANELS.map(panel => <button type="button" key={panel.id} data-panel={panel.id} onClick={() => {
+          setOpen(false);
+          onSelect(panel.id);
+        }}><panel.icon size={18} /><span>{panel.name}</span></button>)}
+      </div>
+    </Modal>}
+  </>;
+}
 
 export function WorkspacePanelTabs({ children }: { children: ReactNode }) {
   const tab = useChartStore(s => s.bottomTab), open = useChartStore(s => s.bottomOpen);

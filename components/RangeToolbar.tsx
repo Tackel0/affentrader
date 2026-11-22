@@ -9,7 +9,7 @@ import type {RangeShortcut} from "@/types/trading";
 import {Modal,IconButton} from "./ui";
 import {TimezoneMenu} from "./TimezoneMenu";
 
-export function RangeToolbar(){
+export function RangeToolbar({ onRangeSelected }: { onRangeSelected?: () => void } = {}){
   const symbol=useChartStore(s=>s.symbol),timeframe=useChartStore(s=>s.timeframe),chartType=useChartStore(s=>s.chartType);
   const [open,setOpen]=useState(false),[selected,setSelected]=useState<{range:RangeShortcut;symbol:string}|null>(null);
   useEffect(()=>useChartStore.subscribe((state,before)=>{if(state.command!==before.command&&state.command&&["goto","recent","fit"].includes(state.command.kind))setSelected(null);}),[]);
@@ -21,13 +21,13 @@ export function RangeToolbar(){
     <div className="range-shortcuts" role="group" aria-label="Date range presets">
       {RANGE_SHORTCUTS.map(range=><button key={range} type="button" title={`${range==="ALL"?"All available data":range} · ${rangeTimeframe(range,chartType)} interval`} aria-pressed={selected?.range===range&&selected.symbol===symbol&&rangeTimeframe(range,chartType)===timeframe}
         className={selected?.range===range&&selected.symbol===symbol&&rangeTimeframe(range,chartType)===timeframe?"active":""}
-        onClick={()=>{setSelected({range,symbol});useChartStore.getState().set({command:{id:Date.now(),kind:"range",value:range}});}}>{range=== "ALL"?"All":range}</button>)}
+        onClick={()=>{setSelected({range,symbol});useChartStore.getState().set({command:{id:Date.now(),kind:"range",value:range}});onRangeSelected?.();}}>{range=== "ALL"?"All":range}</button>)}
     </div>
     <span className="range-separator" />
     <IconButton label="Go to date (Alt+G)" onClick={()=>setOpen(true)}><CalendarDays size={19}/></IconButton>
     <span className="flex-1"/>
     <TimezoneMenu/>
-    {open?<DateRangeDialog onClose={()=>setOpen(false)} onSubmit={(time,to)=>{setSelected(null);useChartStore.getState().set({command:{id:Date.now(),kind:"goto",time,to}});setOpen(false);}}/>:null}
+    {open?<DateRangeDialog onClose={()=>setOpen(false)} onSubmit={(time,to)=>{setSelected(null);useChartStore.getState().set({command:{id:Date.now(),kind:"goto",time,to}});setOpen(false);onRangeSelected?.();}}/>:null}
   </div>;
 }
 

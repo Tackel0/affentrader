@@ -6,6 +6,13 @@ This document is the single self-contained architectural, operational, and itera
 
 ## 1. Completed Modules & Current Status
 
+### Phone PWA workspace 2026-11-22
+
+- The phone chart used separate date, panel, and status strips and showed order controls by default. `TradingWorkspace`, `WorkspaceToolbar` and `BottomPanel` now open on the chart with a symbol and feed header, a thumb-accessible chart toolbar, and fewer persistent controls. The range and time-zone tools, chart trading controls, and workspace module launcher remain available on demand. Desktop and tablet keep the existing workspace bars.
+- `Watchlist` gives phones a resizable sheet with one virtualized scrolling list. Selecting an instrument closes the sheet and opens its chart. Editing reveals removal, flagging and bulk actions. Instrument details open separately. `SymbolSearch` fills the phone viewport and uses a keyboard-safe viewport policy and a 16px input.
+- The Chromium comparison at 390 × 844 with seeded data measured 697px of chart height, up from 640px. The phone capture in `/screenshots/workspace-phone.png` matches the updated app shell. The mobile audit covers the chart-first launch, the on-demand controls, the watchlist selection flow, and the existing panel snap points.
+- Fast-forward pull, type generation, typecheck, 2,842 Vitest tests, the production build, desktop Chrome E2E, and 90 viewport scenarios passed with zero document overflow. The 360px scenario taps the Terminal navigation directly. The 390px sequence activates the same button through the DOM after the scripted drag series because Chromium can omit the emulated click there. The light and dark app layouts were visually inspected in Chromium.
+
 ### US markets and commodities watchlist 2026-11-22
 
 - `watchlistPresets.ts` defines 90 US listings and USD commodity benchmarks across nine sections. The preset includes the Magnificent 7, semiconductors, sector and index funds, WTI, gold, silver, and other NYMEX, COMEX, and CBOT futures.

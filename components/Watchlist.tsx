@@ -1,7 +1,7 @@
 "use client";
 import {currentPriceAlertDraft} from "@/lib/alerts/priceDraft";
 import { TechnicalsCard } from "./TechnicalsCard";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
   ChevronDown,
@@ -140,6 +140,8 @@ interface RowProps {
   flag?: WatchFlag;
   active: boolean;
   selected: boolean;
+  showActions: boolean;
+  editMode: boolean;
   draggable: boolean;
   onSelect: (symbol: string, event: React.MouseEvent) => void;
   onOpen: (symbol: string) => void;
@@ -157,6 +159,8 @@ const SymbolRow = memo(function SymbolRow({
   flag,
   active,
   selected,
+  showActions,
+  editMode,
   draggable,
   onSelect,
   onOpen,
@@ -172,7 +176,8 @@ const SymbolRow = memo(function SymbolRow({
   return (
     <div
       className={`watchlist-row dynamic ${active ? "selected" : ""} ${selected ? "multi" : ""}`}
-      style={{ gridTemplateColumns: `minmax(76px,1fr) ${columns.map((c) => `${COLUMN_WIDTH[c]}px`).join(" ")}`, height: rowHeight }}
+      style={{ gridTemplateColumns: `minmax(76px,1fr) ${columns.map((c) => `${COLUMN_WIDTH[c]}px`).join(" ")}`, height: rowHeight,
+        borderLeftColor: !showActions && flag ? FLAG_COLORS[flag] : undefined }}
       draggable={draggable}
       onDragStart={(e) => e.dataTransfer.setData("text/plain", symbol)}
       onDragOver={(e) => e.preventDefault()}
@@ -182,17 +187,17 @@ const SymbolRow = memo(function SymbolRow({
       }}
     >
       <div className="watchlist-instrument">
-        <button
+        {showActions && <button
           type="button"
           className="watchlist-flag"
           aria-label={flag ? `Flag: ${flag}` : "Set flag"}
           onClick={(e) => onFlag(symbol, e.currentTarget)}
-        ><span className="flag-dot" aria-hidden="true" style={flag ? { background: FLAG_COLORS[flag], borderColor: FLAG_COLORS[flag] } : undefined} /></button>
+        ><span className="flag-dot" aria-hidden="true" style={flag ? { background: FLAG_COLORS[flag], borderColor: FLAG_COLORS[flag] } : undefined} /></button>}
         <button
           className="watchlist-asset"
           aria-label={listing ? [label, listing.exchange, flowLabel].filter(Boolean).join(" · ") : undefined}
           title={listing ? `${listing.name} · ${listing.exchange} · Yahoo Finance (ggf. zeitverzögert)` : undefined}
-          onClick={(e) => (e.ctrlKey || e.metaKey || e.shiftKey ? onSelect(symbol, e) : onOpen(symbol))}
+          onClick={(e) => (editMode || e.ctrlKey || e.metaKey || e.shiftKey ? onSelect(symbol, e) : onOpen(symbol))}
         >
           <AssetBadge symbol={symbol} />
           <span>
@@ -208,13 +213,13 @@ const SymbolRow = memo(function SymbolRow({
         </button>
       </div>
       {columns.map((c) => (
-        <button key={c} className="watch-cell-button" tabIndex={-1} title={c === "last" && quote ? `${quotePriceLabel(quote)} · ${new Date(quote.time).toISOString()}` : undefined} onClick={() => onOpen(symbol)}>
+        <button key={c} className="watch-cell-button" tabIndex={-1} title={c === "last" && quote ? `${quotePriceLabel(quote)} · ${new Date(quote.time).toISOString()}` : undefined} onClick={(event) => editMode ? onSelect(symbol, event) : onOpen(symbol)}>
           <Cell column={c} quote={quote} />
         </button>
       ))}
-      <button className="row-remove" aria-label={`Remove ${asset.base}`} title="Remove symbol" onClick={() => onRemove(symbol)}>
+      {showActions && <button className="row-remove" aria-label={`Remove ${asset.base}`} title="Remove symbol" onClick={() => onRemove(symbol)}>
         <X size={11} />
-      </button>
+      </button>}
     </div>
   );
 });
@@ -494,7 +499,7 @@ const SymbolDetail = memo(function SymbolDetail({ symbol }: { symbol: string }) 
   );
 });
 
-export function Watchlist() {
+export function Watchlist({ phone = false, onOpenChart }: { phone?: boolean; onOpenChart?: () => void } = {}) {
   const store = useWatchlistStore();
   const symbol = useChartStore((s) => s.symbol);
   const [menu, setMenu] = useState(false),
@@ -506,6 +511,21 @@ export function Watchlist() {
     [scroll, setScroll] = useState(0),
     [rowHeight, setRowHeight] = useState(DESKTOP_ROW),
     [flagMenu, setFlagMenu] = useState<{ symbol: string; x: number; y: number } | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [details, setDetails] = useState(false);
+  const [phoneListHeight, setPhoneListHeight] = useState(MAX_VIEW);
+  const rowsRef = useRef<HTMLDivElement>(null);
+  const editMode = phone && editing;
+  const showActions = !phone || editMode;
+  useLayoutEffect(() => {
+    const rows = rowsRef.current;
+    if (!phone || !rows) return;
+    const measure = () => setPhoneListHeight(rows.clientHeight);
+    const observer = new ResizeObserver(measure);
+    observer.observe(rows);
+    measure();
+    return () => observer.disconnect();
+  }, [phone]);
   useEffect(() => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
     const query = window.matchMedia("(max-width: 768px), (pointer: coarse)");
@@ -519,7 +539,6 @@ export function Watchlist() {
     return () => query.removeListener(syncRowHeight);
   }, []);
   const flagRef = useDismiss(flagMenu !== null, () => setFlagMenu(null));
-  const rowsRef = useRef<HTMLDivElement>(null);
   const active = store.lists.find((l) => l.id === store.activeId) ?? store.lists[0];
   const flags = active.flags ?? EMPTY_FLAGS;
   const columns = store.columns;
@@ -555,7 +574,7 @@ export function Watchlist() {
   const entries = useChartStore(useShallow(selectEntries));
   const count = active.symbols.filter((e) => !isSection(e)).length;
   const flowEligible = useMemo(() => active.symbols.some(entry => optionsFlowTicker(entry)), [active.symbols]);
-  const viewHeight = Math.min(entries.length * rowHeight, MAX_VIEW);
+  const viewHeight = phone ? phoneListHeight : Math.min(entries.length * rowHeight, MAX_VIEW);
   const first = Math.max(0, Math.floor(scroll / rowHeight) - 4);
   const last = Math.min(entries.length, Math.ceil((scroll + viewHeight) / rowHeight) + 4);
   const flow = useOptionsFlow(entries.slice(first, last).flatMap(entry => {
@@ -598,12 +617,19 @@ export function Watchlist() {
   const reorder = useCallback((from: string, to: string) => {
     if (from !== to) useWatchlistStore.getState().reorder(from, to);
   }, []);
-  const closeListMenu = () => {
-    setMenu(false);
-    setSelected(new Set());
+  const resetScroll = () => {
     setScroll(0);
     if (rowsRef.current) rowsRef.current.scrollTop = 0;
   };
+  const closeListMenu = () => {
+    setMenu(false);
+    setSelected(new Set());
+    resetScroll();
+  };
+  const viewSymbol = useCallback((entry: string) => {
+    openSymbol(entry);
+    onOpenChart?.();
+  }, [onOpenChart]);
   const others = store.lists.filter((l) => l.id !== active.id);
   return (
     <>
@@ -679,10 +705,16 @@ export function Watchlist() {
             value={filter}
             onChange={(e) => {
               setFilter(e.target.value);
-              setScroll(0);
+              resetScroll();
             }}
           />
-          <div className="flag-filter" role="group" aria-label="Filter by flag">
+          {phone ? <select aria-label="Filter by flag" value={flagFilter ?? ""} onChange={event => {
+            setFlagFilter(FLAG_ORDER.find(flag => flag === event.target.value) ?? null);
+            resetScroll();
+          }}>
+            <option value="">Alle Marker</option>
+            {FLAG_ORDER.map(flag => <option key={flag} value={flag}>{flag}</option>)}
+          </select> : <div className="flag-filter" role="group" aria-label="Filter by flag">
             {FLAG_ORDER.map((f) => (
               <button
                 key={f}
@@ -693,7 +725,7 @@ export function Watchlist() {
                 onClick={() => setFlagFilter(flagFilter === f ? null : f)}
               />
             ))}
-          </div>
+          </div>}
         </div>
       ) : null}
       <div className="watchlist-columns dynamic" style={{ gridTemplateColumns: gridColumns }}>
@@ -753,7 +785,7 @@ export function Watchlist() {
       <div
         className="watchlist-rows virtual"
         ref={rowsRef}
-        style={{ height: viewHeight || undefined, overflowY: entries.length * rowHeight > MAX_VIEW ? "auto" : "visible" }}
+        style={phone ? undefined : { height: viewHeight || undefined, overflowY: entries.length * rowHeight > MAX_VIEW ? "auto" : "visible" }}
         onScroll={(e) => setScroll(e.currentTarget.scrollTop)}
       >
         <div style={{ height: entries.length * rowHeight, position: "relative" }}>
@@ -765,12 +797,12 @@ export function Watchlist() {
                 style={{ position: "absolute", top: (first + i) * rowHeight, height: rowHeight, left: 0, right: 0 }}
               >
                 {sectionName(entry)}
-                <button
+                {showActions && <button
                   aria-label={`Remove section ${sectionName(entry)}`}
                   onClick={() => store.removeSymbol(entry)}
                 >
                   <X size={11} />
-                </button>
+                </button>}
               </div>
             ) : (
               <div key={entry} style={{ position: "absolute", top: (first + i) * rowHeight, left: 0, right: 0 }}>
@@ -784,9 +816,11 @@ export function Watchlist() {
                   flag={flags[entry]}
                   active={symbol === entry}
                   selected={selected.has(entry)}
+                  showActions={showActions}
+                  editMode={editMode}
                   draggable={!store.sort && !filter && !flagFilter}
                   onSelect={select}
-                  onOpen={openSymbol}
+                  onOpen={viewSymbol}
                   onFlag={showFlag}
                   onRemove={store.removeSymbol}
                   onDrop={reorder}
@@ -810,7 +844,7 @@ export function Watchlist() {
           </div>
         ) : null}
       </div>
-      <button
+      {!phone && <button
         className="add-symbol-row"
         onClick={() => useChartStore.getState().set({ searchOpen: true, searchTarget: "watchlist" })}
       >
@@ -819,7 +853,15 @@ export function Watchlist() {
         <small className="list-count">
           {count}/{MAX_LIST_SYMBOLS}
         </small>
-      </button>
+      </button>}
+      {phone && <div className="phone-watchlist-actions">
+        <button type="button" aria-pressed={editing} onClick={() => {
+          setEditing(!editing);
+          setSelected(new Set());
+          setFlagMenu(null);
+        }}><Pencil size={16} /> {editing ? "Fertig" : "Bearbeiten"}</button>
+        <button type="button" onClick={() => setDetails(true)}><Activity size={16} /> Symbol-Details</button>
+      </div>}
       {flagMenu ? (
         <div ref={flagRef} className="flag-menu" style={{ left: Math.max(8, flagMenu.x - 8), top: flagMenu.y }}>
           {FLAG_ORDER.map((f) => (
@@ -845,7 +887,10 @@ export function Watchlist() {
           </button>
         </div>
       ) : null}
-      <SymbolDetail symbol={symbol} />
+      {!phone && <SymbolDetail symbol={symbol} />}
+      {phone && details && <Modal title="Symbol-Details" className="phone-action-sheet" onClose={() => setDetails(false)}>
+        <SymbolDetail symbol={symbol} />
+      </Modal>}
       {form === "import" ? <ImportDialog onClose={() => setForm(null)} /> : null}
       {form === "create" || form === "rename" ? (
         <Modal
