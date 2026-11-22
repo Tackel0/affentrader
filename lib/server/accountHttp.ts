@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ACCOUNT_SCOPE_COOKIE } from "@/lib/accountScope";
-import { ACCOUNT_COOKIE, AccountError, createAccountSession, createPasswordAccount, revokeAccountSession, verifyPasswordAccount, type Account } from "./accounts";
+import { ACCOUNT_COOKIE, AccountError, changeAccountPassword, createAccountSession, createPasswordAccount, loginPasswordAccount, readAccountSession, revokeAccountSession, revokeOtherAccountSessions, type Account } from "./accounts";
 import { isSameOriginRequest } from "./security";
 import { matchesSitePassword, safeReturnPath, SESSION_SECONDS, SITE_COOKIE, siteAccessConfig, takeLoginAttempt } from "./siteAccess";
-import { siteLoginPage, type SignInMode } from "./siteLoginPage";
+import { accountOverviewPage, siteLoginPage, type SignInMode } from "./siteLoginPage";
 
 export const accountHeaders = {
   "Cache-Control": "private, no-store, max-age=0",
@@ -52,6 +52,10 @@ export function clearAccountCookies(response: NextResponse, request: NextRequest
 export async function accountSignInResponse(request: NextRequest, user: Account, next: string, origin = accountOrigin(request)) {
   const token = await createAccountSession(user.id);
   await revokeAccountSession(request.cookies.get(ACCOUNT_COOKIE)?.value);
+  return accountSessionResponse(request, user, token, next, origin);
+}
+
+function accountSessionResponse(request: NextRequest, user: Account, token: string, next: string, origin = accountOrigin(request)) {
   const response = NextResponse.redirect(new URL(safeReturnPath(next), origin), { status: 303, headers: accountHeaders });
   const settings = { secure: secureAccountRequest(request), sameSite: "lax", path: "/", maxAge: SESSION_SECONDS } as const;
   response.cookies.set(ACCOUNT_COOKIE, token, { ...settings, httpOnly: true });
@@ -87,10 +91,38 @@ export async function passwordAccountForm(request: NextRequest, mode: Extract<Si
     const form = await readAccountForm(request);
     next = safeReturnPath(form.get("next"));
     const email = form.get("email") ?? "", password = form.get("password") ?? "";
-    if (mode === "register" && !await matchesSitePassword(form.get("invite") ?? "", config)) return failure(403, "Das Website-Passwort zur Freischaltung ist ungültig.");
-    const user = mode === "register" ? await createPasswordAccount(email, password) : await verifyPasswordAccount(email, password);
-    return user ? await accountSignInResponse(request, user, next) : failure(401, "E-Mail oder Passwort ist ungültig.");
+    if (mode === "register") {
+      if (!await matchesSitePassword(form.get("invite") ?? "", config)) return failure(403, "Das Website-Passwort zur Freischaltung ist ungültig.");
+      return await accountSignInResponse(request, await createPasswordAccount(email, password), next);
+    }
+    const session = await loginPasswordAccount(email, password);
+    if (!session) return failure(401, "E-Mail oder Passwort ist ungültig.");
+    await revokeAccountSession(request.cookies.get(ACCOUNT_COOKIE)?.value);
+    return accountSessionResponse(request, session.user, session.token, next);
   } catch (error) {
     return error instanceof AccountError ? failure(error.status, error.message) : failure(503, "Das Konto ist vorübergehend nicht erreichbar.");
+  }
+}
+
+export async function accountSecurityForm(request: NextRequest, action: "password" | "sessions") {
+  const token = request.cookies.get(ACCOUNT_COOKIE)?.value;
+  const user = await readAccountSession(token);
+  const google = Boolean(googleSettings());
+  const failure = (status: number, message: string) => accountHtml(accountOverviewPage(user, google, message), status);
+  if (!token || !user) return accountHtml(siteLoginPage("/konto", "Melde dich mit deinem persönlichen Konto an.", "account", google), 401);
+  if (!isSameOriginRequest(request, { allowMissingOrigin: false, fallbackHost: request.nextUrl.host })) return failure(403, "Öffne die Kontoseite erneut.");
+  if (action === "password" && !takeLoginAttempt()) return failure(429, "Zu viele Versuche. Bitte warte eine Minute.");
+  try {
+    if (action === "sessions") {
+      await revokeOtherAccountSessions(token);
+      return NextResponse.redirect(new URL("/konto?updated=sessions", accountOrigin(request)), { status: 303, headers: accountHeaders });
+    }
+    const form = await readAccountForm(request);
+    const current = form.get("current") ?? "", next = form.get("new") ?? "";
+    if (next !== form.get("confirm")) return failure(400, "Die beiden neuen Passwörter stimmen nicht überein.");
+    const changed = await changeAccountPassword(token, current, next);
+    return accountSessionResponse(request, changed.user, changed.token, "/konto?updated=password");
+  } catch (error) {
+    return error instanceof AccountError ? failure(error.status, error.message) : failure(503, "Die Änderung konnte gerade nicht gespeichert werden.");
   }
 }

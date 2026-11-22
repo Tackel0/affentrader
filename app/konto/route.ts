@@ -6,5 +6,5 @@ import { accountOverviewPage } from "@/lib/server/siteLoginPage";
 export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest) {
   const user = await readAccountSession(request.cookies.get(ACCOUNT_COOKIE)?.value);
-  return accountHtml(accountOverviewPage(user, Boolean(googleSettings())));
+  return accountHtml(accountOverviewPage(user, Boolean(googleSettings()), "", request.nextUrl.searchParams.get("updated")));
 }

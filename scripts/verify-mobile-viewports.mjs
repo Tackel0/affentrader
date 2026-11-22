@@ -2004,6 +2004,7 @@ async function run() {
     let pineWorkerLifecycleChecked = false;
     let pineLoadsOnDemandChecked = false;
     let personalWorkspaceChecked = false;
+    let accountSecurityChecked = false;
     if (serverProc && !opts.liveApis) {
       await setViewport(VIEWPORTS[0]);
       activeLabel = "deployment update";
@@ -2154,13 +2155,30 @@ async function run() {
         const legacy = localStorage.getItem("affentrader-watchlists-v1") ?? "";
         return location.pathname === "/" && !!document.querySelector(".trading-app") && saved?.includes("Synced account list") && !legacy.includes("Synced account list");
       })()`, "a new browser profile automatically restores the personal watchlist");
+      personalWorkspaceChecked = true;
+      activeLabel = "account password change";
+      await cdp.send("Page.navigate", { url: `${baseUrl}/konto` });
+      await waitForPagePredicate(cdp, '!!document.querySelector(\'form[action="/api/account/password"]\')', "account password management form");
+      const replacementPassword = randomBytes(16).toString("hex");
+      await cdp.send("Runtime.evaluate", { expression: `(() => {
+        const form = document.querySelector('form[action="/api/account/password"]');
+        form.closest("details").open = true;
+        form.elements.namedItem("current").value = ${JSON.stringify(accountPassword)};
+        form.elements.namedItem("new").value = ${JSON.stringify(replacementPassword)};
+        form.elements.namedItem("confirm").value = ${JSON.stringify(replacementPassword)};
+        form.requestSubmit();
+      })()` });
+      await waitForPagePredicate(cdp, `location.pathname === "/konto"
+        && document.querySelector('[role="status"]')?.textContent.includes("Passwort geändert")
+        && document.cookie.includes("affentrader-workspace-profile=")
+        && document.documentElement.scrollWidth <= innerWidth`, "password is changed while the current browser retains its workspace");
+      accountSecurityChecked = true;
       await cdp.send("Runtime.evaluate", { expression: `(() => {
         const form = Object.assign(document.createElement("form"), { method: "post", action: "/logout" });
         document.body.append(form);
         form.submit();
       })()` });
       await waitForPagePredicate(cdp, 'location.pathname === "/login" && !document.cookie.includes("affentrader-workspace-profile=")', "account logout clears the active workspace profile");
-      personalWorkspaceChecked = true;
       activeLabel = "offline navigation";
       if (serverProc.exitCode === null && serverProc.signalCode === null) {
         const stopped = once(serverProc, "exit", { signal: AbortSignal.timeout(8_000) });
@@ -2192,6 +2210,7 @@ async function run() {
           pineWorkerLifecycleChecked,
           pineLoadsOnDemandChecked,
           personalWorkspaceChecked,
+          accountSecurityChecked,
           strategyLoadsOnDemandChecked,
           compactDockSnapChecked,
           sidebarSheetsChecked,

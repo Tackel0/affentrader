@@ -4,7 +4,7 @@ import { JsonStore, dataDir } from "./storage";
 import { SESSION_SECONDS } from "./siteAccess";
 
 export const ACCOUNT_COOKIE = "affentrader-account-session";
-export interface Account { id: string; email: string; googleLinked: boolean }
+export interface Account { id: string; email: string; googleLinked: boolean; passwordEnabled: boolean }
 interface Entry {
   id: string;
   email: string;
@@ -36,7 +36,7 @@ export function normalizeAccountEmail(input: unknown): string | null {
 }
 
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
-const account = (entry: Entry): Account => ({ id: entry.id, email: entry.email, googleLinked: Boolean(entry.googleSubject) });
+const account = (entry: Entry): Account => ({ id: entry.id, email: entry.email, googleLinked: Boolean(entry.googleSubject), passwordEnabled: Boolean(entry.passwordHash) });
 const sessionPattern = /^[a-f0-9]{32}\.[a-f0-9]{64}$/;
 const dummySalt = "0".repeat(32);
 
@@ -44,6 +44,13 @@ function derive(password: string, salt: string): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     scrypt(password, salt, 64, { N: 32768, r: 8, p: 1, maxmem: 64 * 1024 * 1024 }, (error, hash) => error ? reject(error) : resolve(hash));
   });
+}
+
+const acceptablePassword = (password: string) => password.length >= 10 && Buffer.byteLength(password) <= 512;
+
+async function newPasswordHash(password: string): Promise<string> {
+  const salt = randomBytes(16).toString("hex");
+  return `${salt}:${(await derive(password, salt)).toString("hex")}`;
 }
 
 function addAccount(state: Directory, email: string): Entry {
@@ -55,11 +62,10 @@ function addAccount(state: Directory, email: string): Entry {
 }
 
 export async function createPasswordAccount(email: string, password: string): Promise<Account> {
-  if (!normalizeAccountEmail(email) || password.length < 10 || Buffer.byteLength(password) > 512) {
+  if (!normalizeAccountEmail(email) || !acceptablePassword(password)) {
     throw new AccountError(400, "Gib eine gültige E-Mail und ein Passwort mit mindestens 10 Zeichen ein.");
   }
-  const salt = randomBytes(16).toString("hex");
-  const passwordHash = `${salt}:${(await derive(password, salt)).toString("hex")}`;
+  const passwordHash = await newPasswordHash(password);
   let created!: Account;
   await directory().update(state => {
     const entry = addAccount(state, normalizeAccountEmail(email)!);
@@ -69,23 +75,25 @@ export async function createPasswordAccount(email: string, password: string): Pr
   return created;
 }
 
-export async function verifyPasswordAccount(email: string, password: string): Promise<Account | null> {
+export async function loginPasswordAccount(email: string, password: string) {
   if (!password || Buffer.byteLength(password) > 512) return null;
   const entry = (await directory().read()).accounts.find(row => row.email === normalizeAccountEmail(email));
   const [salt, expected] = (entry?.passwordHash ?? `${dummySalt}:${"0".repeat(128)}`).split(":");
   const actual = await derive(password, salt);
-  return timingSafeEqual(actual, Buffer.from(expected, "hex")) && entry?.passwordHash ? account(entry) : null;
+  if (!timingSafeEqual(actual, Buffer.from(expected, "hex")) || !entry?.passwordHash) return null;
+  const token = await issueAccountSession(entry.id, Date.now(), entry.passwordHash);
+  return { user: account(entry), token };
 }
 
-export async function connectGoogleAccount(input: { subject: string; email: string; linkId?: string; allowNew: boolean }): Promise<Account> {
+export async function connectGoogleAccount(input: { subject: string; email: string; linkId?: string; linkSession?: string; allowNew: boolean }): Promise<Account> {
   if (!/^[a-zA-Z0-9_-]{1,128}$/.test(input.subject) || !normalizeAccountEmail(input.email)) throw new AccountError(400, "Google hat keine bestätigte E-Mail geliefert.");
   const email = normalizeAccountEmail(input.email)!;
   let connected!: Account;
   await directory().update(state => {
     const linked = state.accounts.find(entry => entry.googleSubject === input.subject);
     if (input.linkId) {
-      const entry = state.accounts.find(row => row.id === input.linkId);
-      if (!entry || entry.email !== email || (linked && linked.id !== entry.id) || (entry.googleSubject && entry.googleSubject !== input.subject)) {
+      const entry = entryForSession(state, input.linkSession, Date.now());
+      if (!entry || entry.id !== input.linkId || entry.email !== email || (linked && linked.id !== entry.id) || (entry.googleSubject && entry.googleSubject !== input.subject)) {
         throw new AccountError(409, "Dieses Google-Konto kann hier nicht verknüpft werden. Prüfe die E-Mail deines AffenTerminal-Kontos.");
       }
       entry.googleSubject = input.subject;
@@ -103,22 +111,37 @@ export async function connectGoogleAccount(input: { subject: string; email: stri
   return connected;
 }
 
-export async function createAccountSession(id: string, now = Date.now()): Promise<string> {
-  if (!validWorkspaceProfile(id)) throw new AccountError(401, "Konto nicht verfügbar.");
+function mintSession(id: string, now: number) {
   const token = `${id}.${randomBytes(32).toString("hex")}`;
+  return { token, record: { hash: digest(token), expires: now + SESSION_SECONDS * 1000 } };
+}
+
+export async function createAccountSession(id: string, now = Date.now()): Promise<string> {
+  return issueAccountSession(id, now);
+}
+
+async function issueAccountSession(id: string, now: number, verifiedPasswordHash?: string): Promise<string> {
+  if (!validWorkspaceProfile(id)) throw new AccountError(401, "Konto nicht verfügbar.");
+  const { token, record } = mintSession(id, now);
   await directory().update(state => {
     const entry = state.accounts.find(row => row.id === id);
-    if (!entry) throw new AccountError(401, "Konto nicht verfügbar.");
-    entry.sessions = [{ hash: digest(token), expires: now + SESSION_SECONDS * 1000 }, ...entry.sessions.filter(session => session.expires > now)].slice(0, 12);
+    if (!entry || (verifiedPasswordHash && entry.passwordHash !== verifiedPasswordHash)) throw new AccountError(401, "E-Mail oder Passwort ist ungültig.");
+    entry.sessions = [record, ...entry.sessions.filter(session => session.expires > now)].slice(0, 12);
   });
   return token;
 }
 
+function entryForSession(state: Directory, token: string | undefined, now: number): Entry | null {
+  if (!token || !sessionPattern.test(token)) return null;
+  const entry = state.accounts.find(row => row.id === token.slice(0, 32));
+  const hash = digest(token);
+  return entry?.sessions.some(session => session.hash === hash && session.expires > now) ? entry : null;
+}
+
 export async function readAccountSession(token?: string, now = Date.now()): Promise<Account | null> {
   if (!token || !sessionPattern.test(token)) return null;
-  const entry = (await directory().read()).accounts.find(row => row.id === token.slice(0, 32));
-  const hash = digest(token);
-  return entry?.sessions.some(session => session.hash === hash && session.expires > now) ? account(entry) : null;
+  const entry = entryForSession(await directory().read(), token, now);
+  return entry ? account(entry) : null;
 }
 
 export async function revokeAccountSession(token?: string): Promise<void> {
@@ -128,4 +151,33 @@ export async function revokeAccountSession(token?: string): Promise<void> {
     const entry = state.accounts.find(row => row.id === token.slice(0, 32));
     if (entry) entry.sessions = entry.sessions.filter(session => session.hash !== hash);
   });
+}
+
+export async function revokeOtherAccountSessions(token: string) {
+  const hash = digest(token);
+  await directory().update(state => {
+    const entry = entryForSession(state, token, Date.now());
+    if (!entry) throw new AccountError(401, "Melde dich für diese Änderung neu an.");
+    entry.sessions = entry.sessions.filter(session => session.hash === hash);
+  });
+}
+
+export async function changeAccountPassword(token: string, current: string, next: string) {
+  if (!acceptablePassword(next)) throw new AccountError(400, "Das neue Passwort muss mindestens 10 Zeichen lang sein.");
+  if (!current || Buffer.byteLength(current) > 512) throw new AccountError(400, "Gib dein aktuelles Passwort ein.");
+  const saved = entryForSession(await directory().read(), token, Date.now());
+  if (!saved?.passwordHash) throw new AccountError(403, "Für dieses Konto ist derzeit kein Passwort hinterlegt.");
+  const [salt, expected] = saved.passwordHash.split(":");
+  if (!timingSafeEqual(await derive(current, salt), Buffer.from(expected, "hex"))) throw new AccountError(401, "Das aktuelle Passwort ist ungültig.");
+  if (current === next) throw new AccountError(400, "Wähle ein neues Passwort.");
+
+  const passwordHash = await newPasswordHash(next);
+  const fresh = mintSession(saved.id, Date.now());
+  await directory().update(state => {
+    const entry = entryForSession(state, token, Date.now());
+    if (!entry || entry.passwordHash !== saved.passwordHash) throw new AccountError(409, "Deine Sitzung hat sich geändert. Lade die Kontoseite neu.");
+    entry.passwordHash = passwordHash;
+    entry.sessions = [fresh.record];
+  });
+  return { user: account(saved), token: fresh.token };
 }

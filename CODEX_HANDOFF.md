@@ -6,6 +6,12 @@ This document is the single self-contained architectural, operational, and itera
 
 ## 1. Completed Modules & Current Status
 
+### Account management 2026-11-22
+
+- `/konto` adds password changes and sign-out for other account sessions. Password changes verify the current password and replace all sessions with a fresh session for the current device in the same durable write. A password login verifies the stored hash again when issuing its session.
+- `accounts.ts` and `googleAccount.ts` verify that a session is still active inside the write that links a Google identity. Account tests cover rejected cross-origin updates, session revocation, password rotation, and workspace retention. The 360px browser flow checks that a password change retains the active workspace and fits the viewport.
+- The local gate passed type generation, type checking, 2,840 Vitest tests, the production build, the desktop Chrome E2E and the mobile viewport audit.
+
 ### Personal accounts cycle 2026-11-22
 
 - The private site password and existing key synchronization still work at their original entry points. Personal accounts can be invited using the site password. `accounts.ts` stores scrypt password hashes and hashes of revocable browser sessions in the existing durable data volume.

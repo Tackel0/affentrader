@@ -61,7 +61,8 @@ export async function beginGoogleAccount(request: NextRequest) {
 export async function finishGoogleAccount(request: NextRequest, fetcher = fetch) {
   const access = siteAccessConfig(), google = googleSettings();
   const flow = access ? readHandshake(request.cookies.get(HANDSHAKE_COOKIE)?.value, access.secret) : null;
-  const user = flow?.linkId ? await readAccountSession(request.cookies.get(ACCOUNT_COOKIE)?.value) : null;
+  const session = request.cookies.get(ACCOUNT_COOKIE)?.value;
+  const user = flow?.linkId ? await readAccountSession(session) : null;
   const clear = (response: NextResponse) => { response.cookies.set(HANDSHAKE_COOKIE, "", options(request, 0)); return response; };
   const failure = (status: number, message: string) => clear(accountHtml(user
     ? accountOverviewPage(user, Boolean(google), message)
@@ -86,7 +87,7 @@ export async function finishGoogleAccount(request: NextRequest, fetcher = fetch)
     if (!profile.ok) return failure(401, "Google konnte dein Profil nicht bestätigen.");
     const { sub, email, email_verified: verified } = await profile.json() as { sub?: unknown; email?: unknown; email_verified?: unknown };
     if (verified !== true || typeof sub !== "string" || typeof email !== "string") return failure(401, "Google hat keine bestätigte E-Mail geliefert.");
-    const connected = await connectGoogleAccount({ subject: sub, email, linkId: flow.linkId,
+    const connected = await connectGoogleAccount({ subject: sub, email, linkId: flow.linkId, linkSession: session,
       allowNew: flow.allowNew && validSiteSession(request.cookies.get(SITE_COOKIE)?.value, access) });
     return clear(await accountSignInResponse(request, connected, flow.next, google.redirect.origin));
   } catch (error) {

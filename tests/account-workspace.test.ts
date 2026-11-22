@@ -9,6 +9,8 @@ import { ACCOUNT_COOKIE, readAccountSession } from "@/lib/server/accounts";
 import { beginGoogleAccount, finishGoogleAccount } from "@/lib/server/googleAccount";
 import { POST as register } from "@/app/api/account/register/route";
 import { POST as signIn } from "@/app/api/account/login/route";
+import { POST as updatePassword } from "@/app/api/account/password/route";
+import { POST as endSessions } from "@/app/api/account/sessions/route";
 import { GET as readSync, PUT as writeSync } from "@/app/api/sync/route";
 import { proxy } from "@/proxy";
 
@@ -111,5 +113,29 @@ describe("personal workspaces", () => {
     const googleLogin = await finishGoogleAccount(callback(loginAuth.searchParams.get("state")!, `${googleCookie}=${startLogin.cookies.get(googleCookie)!.value}`), fetcher);
     expect(googleLogin.status).toBe(303);
     expect(googleLogin.cookies.get(ACCOUNT_SCOPE_COOKIE)?.value).toBe(user.profile);
+  });
+
+  it("ends other devices and rotates the verified password without keeping old sessions", async () => {
+    const email = "devices@example.com", replacement = "different-fixture-password";
+    const current = await create(email);
+    const newDevice = async () => (await signIn(post("/api/account/login", { email, password }))).cookies.get(ACCOUNT_COOKIE)!.value;
+    const second = await newDevice();
+    expect(await readAccountSession(second)).not.toBeNull();
+    expect((await endSessions(post("/api/account/sessions", {}, "https://foreign.example", current.cookie))).status).toBe(403);
+    expect(await readAccountSession(second)).not.toBeNull();
+    expect((await endSessions(post("/api/account/sessions", {}, origin, current.cookie))).status).toBe(303);
+    expect(await readAccountSession(second)).toBeNull();
+    expect(await readAccountSession(current.token)).not.toBeNull();
+
+    const last = await newDevice();
+    expect((await updatePassword(post("/api/account/password", { current: "incorrect", new: replacement, confirm: replacement }, origin, current.cookie))).status).toBe(401);
+    const changed = await updatePassword(post("/api/account/password", { current: password, new: replacement, confirm: replacement }, origin, current.cookie));
+    expect(changed.status).toBe(303);
+    expect(changed.cookies.get(ACCOUNT_SCOPE_COOKIE)?.value).toBe(current.profile);
+    expect(await readAccountSession(changed.cookies.get(ACCOUNT_COOKIE)?.value)).not.toBeNull();
+    expect(await readAccountSession(current.token)).toBeNull();
+    expect(await readAccountSession(last)).toBeNull();
+    expect((await signIn(post("/api/account/login", { email, password }))).status).toBe(401);
+    expect((await signIn(post("/api/account/login", { email, password: replacement }))).status).toBe(303);
   });
 });

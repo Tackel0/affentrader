@@ -40,13 +40,22 @@ export function siteLoginPage(next: string, error = "", mode: SignInMode = "lega
     <p class="hint">Du bleibst in diesem Browser bis zu ${SESSION_DAYS} Tage angemeldet.</p>`);
 }
 
-export function accountOverviewPage(current: { email: string; googleLinked: boolean } | null, google: boolean, error = ""): string {
+export function accountOverviewPage(current: { email: string; googleLinked: boolean; passwordEnabled: boolean } | null, google: boolean, error = "", updated?: string | null): string {
   const connection = current
     ? current.googleLinked ? "<p>Google ist mit deinem Konto verknüpft.</p>"
       : google ? '<form action="/api/account/google/start" method="post"><button type="submit">Google verknüpfen</button></form>' : "<p>Die Google-Anmeldung ist für diese Instanz noch nicht eingerichtet.</p>"
     : google ? '<a class="action" href="/api/account/google/start">Konto mit Google öffnen</a>' : "";
+  const security = current ? `<details style="margin-top:16px;border-top:1px solid #45516a;padding-top:8px"><summary style="cursor:pointer;min-height:44px;align-content:center;font-weight:650">Anmeldung und Geräte</summary>
+    ${current.passwordEnabled ? `<form action="/api/account/password" method="post">
+      <label for="current-password">Aktuelles Passwort</label><input id="current-password" name="current" type="password" autocomplete="current-password" maxlength="512" required>
+      <label for="new-password">Neues Passwort</label><input id="new-password" name="new" type="password" autocomplete="new-password" minlength="10" maxlength="512" required>
+      <label for="confirm-password">Neues Passwort wiederholen</label><input id="confirm-password" name="confirm" type="password" autocomplete="new-password" minlength="10" maxlength="512" required>
+      <button type="submit">Passwort ändern</button><p class="hint">Damit werden andere Kontositzungen beendet.</p></form>` : ""}
+    <form action="/api/account/sessions" method="post"><button type="submit">Andere Kontositzungen beenden</button></form></details>` : "";
+  const message = current && updated === "password" ? "Passwort geändert. Andere Kontositzungen wurden beendet."
+    : current && updated === "sessions" ? "Andere Kontositzungen wurden beendet." : "";
   return shell(`<h1>Konto</h1>${current ? `<p class="email">${escapeHtml(current.email)}</p><p>Dein persönlicher Workspace synchronisiert sich beim Öffnen des Hauptcharts.</p>`
     : '<p>Du nutzt den Workspace mit dem Website-Passwort. Melde dich an oder erstelle ein persönliches Konto für die geräteübergreifende Synchronisierung.</p><nav><a href="/login?mode=account">Konto anmelden</a><a href="/login?mode=register">Konto erstellen</a></nav>'}
-    ${connection}${error ? `<p class="error" role="alert">${escapeHtml(error)}</p>` : ""}<a class="action" href="/">Zum Workspace</a>
+    ${connection}${error ? `<p class="error" role="alert">${escapeHtml(error)}</p>` : ""}${message ? `<p role="status">${message}</p>` : ""}${security}<a class="action" href="/">Zum Workspace</a>
     <form action="/logout" method="post"><button type="submit">Abmelden</button></form>`);
 }
