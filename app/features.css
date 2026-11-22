@@ -1870,9 +1870,40 @@ button.dom-size:enabled:hover {
 .terminal-research-card > header { display: flex; justify-content: space-between; gap: 8px; }
 .terminal-research-card > p { margin: 5px 0; }
 .terminal-research-card > .screener-toolbar { padding: 6px 0 0; border: 0; }
+.terminal-social { display: grid; gap: 8px; }
+.terminal-social h3 { margin: 4px 0 0; font-size: 14px; }
+.terminal-social p { margin-block: 0; }
+.social-source-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.social-source-status li {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 3px 7px;
+  padding: 4px 8px;
+  color: var(--muted);
+  background: var(--surface2);
+  border-radius: 4px;
+  font-size: 11px;
+}
+.social-source-status strong { color: var(--text); }
+.social-access summary { cursor: pointer; min-height: 30px; align-content: center; }
+.social-access a.button { display: inline-flex; align-items: center; }
+.terminal-social .social-trends { max-width: 520px; }
+.terminal-social .social-trends th, .terminal-social .social-trends td { text-align: right; }
+.terminal-social .social-trends :is(th, td):first-child { text-align: left; }
+.terminal-social article time { font-size: 10px; color: var(--muted); }
+.terminal-social article > a { margin-top: 5px; }
 @media (max-width: 768px), (pointer: coarse) {
   .terminal-research-list :is(button, select, input, a.button) { min-height: 36px; min-width: 36px; }
   .terminal-research-card a.button { display: inline-flex; align-items: center; }
+  .social-access summary { min-height: 36px; }
 }
 @container opportunities (width > 760px) {
   .opportunity-workspace { grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr); align-items: start; }

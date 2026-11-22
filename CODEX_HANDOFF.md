@@ -6,6 +6,13 @@ This document is the single self-contained architectural, operational, and itera
 
 ## 1. Completed Modules & Current Status
 
+### Social research cycle 2026-11-22
+
+- `SocialResearch` adds ticker searches, source coverage and mention rankings for the prior 24 or 72 hours. `summarizeSocial` counts each post or comment once per ticker, using cashtags and recognized uppercase symbols. Original links and post times remain visible, and unavailable feeds have a distinct state.
+- `terminalSocialRequest` uses public Atom feeds for r/mauerstrassenwetten and r/wallstreetbetsGER, and X Recent Search when API access is available. Reddit can use approved server-side OAuth access. Fetches are bounded, source URLs are fixed and successful samples are cached for two minutes. Direct provider probes from the development workspace were denied by the network. Provider and browser fixtures cover partial results and source failures.
+- `Watchlist` shows explicit bullish, bearish and mixed OPRA direction badges for sampled US stocks and opens the Alpaca connection dialog directly from eligible lists.
+- The release gate passed 2,835 tests, production build and both Chrome checks. The mobile audit checked 3,039 controls with no document overflow and opened an original Reddit post list from the ticker ranking. An additional OAuth fixture exercised the grant, listings, deduplication and cache reuse.
+
 ### Terminal navigation cycle 2026-11-22
 
 - `TerminalShortcuts` brings the scanner, journal, Optionsflow and Insider together on one row on phones and tablets. The last slot shows Markets or the selected specialist view. `TerminalModulePicker` groups the full catalog and supports search by name or command. Pane layouts remain reachable from the picker on compact screens.

@@ -28,6 +28,7 @@ export const TERMINAL_MODULES: readonly TerminalModuleMeta[] = [
   { id: "journal", label: "Setup-Journal", selectLabel: "JOURNAL · Setups", command: "JOURNAL", paneTitle: "SETUP JOURNAL", group: "Aktien-Research" },
   { id: "insiders", label: "Insider", selectLabel: "INSIDER · SEC", command: "INSIDER", paneTitle: "INSIDER-MELDUNGEN", group: "Aktien-Research" },
   { id: "optionsflow", label: "Optionsflow", selectLabel: "OPTIONSFLOW · OPRA", command: "OPTIONSFLOW", paneTitle: "OPTIONSFLOW", group: "Aktien-Research" },
+  { id: "social", label: "Social-Recherche", selectLabel: "SOCIAL · X & Reddit", command: "SOCIAL", paneTitle: "SOCIAL-RECHERCHE", group: "Aktien-Research" },
 ];
 
 export interface AutocompleteItem {
@@ -41,6 +42,7 @@ export const BASE_AUTOCOMPLETE_ITEMS: readonly AutocompleteItem[] = [
   { key: "JOURNAL", description: "Setup-Watchlist und Signal-Historie", category: "VIEW" },
   { key: "INSIDER", description: "SEC Form 4 Recherche", category: "VIEW" },
   { key: "OPTIONSFLOW", description: "Alpaca OPRA Optionsausführungen", category: "VIEW" },
+  { key: "SOCIAL", description: "Ticker-Trends auf X und WallStreetBets DE", category: "VIEW" },
   { key: "FA", description: "Fundamentals, Ratios & SEC Form 4 (F3)", category: "VIEW" },
   { key: "SCAN", description: "Stock Base Scanner (Confirmed Bases) (F6)", category: "VIEW" },
   { key: "MARKETS", description: "World Markets & Index Matrix (WEI) (F4)", category: "VIEW" },

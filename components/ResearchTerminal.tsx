@@ -30,6 +30,7 @@ import { OpportunitiesHub } from "./OpportunitiesHub";
 import { SetupResearch } from "./SetupResearch";
 import { InsiderResearch } from "./InsiderResearch";
 import { OptionsFlowPanel } from "./OptionsFlowPanel";
+import { SocialResearch } from "./SocialResearch";
 import { FundamentalsPanel } from "./FundamentalsPanel";
 import { NewsPanel } from "./NewsPanel";
 import { CalendarPanel } from "./CalendarPanel";
@@ -377,6 +378,7 @@ export function ResearchTerminal({
   const [history, setHistory] = useState<string[]>(loadCommandHistory);
   const [historyIdx, setHistoryIdx] = useState(-1);
   const [ticker, setTicker] = useState(initialTicker);
+  const [socialTicker, setSocialTicker] = useState<string>();
   const [faPreload, setFaPreload] = useState<{
     ticker: string;
     lastClose?: number;
@@ -748,6 +750,7 @@ export function ResearchTerminal({
     const parsed = parseTerminalCommand(trimmed, ticker);
 
     if (parsed.kind === "view") {
+      if (parsed.view === "social") setSocialTicker(parsed.ticker);
       reset();
       if (parsed.ticker) {
         setTicker(parsed.ticker);
@@ -919,6 +922,8 @@ export function ResearchTerminal({
         return <InsiderResearch initialTicker={ticker} onTickerSelect={selectResearchTicker} />;
       case "optionsflow":
         return <OptionsFlowPanel initialTicker={ticker} onTickerSelect={selectResearchTicker} />;
+      case "social":
+        return <SocialResearch activeTicker={ticker} requestedTicker={socialTicker} />;
       case "scan":
         return (
           <StockBaseScanner

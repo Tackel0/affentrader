@@ -2,16 +2,16 @@
 
 import { useState } from "react";
 import { createPortal } from "react-dom";
-import { Activity, BookOpen, Check, Globe2, LayoutGrid, Search, TrendingUp, Users } from "lucide-react";
+import { Activity, BookOpen, Check, Globe2, LayoutGrid, MessagesSquare, Search, TrendingUp, Users } from "lucide-react";
 import type { TerminalView } from "@/lib/terminal/commands";
 import { TERMINAL_MODULE_GROUPS, TERMINAL_MODULES, type TerminalLayoutMode } from "@/lib/terminal/workspace";
 import { Modal } from "./ui";
 
 const shortcuts = ["opps", "journal", "optionsflow", "insiders"] as const;
-const icons = { opps: TrendingUp, journal: BookOpen, optionsflow: Activity, insiders: Users, markets: Globe2 };
+const icons = { opps: TrendingUp, journal: BookOpen, optionsflow: Activity, insiders: Users, markets: Globe2, social: MessagesSquare };
 const shortLabels: Record<TerminalView, string> = {
   opps: "Setups", journal: "Journal", optionsflow: "Optionsflow", insiders: "Insider", markets: "Märkte",
-  fa: "Fundamentals", scan: "Stock bases", compare: "Compare", capm: "CAPM", macro: "Makro",
+  fa: "Fundamentals", scan: "Stock bases", compare: "Compare", capm: "CAPM", macro: "Makro", social: "Social",
   news: "News", heatmap: "Heatmap", osint: "OSINT", help: "Befehle",
 };
 

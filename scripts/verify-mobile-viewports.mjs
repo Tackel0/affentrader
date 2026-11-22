@@ -25,6 +25,7 @@ const TERMINAL_VIEW_TABS = [
   { key: "JOURNAL", label: "Setup-Journal", content: '[aria-label="Setup-Watchlist und Historie"]' },
   { key: "INSIDER", label: "Insider", content: '[aria-label="Insider-Recherche"]' },
   { key: "OPTIONSFLOW", label: "Optionsflow", content: '[aria-label="Optionsflow"]' },
+  { key: "SOCIAL", label: "Social-Recherche", content: '[aria-label="Social-Recherche"]' },
   { key: "FA", label: "Fundamentals (FA)" },
   { key: "SCAN", label: "Stock bases" },
   { key: "MARKETS", label: "Markets" },
@@ -230,6 +231,18 @@ function buildMockApiPayload(urlStr) {
     }
     if (kind === "yields") return { curves: [] };
     return { events: [] };
+  }
+
+  if (url.pathname === "/api/terminal-social") {
+    const ticker = url.searchParams.get("ticker");
+    return {
+      asOf: now, hours: 24, ticker,
+      sources: [{ source: "mauerstrassenwetten", state: "ok", samples: 2, fetchedAt: now },
+        { source: "wallstreetbetsGER", state: "partial", samples: 1, fetchedAt: now }, { source: "x", state: "needs-access", samples: 0 }],
+      trends: [{ ticker: "NVDA", count: 1, reddit: 1, x: 0, latest: now - 60_000 }],
+      posts: [{ source: "mauerstrassenwetten", id: "t3_sample", at: now - 60_000, tickers: ["NVDA"],
+        title: "Diskussion zu Nvidia", text: "Wie bewertet ihr $NVDA?", url: "https://www.reddit.com/r/mauerstrassenwetten/comments/sample/nvda/" }],
+    };
   }
 
   if (url.pathname === "/api/terminal-setups") {
@@ -621,6 +634,7 @@ const MOCKED_API_PREFIXES = new Set([
   "/api/feeds",
   "/api/terminal-opportunities",
   "/api/terminal-setups",
+  "/api/terminal-social",
   "/api/terminal-fundamentals",
   "/api/terminal-markets",
   "/api/terminal-capm",
@@ -1274,9 +1288,14 @@ async function run() {
             if (query.get("resource") === "aggTrades") requestedTradePages.push(query.get("fromId"));
           }
           if (healthOverride || MOCKED_API_PREFIXES.has(pathname)) {
+            const fixtureUrl = new URL(reqUrl);
+            if (pathname === "/api/terminal-social" && params.request?.postData) {
+              const ticker = JSON.parse(params.request.postData).ticker;
+              if (typeof ticker === "string") fixtureUrl.searchParams.set("ticker", ticker);
+            }
             const body = JSON.stringify(healthOverride
               ? { ok: true, revision: healthOverride }
-              : buildMockApiPayload(reqUrl));
+              : buildMockApiPayload(fixtureUrl.toString()));
             await cdp.send("Fetch.fulfillRequest", {
               requestId,
               responseCode: 200,
@@ -1799,6 +1818,13 @@ async function run() {
         }
         await settleUi(cdp, 350);
         recordAudit(vp, `/terminal(${mod.key})`, await inspectViewportDom(cdp, vp.mobile));
+        if (vp.width === 390 && mod.key === "SOCIAL" && !opts.liveApis) {
+          await waitForPagePredicate(cdp, `!!document.querySelector(".social-trends button")`, "the social ranking received the mocked source data");
+          await cdp.send("Runtime.evaluate", { expression: 'document.querySelector(".social-trends button").click()' });
+          await waitForPagePredicate(cdp, `document.querySelector(".terminal-social h3")?.textContent === "Erwähnungen für NVDA"`,
+            "opening a ticker from the social ranking keeps the matching original article");
+          recordAudit(vp, "/terminal(SOCIAL ticker)", await inspectViewportDom(cdp, true));
+        }
         if (vp.width === 390 && mod.key === "OPPS" && !opts.liveApis) {
           activeLabel = "mobile opportunity research and risk";
           await waitForPagePredicate(cdp, `!!document.querySelector(".opportunity-row-button")`, "the scanner shows a completed daily setup");
