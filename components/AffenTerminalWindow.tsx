@@ -71,7 +71,11 @@ export function AffenTerminalWindow({
   }, []);
 
   useEffect(() => {
-    document.documentElement.dataset.theme = theme === "light" ? "light" : "dark";
+    const resolved = theme === "light" ? "light" : "dark";
+    document.documentElement.dataset.theme = resolved;
+    document.documentElement.style.colorScheme = resolved;
+    const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+    if (meta) meta.content = resolved === "light" ? "#ffffff" : "#131722";
     document.title = `AffenTerminal · ${symbolLabel(symbol)}`;
   }, [theme, symbol]);
 

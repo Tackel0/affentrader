@@ -102,7 +102,12 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
     bottomTab = useChartStore((s) => s.bottomTab);
   const theme = useWorkspaceStore((s) => s.theme);
   useEffect(() => {
-    document.documentElement.dataset.theme = theme;
+    const resolved = theme === "light" ? "light" : "dark";
+    document.documentElement.dataset.theme = resolved;
+    document.documentElement.style.colorScheme = resolved;
+    const color = resolved === "light" ? "#ffffff" : "#131722";
+    const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+    if (meta) meta.content = color;
   }, [theme]);
   const [sidebarOpen, setSidebarOpen] = useState(
     () => Boolean(initialSidebar) || !window.matchMedia(COMPACT_WORKSPACE_QUERY).matches,

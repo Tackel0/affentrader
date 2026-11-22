@@ -988,6 +988,8 @@
   position: relative;
   inset: auto;
   flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
   width: clamp(324px, 38vw, 400px);
   min-width: 308px;
   max-width: 48vw;
@@ -996,11 +998,31 @@
   margin-inline: 0;
   border-left: 1px solid var(--border);
   box-shadow: none;
+  overflow: hidden;
+  padding-bottom: 0;
+  z-index: 18;
+}
+.tablet-workspace .right-sidebar.tablet-right-sidebar:not(.collapsed):not([aria-label="Watchlist sidebar"]) {
   overflow-y: auto;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
   padding-bottom: 18px;
-  z-index: 18;
+}
+.tablet-workspace .right-sidebar.tablet-right-sidebar > .watchlist-rows.virtual {
+  flex: 1 1 auto;
+  min-height: 220px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.tablet-workspace .right-sidebar.tablet-right-sidebar > :is(.panel-heading, .watchlist-filter, .watchlist-columns, .selection-bar, .add-symbol-row) {
+  flex: none;
+}
+.tablet-workspace .right-sidebar.tablet-right-sidebar > .symbol-detail {
+  flex: 0 1 auto;
+  max-height: 42%;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
 }
 .tablet-workspace .right-sidebar.tablet-right-sidebar .sidebar-sheet-resizer { display: none; }
 .tablet-workspace .right-sidebar.tablet-right-sidebar .sidebar-resizer {
@@ -1057,13 +1079,16 @@
   font-size: 11px;
 }
 .tablet-workspace .workspace-panel-strip {
-  padding-inline: 6px;
+  padding-inline: 8px 14px;
   scroll-padding-inline: 12px;
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 8px, #000 calc(100% - 16px), transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0, #000 8px, #000 calc(100% - 16px), transparent 100%);
 }
 .tablet-workspace .workspace-panel-strip .panel-tab {
   min-height: 38px;
-  font-size: 12px;
-  padding: 0 12px;
+  font-size: 11.5px;
+  padding: 0 9px;
+  gap: 5px;
   flex: none;
   white-space: nowrap;
 }
@@ -1604,3 +1629,107 @@ body {
     max-width: min(156px, 44vw);
   }
 }
+
+/* Round 2 native iOS/iPadOS app polish: Alert tabs, Drawing rail glass, landscape phone ergonomics, anti-auto-zoom 16px inputs */
+.phone-workspace .segmented.alert-kind {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  padding: 0;
+}
+.phone-workspace .segmented.alert-kind > button {
+  border-right: 0;
+  min-height: 36px;
+  height: auto;
+  padding: 6px 4px;
+  font-size: 12px;
+  background: var(--surface);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.phone-workspace .segmented.alert-kind > button.active {
+  background: color-mix(in srgb, var(--accent, #ff9e00) 18%, var(--surface2));
+}
+
+/* Eliminate heavy browser scrollbar on Vela's native drawing rail and add frosted glass on phone overlay */
+.native-drawing-rail .native-drawing-host,
+.native-drawing-rail .native-drawing-host * {
+  scrollbar-width: none;
+}
+.native-drawing-rail .native-drawing-host::-webkit-scrollbar,
+.native-drawing-rail .native-drawing-host *::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+.phone-workspace .native-drawing-rail {
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  -webkit-backdrop-filter: blur(14px) saturate(145%);
+  backdrop-filter: blur(14px) saturate(145%);
+  border-radius: 0 12px 12px 0;
+  box-shadow: 4px 0 22px rgba(0, 0, 0, 0.24);
+  overflow: hidden;
+}
+.phone-workspace .native-drawing-rail .drawing-rail-actions {
+  background: transparent;
+  flex: none;
+}
+
+/* Compact iPhone landscape ergonomics + Dynamic Island / Notch horizontal safe-area clearance */
+@media (max-height: 450px) and (pointer: coarse) {
+  .phone-workspace .phone-workspace-header {
+    height: 40px;
+    min-height: 40px;
+    padding-inline: max(6px, env(safe-area-inset-left)) max(6px, env(safe-area-inset-right));
+  }
+  .phone-workspace .phone-chart-actions {
+    min-height: 40px;
+    padding-inline: env(safe-area-inset-left) env(safe-area-inset-right);
+  }
+  .phone-workspace .phone-chart-actions.tv-toolbar > .icon-button,
+  .phone-workspace .phone-chart-actions > :is(.toolbar-popover-host, .toolbar-mobile-overflow) > :is(.icon-button, .toolbar-button) {
+    height: 40px;
+    min-height: 40px;
+  }
+  .phone-workspace .utility-rail.phone-bottom-nav {
+    min-height: 44px;
+    padding-inline: env(safe-area-inset-left) env(safe-area-inset-right);
+  }
+  .phone-workspace .utility-rail.phone-bottom-nav .icon-button {
+    flex-direction: row;
+    gap: 5px;
+    min-height: 42px;
+    padding-block: 4px;
+  }
+  .phone-workspace .utility-rail.phone-bottom-nav .compact-nav-label {
+    font-size: 11px;
+  }
+}
+
+/* Eliminate iOS Safari keyboard auto-zoom across all phone & touch form inputs, selects, and textareas */
+@media (pointer: coarse) {
+  :is(.phone-workspace, .modal, .affen-window-shell, .research-terminal) :is(
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="hidden"]),
+    select,
+    textarea
+  ) {
+    font-size: 16px;
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+}
+
+/* Smooth horizontal swipe fade cue on touch/tablet macro pulse ribbon */
+@media (max-width: 800px), (max-width: 1366px) and (pointer: coarse) {
+  .affen-macro-ribbon {
+    padding-right: 22px;
+    -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 22px), transparent 100%);
+    mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 22px), transparent 100%);
+  }
+}
+

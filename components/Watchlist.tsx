@@ -594,13 +594,13 @@ export function Watchlist({
   const showActions = !touch || editMode;
   useLayoutEffect(() => {
     const rows = rowsRef.current;
-    if (!phone || !rows) return;
+    if (!touch || !rows) return;
     const measure = () => setPhoneListHeight(rows.clientHeight);
     const observer = new ResizeObserver(measure);
     observer.observe(rows);
     measure();
     return () => observer.disconnect();
-  }, [phone]);
+  }, [touch]);
   useEffect(() => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
     const query = window.matchMedia("(max-width: 768px), (pointer: coarse)");
@@ -919,7 +919,7 @@ export function Watchlist({
       <div
         className="watchlist-rows virtual"
         ref={rowsRef}
-        style={phone ? undefined : { height: viewHeight || undefined, overflowY: entries.length * rowHeight > MAX_VIEW ? "auto" : "visible" }}
+        style={touch ? undefined : { height: viewHeight || undefined, overflowY: entries.length * rowHeight > MAX_VIEW ? "auto" : "visible" }}
         onScroll={(e) => setScroll(e.currentTarget.scrollTop)}
       >
         <div style={{ height: entries.length * rowHeight, position: "relative" }}>

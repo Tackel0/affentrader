@@ -638,4 +638,22 @@ describe("Mobile PWA & Touch UI regressions", () => {
     expect(within(container).getByRole("button", { name: "Konto erstellen" })).toBeTruthy();
     expect(within(container).getByRole("button", { name: "Konto anmelden" })).toBeTruthy();
   });
+
+  it("renders tablet Watchlist with edit toggle and full-height flex rows (no 396px inline cap)", async () => {
+    const { Watchlist } = await import("@/components/Watchlist");
+    const { container } = render(<Watchlist tablet />);
+    const editBtn = within(container).getByRole("button", { name: "Watchlist bearbeiten" });
+    expect(editBtn.getAttribute("aria-pressed")).toBe("false");
+    const rows = container.querySelector(".watchlist-rows.virtual") as HTMLElement | null;
+    expect(rows).toBeTruthy();
+    expect(rows?.style.height).toBe("");
+    fireEvent.click(editBtn);
+    expect(within(container).getByRole("button", { name: "Bearbeitung beenden" }).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("handles MarketService.resumeFromBackground safely without side effects when stopped", async () => {
+    const { marketService } = await import("@/lib/market/service");
+    marketService.stop();
+    expect(marketService.resumeFromBackground()).toBe(false);
+  });
 });

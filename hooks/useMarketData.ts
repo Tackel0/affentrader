@@ -86,7 +86,29 @@ export function useMarketData(options?: { watchQuotesActive?: boolean; phoneMode
       quotePriority ? quotePriority.split(",") : [],
     );
   }, [symbolsKey, quoteKey, quotePriority, mode, iexEpoch]);
-  useEffect(() => () => marketService.stop(), []);
+  useEffect(() => {
+    let hiddenAt = 0;
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        hiddenAt = Date.now();
+        return;
+      }
+      if (hiddenAt > 0 && Date.now() - hiddenAt >= 6_000) {
+        marketService.resumeFromBackground();
+      }
+      hiddenAt = 0;
+    };
+    const onOnline = () => {
+      marketService.resumeFromBackground();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("online", onOnline);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("online", onOnline);
+      marketService.stop();
+    };
+  }, []);
   useEffect(() => {
     useChartStore
       .getState()

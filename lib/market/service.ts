@@ -86,6 +86,10 @@ function isCompactTouchRuntime(): boolean {
   return window.matchMedia("(max-width: 768px) and (pointer: coarse)").matches;
 }
 
+function isDocumentHidden(): boolean {
+  return typeof document !== "undefined" && document.visibilityState === "hidden";
+}
+
 /** Retain raw observations for tick subscribers and materialize a newest-first tape only when read. */
 class RecentTrades {
   private entries: Tick[] = [];
@@ -473,6 +477,7 @@ export class MarketService {
     const epoch = this.generation;
     if (mode === "simulation" && useAlpacaStore.getState().enabled) useAlpacaStore.setState({ status: "disconnected", message: "Simulation mode is active; the IEX stream is inactive.", symbols: [], omitted: [] });
     this.timer = setInterval(() => {
+      if (mode === "auto" && isDocumentHidden()) return;
       const now = Date.now();
       if (this.krakenLiveFrom.size) for (const [key, gap] of this.krakenGaps) {
         if (this.krakenRecovery.size >= 2) break;
@@ -1221,7 +1226,9 @@ export class MarketService {
       }
     };
     void poll();
-    this.hlQuoteTimer = setInterval(() => void poll(), 60_000);
+    this.hlQuoteTimer = setInterval(() => {
+      if (!isDocumentHidden()) void poll();
+    }, 60_000);
     this.connectHyperliquid(epoch);
   }
   private connectHyperliquid(epoch: number) {
@@ -1630,7 +1637,9 @@ export class MarketService {
         loading = false;
       }
     };
-    const timer = setInterval(() => void poll(), 10_000);
+    const timer = setInterval(() => {
+      if (!isDocumentHidden()) void poll();
+    }, 10_000);
     this.yahooTimer = timer;
     void poll();
   }
@@ -2063,6 +2072,22 @@ export class MarketService {
     if (useAlpacaStore.getState().enabled) { this.iexStream?.stop(); this.iexStream = null; this.invalidateIex(); this.startIex(this.generation); }
     this.refreshQuoteSubscriptions();
     return true;
+  }
+  /** Refresh grace window and reconnect stale feeds when a mobile/iOS PWA returns to foreground or regains connectivity. */
+  resumeFromBackground(): boolean {
+    if (!this.running || this.mode !== "auto") return false;
+    const now = Date.now();
+    this.startedAt = now;
+    const all = [...this.symbols, ...this.quoteSymbols];
+    const needsBinance = all.some((s) => providerOf(s) === "binance");
+    const needsHl = all.some((s) => providerOf(s) === "hyperliquid");
+    const binanceStale = needsBinance && (this.socket?.readyState !== WebSocket.OPEN || now - this.lastTraffic > 12_000);
+    const hlStale = needsHl && (this.hlSocket?.readyState !== WebSocket.OPEN || now - this.hlLastTraffic > 15_000);
+    const hasYahoo = all.some((s) => providerOf(s) === "yahoo");
+    if (binanceStale || hlStale || hasYahoo || useChartStore.getState().feedStatus !== "live") {
+      return this.reconnect();
+    }
+    return false;
   }
   onTick(cb: (tick: Tick) => void) {
     this.tickListeners.add(cb);
