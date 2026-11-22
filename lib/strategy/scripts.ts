@@ -46,4 +46,35 @@ if strategy.position_size < 0
 plot(upper, "Upper channel", color=color.green)
 plot(lower, "Lower channel", color=color.red)
 `,
+  "Trend pullback with ATR bracket": `//@version=6
+strategy("Trend pullback with ATR bracket", overlay=true)
+fast = ta.ema(close, 20)
+trend = ta.ema(close, 100)
+risk = ta.atr(14)
+reclaim = ta.crossover(close, fast)
+if strategy.position_size == 0 and reclaim and fast > trend
+    strategy.entry("Long", strategy.long)
+if strategy.position_size > 0
+    strategy.exit("Bracket", "Long", stop=strategy.position_avg_price - 2 * risk, limit=strategy.position_avg_price + 4 * risk)
+if ta.crossunder(close, trend)
+    strategy.close("Long")
+plot(fast, "Pullback EMA", color=color.blue)
+plot(trend, "Trend EMA", color=color.orange)
+`,
+  "Volatility contraction breakout": `//@version=6
+strategy("Volatility contraction breakout", overlay=true)
+fastAtr = ta.atr(7)
+slowAtr = ta.atr(30)
+upper = ta.highest(high, 15)[1]
+lower = ta.lowest(low, 10)[1]
+baseline = ta.ema(close, 50)
+if strategy.position_size == 0 and close > upper and fastAtr[1] < slowAtr[1] and close > baseline
+    strategy.entry("Long", strategy.long)
+if strategy.position_size > 0
+    strategy.exit("ATR stop", "Long", stop=strategy.position_avg_price - 2.5 * slowAtr)
+    if close < lower
+        strategy.close("Long")
+plot(upper, "Breakout level", color=color.green)
+plot(lower, "Exit channel", color=color.red)
+`,
 };

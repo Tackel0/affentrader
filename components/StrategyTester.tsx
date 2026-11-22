@@ -28,6 +28,7 @@ import { IconButton, Modal } from "./ui";
 import { downloadFile } from "@/lib/files";
 import { AnalyticsView, CompareView } from "./StrategyAnalytics";
 import { strategyCurrency, strategyVenue } from "@/lib/strategy/data";
+import { StrategyPresetBenchmark } from "./StrategyPresetBenchmark";
 
 const num = (n: number | null, digits = 2) =>
   n === null || Number.isNaN(n)
@@ -214,6 +215,7 @@ export function StrategyTester() {
           </span>
         ) : null}
       </div>
+      <StrategyPresetBenchmark symbol={symbol} timeframe={timeframe} settings={document.settings} disabled={busy} />
       {state.error ? (
         <div className="strategy-error" role="alert">
           {state.error}

@@ -76,6 +76,19 @@
 .strategy-result-header > span {
   color: var(--muted);
 }
+.strategy-preset-benchmark {
+  padding: 4px 12px 8px;
+  min-width: 0;
+}
+.strategy-preset-benchmark summary {
+  cursor: pointer;
+  min-height: 28px;
+  align-content: center;
+}
+.strategy-preset-benchmark > div {
+  max-height: 220px;
+  overflow: auto;
+}
 .strategy-source {
   border: 1px solid var(--border);
   border-radius: 3px;
