@@ -65,6 +65,7 @@ function readBackupState() {
       layouts: premium.layouts,
       studies: premium.studies,
       domPreferences: premium.domPreferences,
+      searchPreferences: premium.searchPreferences,
     },
     applyingCell: premium.applyingCell,
   };

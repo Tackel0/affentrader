@@ -203,7 +203,7 @@ export const useChartStore = create<ChartState>()(
         return changed && patch.candles === undefined ? { ...normalized, candles: [] } : normalized;
       }),
       addIndicator: (indicator) =>
-        set((s) => ({ indicators: [...s.indicators, indicator] })),
+        set((s) => ({ indicators: [...s.indicators, indicator], legendCollapsed: false })),
       updateIndicator: (id, patch) =>
         set((s) => ({
           indicators: s.indicators.map((i) =>

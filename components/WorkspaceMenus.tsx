@@ -19,6 +19,9 @@ import {
   Cloud,
   ExternalLink,
   LockKeyhole,
+  User,
+  UserPlus,
+  LogIn,
 } from "lucide-react";
 import type { DrawingTypeKey } from "@luxalgo/vela";
 import { LAYOUTS, useWorkspaceStore } from "@/stores/useWorkspaceStore";
@@ -27,6 +30,7 @@ import { marketService } from "@/lib/market/service";
 import { usePwa } from "@/hooks/usePwa";
 import { LINK_GROUPS, useLinkStore } from "@/stores/useLinkStore";
 import { isPopout, openAffenTerminalWindow, openPopout } from "@/lib/windowScope";
+import { workspaceProfile } from "@/lib/accountScope";
 import { Modal, IconButton } from "./ui";
 import { useAlpacaStore } from "@/stores/useAlpacaStore";
 import { useTradeArchiveStore } from "@/stores/useTradeArchiveStore";
@@ -67,6 +71,7 @@ export function MainMenu({
   const linkGroup = useLinkStore((s) => s.group);
   const setLinkGroup = useLinkStore((s) => s.setGroup);
   const popout = isPopout();
+  const hasPersonalAccount = Boolean(workspaceProfile());
   const ref = useDismiss(open, () => setOpen(false));
   return (
     <div ref={ref} className="toolbar-popover-host">
@@ -78,6 +83,46 @@ export function MainMenu({
           <div className="menu-product">
             AffenTerminal<span>Pro Market &amp; Orderflow GUI</span>
           </div>
+          <div className="popover-label">Konto &amp; Sync</div>
+          <button
+            onClick={() => {
+              setOpen(false);
+              window.location.assign("/konto");
+            }}
+          >
+            <User size={16} />
+            Konto
+          </button>
+          <button
+            onClick={() => {
+              setOpen(false);
+              window.location.assign("/login?mode=register&next=/");
+            }}
+          >
+            <UserPlus size={16} />
+            Konto erstellen
+          </button>
+          {!hasPersonalAccount ? (
+            <button
+              onClick={() => {
+                setOpen(false);
+                window.location.assign("/login?mode=account&next=/");
+              }}
+            >
+              <LogIn size={16} />
+              Konto anmelden
+            </button>
+          ) : null}
+          <button
+            onClick={() => {
+              useChartStore.getState().set({ syncOpen: true });
+              setOpen(false);
+            }}
+          >
+            <Cloud size={16} />
+            Sync across devices…
+          </button>
+          <hr />
           <button onClick={() => { useAlpacaStore.setState({ open: true }); setOpen(false); }}><Cloud size={16}/>Market data connections…</button>
           <button onClick={() => { useTradeArchiveStore.setState({ open: true }); setOpen(false); }}><Download size={16}/>Local orderflow archive…</button>
           <form action="/logout" method="post"><button type="submit"><LockKeyhole size={16}/>Website sperren / Abmelden</button></form>
@@ -127,16 +172,6 @@ export function MainMenu({
             Dark{theme === "dark" ? <Check size={14} /> : null}
           </button>
           <hr />
-          <button onClick={() => window.location.assign("/konto")}>Konto</button>
-          <button
-            onClick={() => {
-              useChartStore.getState().set({ syncOpen: true });
-              setOpen(false);
-            }}
-          >
-            <Cloud size={16} />
-            Sync across devices…
-          </button>
           <div className="popover-label">Windows</div>
           <div className="link-groups" role="radiogroup" aria-label="Link this window to others">
             {LINK_GROUPS.map((g) => (

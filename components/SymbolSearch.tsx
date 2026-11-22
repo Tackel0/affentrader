@@ -1,8 +1,9 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Search, Plus, Check } from "lucide-react";
+import { Search, Plus, Check, SlidersHorizontal, ArrowUp, ArrowDown, RotateCcw } from "lucide-react";
 import { useChartStore } from "@/stores/useChartStore";
 import { useWatchlistStore } from "@/stores/useWatchlistStore";
+import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
 import { SYMBOLS, formatPrice } from "@/lib/symbols";
 import { loadSymbolCatalog } from "@/hooks/useSymbolCatalog";
 import {
@@ -21,7 +22,14 @@ import type { HyperliquidAsset } from "@/lib/market/hyperliquid";
 import { yahooSearch } from "@/lib/market/yahooClient";
 import { loadBybitCatalog } from "@/lib/market/bybitClient";
 import { searchMarketSnapshots, type SearchMarketSnapshots } from "@/lib/market/searchMarketSnapshots";
-import { rankedSearchRows, searchVenue, type SearchRow as Row } from "@/lib/market/symbolSearch";
+import {
+  DEFAULT_SEARCH_EXCHANGE_PRIORITY,
+  rankedSearchRows,
+  SEARCH_EXCHANGES,
+  searchExchangeLabel,
+  searchVenue,
+  type SearchRow as Row,
+} from "@/lib/market/symbolSearch";
 import type { YahooSearchHit } from "@/lib/market/yahoo";
 import type { AssetCategory, MarketSymbol } from "@/types/trading";
 import { Modal, AssetBadge } from "./ui";
@@ -46,8 +54,14 @@ function yahooRow(hit: YahooSearchHit): Row {
 
 export function SymbolSearch() {
   const [equityFeed, setEquityFeed] = useState<"yahoo" | "iex" | "sip">("yahoo");
+  const [venueControlsOpen, setVenueControlsOpen] = useState(false);
   const open = useChartStore((s) => s.searchOpen),
     target = useChartStore((s) => s.searchTarget);
+  const searchPreferences = useWorkspaceStore((s) => s.searchPreferences);
+  const enabledExchanges = useMemo(
+    () => new Set(searchPreferences.enabledExchanges),
+    [searchPreferences.enabledExchanges],
+  );
   const alpacaEnabled = useAlpacaStore(state => state.enabled);
   const feed = equityFeed === "sip" && target === "watchlist" ? "yahoo" : equityFeed;
   const alpaca = (market: SearchMarket) => feed !== "yahoo" && (market === "stock" || market === "etf");
@@ -84,6 +98,7 @@ export function SymbolSearch() {
     setQuery("");
     setDebounced("");
     setMarket("all");
+    setVenueControlsOpen(false);
     let cancelled = false;
     setLoading(true);
     void loadSymbolCatalog()
@@ -98,7 +113,7 @@ export function SymbolSearch() {
     };
   }, [open]);
   const hasQuery = Boolean(debounced.trim());
-  const needsPerps = market === "perps" || (market === "all" && hasQuery);
+  const needsPerps = enabledExchanges.has("hyperliquid") && (market === "perps" || (market === "all" && hasQuery));
   useEffect(() => {
     if (!open || !needsPerps) return;
     let cancelled = false;
@@ -108,14 +123,15 @@ export function SymbolSearch() {
       .catch(() => { if (!cancelled) setPerpsError("Hyperliquid is temporarily unavailable."); });
     return () => { cancelled = true; };
   }, [open, needsPerps]);
-  const needsSnapshots = hasQuery && (market === "all" || market === "crypto");
+  const needsSnapshots = (enabledExchanges.has("binance") || enabledExchanges.has("kraken"))
+    && hasQuery && (market === "all" || market === "crypto");
   useEffect(() => {
     if (!open || !needsSnapshots) return;
     let cancelled = false;
     void searchMarketSnapshots().then(value => { if (!cancelled) setSnapshots(value); });
     return () => { cancelled = true; };
   }, [open, needsSnapshots]);
-  const needsBybit = needsSnapshots || market === "perps";
+  const needsBybit = enabledExchanges.has("bybit") && (hasQuery && (market === "all" || market === "crypto") || market === "perps");
   useEffect(() => {
     if (!open || !needsBybit) return;
     let cancelled = false;
@@ -128,7 +144,8 @@ export function SymbolSearch() {
     return () => { cancelled = true; };
   }, [open, needsBybit]);
 
-  const searchYahoo = market !== "crypto" && market !== "perps";
+  const searchYahoo = (enabledExchanges.has("yahoo") || enabledExchanges.has("alpaca"))
+    && market !== "crypto" && market !== "perps";
   useEffect(() => {
     const text = debounced.trim();
     if (!open || !searchYahoo || !text) return;
@@ -201,7 +218,18 @@ export function SymbolSearch() {
     market === "crypto" ? [...crypto, ...krakenRows, ...bybitRows] :
     market === "perps" ? [...perpRows, ...bybitRows] :
     alpaca(market) ? [...(direct ? [direct] : []), ...equityRows] : listings,
-    query.trim(), 150,
+    query.trim(),
+    150,
+    searchPreferences,
+  );
+  const allExchangesEnabled = searchPreferences.enabledExchanges.length === SEARCH_EXCHANGES.length;
+  const activePriorityPreview = searchPreferences.exchangePriority
+    .filter((id) => enabledExchanges.has(id))
+    .slice(0, 3)
+    .map((id) => searchExchangeLabel(id, true))
+    .join(" → ");
+  const isDefaultPriority = DEFAULT_SEARCH_EXCHANGE_PRIORITY.every(
+    (id, index) => searchPreferences.exchangePriority[index] === id,
   );
   const searching = loading || (searchYahoo && hasQuery && remote.query !== debounced.trim());
   const choose = (row: Row) => {
@@ -268,6 +296,105 @@ export function SymbolSearch() {
           </button>
         ))}
       </div>
+      <div className="search-venue-bar">
+        <button
+          type="button"
+          className={`search-venue-toggle${venueControlsOpen || !allExchangesEnabled || !isDefaultPriority ? " active" : ""}`}
+          aria-expanded={venueControlsOpen}
+          onClick={() => setVenueControlsOpen((v) => !v)}
+        >
+          <SlidersHorizontal size={14} />
+          <span className="search-venue-summary">
+            Börsen: {allExchangesEnabled ? "Alle" : `${searchPreferences.enabledExchanges.length}/${SEARCH_EXCHANGES.length}`}
+            {activePriorityPreview ? ` · Priorität: ${activePriorityPreview}` : ""}
+          </span>
+        </button>
+        {(!allExchangesEnabled || !isDefaultPriority) ? (
+          <button
+            type="button"
+            className="search-venue-reset"
+            aria-label="Börsenfilter und Priorität zurücksetzen"
+            onClick={() => useWorkspaceStore.getState().resetSearchPreferences()}
+          >
+            <RotateCcw size={13} />
+            <span>Standard</span>
+          </button>
+        ) : null}
+      </div>
+      {venueControlsOpen ? (
+        <div className="search-venue-panel" role="region" aria-label="Börsenfilter und Priorität">
+          <div className="search-venue-section">
+            <div className="search-venue-heading">
+              <span>Angezeigte Börsen</span>
+              {!allExchangesEnabled ? (
+                <button
+                  type="button"
+                  className="link-button"
+                  onClick={() =>
+                    useWorkspaceStore.getState().setSearchPreferences({
+                      enabledExchanges: [...DEFAULT_SEARCH_EXCHANGE_PRIORITY],
+                    })
+                  }
+                >
+                  Alle aktivieren
+                </button>
+              ) : null}
+            </div>
+            <div className="search-exchange-chips" role="group" aria-label="Börsen filtern">
+              {SEARCH_EXCHANGES.map((ex) => {
+                const active = enabledExchanges.has(ex.id);
+                return (
+                  <button
+                    key={ex.id}
+                    type="button"
+                    aria-pressed={active}
+                    className={`search-exchange-chip${active ? " active" : ""}`}
+                    onClick={() => useWorkspaceStore.getState().toggleSearchExchange(ex.id)}
+                  >
+                    {ex.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div className="search-venue-section">
+            <div className="search-venue-heading">
+              <span>Priorität in Suchergebnissen</span>
+              <span className="muted">1 = zuerst</span>
+            </div>
+            <ol className="search-priority-list" aria-label="Börsen-Priorität">
+              {searchPreferences.exchangePriority.map((id, index) => {
+                const active = enabledExchanges.has(id);
+                const label = searchExchangeLabel(id);
+                return (
+                  <li key={id} className={`search-priority-item${active ? "" : " disabled"}`}>
+                    <span className="search-priority-rank mono">{index + 1}.</span>
+                    <span className="search-priority-name">{label}</span>
+                    <div className="search-priority-actions">
+                      <button
+                        type="button"
+                        aria-label={`${label} nach oben`}
+                        disabled={index === 0}
+                        onClick={() => useWorkspaceStore.getState().moveSearchExchange(id, "up")}
+                      >
+                        <ArrowUp size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`${label} nach unten`}
+                        disabled={index === searchPreferences.exchangePriority.length - 1}
+                        onClick={() => useWorkspaceStore.getState().moveSearchExchange(id, "down")}
+                      >
+                        <ArrowDown size={14} />
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ol>
+          </div>
+        </div>
+      ) : null}
       {market === "perps" ? (
         <div className="filter-tabs" role="group" aria-label="Perpetual venues">
           {([["all", "All venues"], [BYBIT_PERPS, "Bybit"], ["main", "Hyperliquid"], ...dexes] as [string, string][]).map(([id, label]) => (
@@ -348,7 +475,22 @@ export function SymbolSearch() {
         ))}
         {!results.length ? (
           <div className="empty-state">
-            {perpsError && market === "perps" ? perpsError : searching ? "Searching…" : `No symbols match “${debounced}”.`}
+            {searchPreferences.enabledExchanges.length === 0 ? (
+              <>
+                <p>Keine Börsen im Filter aktiv.</p>
+                <button
+                  type="button"
+                  className="button small"
+                  onClick={() =>
+                    useWorkspaceStore.getState().setSearchPreferences({
+                      enabledExchanges: [...DEFAULT_SEARCH_EXCHANGE_PRIORITY],
+                    })
+                  }
+                >
+                  Alle Börsen aktivieren
+                </button>
+              </>
+            ) : perpsError && market === "perps" ? perpsError : searching ? "Searching…" : `No symbols match “${debounced}”.`}
           </div>
         ) : null}
       </div>
@@ -356,7 +498,7 @@ export function SymbolSearch() {
         {searching
           ? "Searching…"
           : market === "all"
-            ? "Exact matches first, then live feeds and 24h turnover when available."
+            ? "Exakte Treffer zuerst, sortiert nach deiner Börsen-Priorität und 24h-Umsatz."
             : market === "crypto"
             ? "Spot markets from Binance, Kraken and Bybit."
             : market === "perps"

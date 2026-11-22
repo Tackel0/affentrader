@@ -22,6 +22,7 @@ import {
   ArrowDownUp,
   Heading,
   Activity,
+  RefreshCw,
 } from "lucide-react";
 import { useWatchlistStore } from "@/stores/useWatchlistStore";
 import { useChartStore } from "@/stores/useChartStore";
@@ -43,6 +44,9 @@ import {
   type WatchColumn,
 } from "@/lib/watchlist";
 import { LIQUID_MARKETS_ID, LIQUID_MARKETS_NAME, LIQUID_MARKETS_SIZE, liquidMarketListing } from "@/lib/watchlistPresets";
+import { loadSymbolCatalog } from "@/hooks/useSymbolCatalog";
+import { hyperliquidCatalog } from "@/hooks/useHyperliquidCatalog";
+import { loadBybitCatalog } from "@/lib/market/bybitClient";
 import { registerSymbolInfo, symbolInfo } from "@/lib/symbolId";
 import { downloadFile } from "@/lib/files";
 import type { Quote, WatchFlag } from "@/types/trading";
@@ -196,7 +200,7 @@ const SymbolRow = memo(function SymbolRow({
         <button
           className="watchlist-asset"
           aria-label={listing ? [label, listing.exchange, flowLabel].filter(Boolean).join(" · ") : undefined}
-          title={listing ? `${listing.name} · ${listing.exchange} · Yahoo Finance (ggf. zeitverzögert)` : undefined}
+          title={listing ? `${listing.name} · ${listing.exchange} · ${listing.delayed ? "Yahoo Finance (ggf. zeitverzögert)" : "Live-Feed"}` : undefined}
           onClick={(e) => (editMode || e.ctrlKey || e.metaKey || e.shiftKey ? onSelect(symbol, e) : onOpen(symbol))}
         >
           <AssetBadge symbol={symbol} />
@@ -224,7 +228,7 @@ const SymbolRow = memo(function SymbolRow({
   );
 });
 
-function ListMenu({ onImport, onRename, onCreate }: { onImport: () => void; onRename: () => void; onCreate: () => void }) {
+function ListMenu({ onImport, onRename, onCreate, onSyncVenues }: { onImport: () => void; onRename: () => void; onCreate: () => void; onSyncVenues: () => void }) {
   const store = useWatchlistStore();
   const [open, setOpen] = useState(false);
   const ref = useDismiss(open, () => setOpen(false));
@@ -265,6 +269,10 @@ function ListMenu({ onImport, onRename, onCreate }: { onImport: () => void; onRe
             Clear list
           </button>
           <hr />
+          <button onClick={close(onSyncVenues)}>
+            <RefreshCw size={14} />
+            Kurse abgleichen (Binance / HL / Bybit)
+          </button>
           <button onClick={close(() => store.addSection(`Section ${active.symbols.filter(isSection).length + 1}`))}>
             <Heading size={14} />
             Add section
@@ -499,7 +507,7 @@ const SymbolDetail = memo(function SymbolDetail({ symbol }: { symbol: string }) 
   );
 });
 
-export function Watchlist({ phone = false, onOpenChart }: { phone?: boolean; onOpenChart?: () => void } = {}) {
+export function Watchlist({ phone = false, onOpenChart, onClose }: { phone?: boolean; onOpenChart?: () => void; onClose?: () => void } = {}) {
   const store = useWatchlistStore();
   const symbol = useChartStore((s) => s.symbol);
   const [menu, setMenu] = useState(false),
@@ -515,6 +523,7 @@ export function Watchlist({ phone = false, onOpenChart }: { phone?: boolean; onO
   const [details, setDetails] = useState(false);
   const [phoneListHeight, setPhoneListHeight] = useState(MAX_VIEW);
   const rowsRef = useRef<HTMLDivElement>(null);
+  const resolvedListsRef = useRef<Set<string>>(new Set());
   const editMode = phone && editing;
   const showActions = !phone || editMode;
   useLayoutEffect(() => {
@@ -540,6 +549,38 @@ export function Watchlist({ phone = false, onOpenChart }: { phone?: boolean; onO
   }, []);
   const flagRef = useDismiss(flagMenu !== null, () => setFlagMenu(null));
   const active = store.lists.find((l) => l.id === store.activeId) ?? store.lists[0];
+  const syncListVenues = useCallback(async (listId: string, notify = false) => {
+    const [binanceRes, hlRes, bybitRes] = await Promise.allSettled([
+      loadSymbolCatalog(),
+      hyperliquidCatalog(),
+      loadBybitCatalog(),
+    ]);
+    const catalogs = {
+      binance: binanceRes.status === "fulfilled" ? binanceRes.value : [],
+      hyperliquid: hlRes.status === "fulfilled" ? hlRes.value : [],
+      bybit: bybitRes.status === "fulfilled" ? bybitRes.value : [],
+    };
+    const changed = useWatchlistStore.getState().applyVenueResolution(listId, catalogs);
+    if (notify) {
+      useChartStore.getState().toast(
+        "Watchlist-Kurse abgeglichen",
+        changed > 0
+          ? `${changed} Symbole auf Live-Feeds (Binance / Hyperliquid / Bybit) umgestellt.`
+          : "Alle verfügbaren Symbole nutzen bereits den bevorzugten Live-Feed.",
+        "success",
+      );
+    }
+  }, []);
+  useEffect(() => {
+    if (active.id !== LIQUID_MARKETS_ID) return;
+    if (resolvedListsRef.current.has(active.id)) return;
+    if (!active.symbols.some((entry) => entry.startsWith("YF:"))) {
+      resolvedListsRef.current.add(active.id);
+      return;
+    }
+    resolvedListsRef.current.add(active.id);
+    void syncListVenues(active.id, false);
+  }, [active.id, active.symbols, syncListVenues]);
   const flags = active.flags ?? EMPTY_FLAGS;
   const columns = store.columns;
   const matched = useMemo(() => {
@@ -693,7 +734,13 @@ export function Watchlist({ phone = false, onOpenChart }: { phone?: boolean; onO
               setName("");
               setForm("create");
             }}
+            onSyncVenues={() => void syncListVenues(active.id, true)}
           />
+          {onClose ? (
+            <IconButton label="Watchlist schließen" onClick={onClose}>
+              <X size={18} />
+            </IconButton>
+          ) : null}
         </div>
       </div>
       {count > 12 || filter || flagFilter ? (

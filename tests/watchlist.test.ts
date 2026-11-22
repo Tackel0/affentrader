@@ -159,6 +159,77 @@ describe("watchlist store", () => {
     store.removeSymbol("BTCUSDT");
     expect(useWatchlistStore.getState().lists[0].flags).toEqual({});
   });
+  it("routes stocks to Binance -> Hyperliquid -> Bybit and indices/commodities to Hyperliquid while guarding crypto collisions", () => {
+    useWatchlistStore.setState({
+      lists: [
+        {
+          id: "mix",
+          name: "Mixed",
+          symbols: [
+            makeSection("Krypto"),
+            "BTCUSDT",
+            makeSection("Aktien"),
+            "YF:AAPL",
+            "YF:NVDA",
+            "YF:AMD",
+            "YF:CAT",
+            "YF:JPM",
+            makeSection("Indizes & Rohstoffe"),
+            "YF:SPY",
+            "YF:QQQ",
+            "YF:CL=F",
+            "YF:GC=F",
+          ],
+          flags: { "YF:NVDA": "green", "YF:GC=F": "orange" },
+        },
+      ],
+      activeId: "mix",
+    });
+
+    const changed = useWatchlistStore.getState().applyVenueResolution("mix", {
+      binance: [
+        { symbol: "AAPLUSDT", base: "AAPL", name: "Apple", category: "Other" },
+        // Crypto meme coin colliding with Caterpillar ticker must be ignored
+        { symbol: "CATUSDT", base: "CAT", name: "Simon's Cat", category: "Meme" },
+      ],
+      hyperliquid: [
+        { coin: "xyz:NVDA", symbol: "HL:xyz:NVDA", name: "NVDA", dex: "xyz", dexName: "XYZ", volume: 50_000_000 },
+        { coin: "flx:NVDA", symbol: "HL:flx:NVDA", name: "NVDA", dex: "flx", dexName: "FLX", volume: 5_000_000 },
+        // Main crypto dex coin must never hijack an equity ticker
+        { coin: "CAT", symbol: "HL:CAT", name: "CAT", dex: "", dexName: "", volume: 90_000_000 },
+        { coin: "xyz:SP500", symbol: "HL:xyz:SP500", name: "SP500", dex: "xyz", dexName: "XYZ", volume: 40_000_000 },
+        { coin: "xyz:XYZ100", symbol: "HL:xyz:XYZ100", name: "XYZ100", dex: "xyz", dexName: "XYZ", volume: 60_000_000 },
+        { coin: "xyz:CL", symbol: "HL:xyz:CL", name: "CL", dex: "xyz", dexName: "XYZ", volume: 25_000_000 },
+        { coin: "xyz:GOLD", symbol: "HL:xyz:GOLD", name: "GOLD", dex: "xyz", dexName: "XYZ", volume: 35_000_000 },
+      ],
+      bybit: [
+        { category: "linear", ticker: { pair: "AMDUSDT", turnover: 15_000_000 } },
+        { category: "linear", ticker: { pair: "NVDAUSDT", turnover: 80_000_000 } },
+        { category: "linear", ticker: { pair: "CATUSDT", turnover: 20_000_000 } },
+      ],
+    });
+
+    expect(changed).toBe(7);
+    const updated = useWatchlistStore.getState().lists[0];
+    expect(updated.symbols).toEqual([
+      makeSection("Krypto"),
+      "BTCUSDT",
+      makeSection("Aktien"),
+      "AAPLUSDT", // Binance first for stocks
+      "HL:xyz:NVDA", // Hyperliquid second (ahead of Bybit even with lower volume)
+      "BYBIT:LINEAR:AMDUSDT", // Bybit third
+      "YF:CAT", // Collision guarded -> stays Yahoo
+      "YF:JPM", // Unlisted -> stays Yahoo fallback
+      makeSection("Indizes & Rohstoffe"),
+      "HL:xyz:SP500", // Index -> Hyperliquid
+      "HL:xyz:XYZ100", // Index -> Hyperliquid
+      "HL:xyz:CL", // Commodity -> Hyperliquid
+      "HL:xyz:GOLD", // Commodity -> Hyperliquid
+    ]);
+    expect(updated.flags).toEqual({ "HL:xyz:NVDA": "green", "HL:xyz:GOLD": "orange" });
+    expect(liquidMarketListing("HL:xyz:NVDA")).toMatchObject({ name: "Nvidia", exchange: "Hyperliquid · XYZ", delayed: false });
+    expect(liquidMarketListing("HL:xyz:GOLD")).toMatchObject({ name: "Gold", exchange: "Hyperliquid · XYZ", delayed: false });
+  });
   it("round-trips large lists through workspace validation", () => {
     const symbols = Array.from({ length: 1000 }, (_, i) => `T${i}USDT`);
     const data = {

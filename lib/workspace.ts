@@ -1,5 +1,6 @@
 import {validChartTrading} from "@/lib/trading/chartPreferences";
 import {validDomPreferences} from "@/lib/orderflow/domPreferences";
+import {validSearchPreferences} from "@/lib/market/symbolSearch";
 import { retainedTpoReference } from "@/lib/alerts/tpoDraft";
 import { validStatusLine } from "@/lib/chart/statusLine";
 import { validScaleMode } from "@/lib/chart/scaleMode";
@@ -439,11 +440,13 @@ function validatePremium(value: unknown, backup: WorkspaceBackup) {
           "layouts",
           "studies",
           "domPreferences",
+          "searchPreferences",
         ].includes(key),
     )
   )
     throw new Error("Unexpected layout state field.");
   if(s.domPreferences!==undefined&&!validDomPreferences(s.domPreferences))throw new Error("Invalid DOM workspace settings.");
+  if(s.searchPreferences!==undefined&&!validSearchPreferences(s.searchPreferences))throw new Error("Invalid search workspace settings.");
   if (
     !["light", "dark"].includes(String(s.theme)) ||
     !finite(s.sidebarWidth) ||

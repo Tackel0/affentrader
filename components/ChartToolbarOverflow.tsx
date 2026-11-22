@@ -1,6 +1,6 @@
 "use client";
 import {useState} from "react";
-import {MoreHorizontal,Search,Plus,Bell,ChevronsLeft,SlidersHorizontal,Camera,Maximize,PanelRight,Undo2,Redo2,CalendarDays,Wallet} from "lucide-react";
+import {MoreHorizontal,Search,Plus,Bell,ChevronsLeft,SlidersHorizontal,Camera,Maximize,PanelRight,Undo2,Redo2,CalendarDays,Wallet,ListTree} from "lucide-react";
 import {IconButton} from "./ui";
 import {useDismiss,LayoutMenu,SavedLayoutsMenu,IndicatorTemplateMenu} from "./WorkspaceMenus";
 import {PatternsButton} from "./ChartTools";
@@ -9,7 +9,7 @@ import {useChartStore} from "@/stores/useChartStore";
 import {useWorkspaceStore} from "@/stores/useWorkspaceStore";
 export function ChartToolbarOverflow({toggleSidebar, phone}:{
   toggleSidebar:()=>void;
-  phone?: { showRanges: () => void; tradingOpen: boolean; toggleTrading: () => void };
+  phone?: { showRanges: () => void; tradingOpen: boolean; toggleTrading: () => void; openObjects?: () => void };
 }){
   const [open,setOpen]=useState(false),ref=useDismiss(open,()=>setOpen(false));
   const replay = useWorkspaceStore((s) => s.replay.active);
@@ -23,6 +23,7 @@ export function ChartToolbarOverflow({toggleSidebar, phone}:{
         {tradingButtons && <button type="button" aria-pressed={phone.tradingOpen} onClick={()=>{setOpen(false);phone.toggleTrading();}}>
           <Wallet size={18}/><span>{phone.tradingOpen ? "Chart-Handel ausblenden" : "Chart-Handel einblenden"}</span>
         </button>}
+        {phone.openObjects ? <button type="button" onClick={()=>{setOpen(false);phone.openObjects?.();}}><ListTree size={18}/><span>Objektbaum</span></button> : null}
       </> : <button type="button" onClick={()=>{setOpen(false);useChartStore.getState().set({searchOpen:true,searchTarget:"chart"});}}><Search size={18}/><span>Symbol search</span></button>}
       <button type="button" onClick={()=>{setOpen(false);useChartStore.getState().set({compareOpen:true});}}><Plus size={18}/><span>Compare symbol</span></button>
       <button type="button" onClick={()=>{setOpen(false);useChartStore.getState().set({alertDraft:currentPriceAlertDraft()});}}><Bell size={18}/><span>Create alert</span></button>

@@ -46,6 +46,8 @@ export function WorkspaceToolbar({
   toggleSidebar,
   phoneStatus,
   phoneDeployment,
+  tabletStatus,
+  tabletDeployment,
 }: {
   onExport: () => void;
   onImport: () => void;
@@ -53,6 +55,8 @@ export function WorkspaceToolbar({
   toggleSidebar: () => void;
   phoneStatus?: { label: string; description: string; connected: boolean };
   phoneDeployment?: ReactNode;
+  tabletStatus?: { label: string; description: string; connected: boolean };
+  tabletDeployment?: ReactNode;
 }) {
   const symbol = useChartStore((s) => s.symbol),
     replay = useWorkspaceStore((s) => s.replay.active),
@@ -75,6 +79,12 @@ export function WorkspaceToolbar({
       onClick={() => useChartStore.getState().set({ searchOpen: true, searchTarget: "chart" })}>
       <Search size={16} />
       <strong>{symbolLabel(symbol)}</strong>
+      {phoneStatus ? (
+        <span className="phone-symbol-status" title={phoneStatus.description}>
+          <span className={`status-dot ${phoneStatus.connected ? "green" : "amber"}`} aria-hidden="true" />
+          <span>{phoneStatus.label}</span>
+        </span>
+      ) : null}
     </button>
   );
   if (phoneStatus) return (
@@ -84,29 +94,33 @@ export function WorkspaceToolbar({
         {phoneDeployment}
       </div>} />
       {search}
-      <span className="phone-market-status" title={phoneStatus.description}>
-        <span className={`status-dot ${phoneStatus.connected ? "green" : "amber"}`} aria-hidden="true" />
-        {phoneStatus.label}
-      </span>
     </div>
   );
+  const menuFooter = tabletStatus ? (
+    <div className="phone-menu-footer">
+      <span>Powered by <a href="https://github.com/luxalgo/vela" target="_blank" rel="noreferrer">Vela™</a> &amp; PineTS</span>
+      {tabletDeployment}
+    </div>
+  ) : undefined;
   return (
     <div
-      className="workspace-toolbar tv-toolbar"
+      className={`workspace-toolbar tv-toolbar${tabletStatus ? " tablet-workspace-header" : ""}`}
       role="toolbar"
       aria-label="Chart toolbar"
     >
-      <MainMenu onExport={onExport} onImport={onImport} />
-      <button
-        type="button"
-        className="toolbar-button affen-terminal-launch"
-        aria-label="AffenTerminal extern öffnen"
-        title="AffenTerminal GUI im externen Fenster öffnen"
-        onClick={launchTerminalWindow}
-      >
-        <ExternalLink size={15} />
-        <span>AffenTerminal ↗</span>
-      </button>
+      <MainMenu onExport={onExport} onImport={onImport} footer={menuFooter} />
+      {!tabletStatus ? (
+        <button
+          type="button"
+          className="toolbar-button affen-terminal-launch"
+          aria-label="AffenTerminal extern öffnen"
+          title="AffenTerminal GUI im externen Fenster öffnen"
+          onClick={launchTerminalWindow}
+        >
+          <ExternalLink size={15} />
+          <span>AffenTerminal ↗</span>
+        </button>
+      ) : null}
       {search}
       <CompareButton />
       <span className="toolbar-divider" />
@@ -149,14 +163,21 @@ export function WorkspaceToolbar({
         <span>Replay</span>
       </button>
       <span className="toolbar-divider" />
-      <IconButton label="Undo drawing" onClick={() => command("undo")}>
+      <IconButton label="Undo drawing" className="tablet-wide-tool" onClick={() => command("undo")}>
         <Undo2 size={18} />
       </IconButton>
-      <IconButton label="Redo drawing" onClick={() => command("redo")}>
+      <IconButton label="Redo drawing" className="tablet-wide-tool" onClick={() => command("redo")}>
         <Redo2 size={18} />
       </IconButton>
       <span className="flex-1" />
+      {tabletStatus ? (
+        <span className="tablet-market-status" title={tabletStatus.description}>
+          <span className={`status-dot ${tabletStatus.connected ? "green" : "amber"}`} aria-hidden="true" />
+          <span>{tabletStatus.label}</span>
+        </span>
+      ) : null}
       <div className="desktop-chart-tools"><LayoutMenu /><SavedLayoutsMenu /></div>
+      {tabletStatus ? <div className="tablet-layout-control"><LayoutMenu /></div> : null}
       <span className="toolbar-divider" />
       <IconButton
         label="Quick search"
@@ -168,7 +189,7 @@ export function WorkspaceToolbar({
       >
         <Search size={19} />
       </IconButton>
-      <IconButton label="Chart settings" onClick={() => command("settings")}>
+      <IconButton label="Chart settings" className="tablet-header-tool" onClick={() => command("settings")}>
         <SlidersHorizontal size={19} />
       </IconButton>
       <IconButton
@@ -195,6 +216,8 @@ export function WorkspaceToolbar({
       </IconButton>
       <IconButton
         label={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
+        className="tablet-header-tool tablet-sidebar-toggle"
+        aria-pressed={sidebarOpen}
         onClick={toggleSidebar}
       >
         {sidebarOpen ? (
@@ -208,13 +231,14 @@ export function WorkspaceToolbar({
   );
 }
 
-export function PhoneChartActions({ drawingOpen, toggleDrawing, toggleSidebar, tradingOpen, toggleTrading, openPanel }: {
+export function PhoneChartActions({ drawingOpen, toggleDrawing, toggleSidebar, tradingOpen, toggleTrading, openPanel, openObjects }: {
   drawingOpen: boolean;
   toggleDrawing: () => void;
   toggleSidebar: () => void;
   tradingOpen: boolean;
   toggleTrading: () => void;
   openPanel: (tab: BottomTab) => void;
+  openObjects?: () => void;
 }) {
   const [ranges, setRanges] = useState(false);
   return (
@@ -230,7 +254,7 @@ export function PhoneChartActions({ drawingOpen, toggleDrawing, toggleSidebar, t
       </IconButton>
       <PhoneWorkspacePanels onSelect={openPanel} />
       <ChartToolbarOverflow toggleSidebar={toggleSidebar} phone={{
-        showRanges: () => setRanges(true), tradingOpen, toggleTrading,
+        showRanges: () => setRanges(true), tradingOpen, toggleTrading, openObjects,
       }} />
       {ranges && <Modal title="Zeitraum und Zeitzone" className="phone-action-sheet phone-range-dialog" onClose={() => setRanges(false)}>
         <RangeToolbar onRangeSelected={() => setRanges(false)} />

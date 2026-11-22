@@ -1714,19 +1714,45 @@ async function run() {
         await waitForPagePredicate(cdp, `window.__tpoCanvases.every(canvas => canvas.width === 0 && canvas.height === 0)`, "switching away releases TPO drawing buffers");
         await cdp.send("Runtime.evaluate", { expression: `delete window.__beforeTpo; delete window.__tpoCanvases` });
 
-        activeLabel = "universal mobile symbol search";
+        activeLabel = "universal mobile symbol search & exchange priority";
         await tapWorkspaceTarget(cdp, ".workspace-toolbar .symbol-selector", 36);
         await waitForPagePredicate(cdp, '!!document.querySelector(\'.search-modal input[aria-label="Search symbols"]\')', "symbol search opens");
         await cdp.send("Runtime.evaluate", { expression: 'document.querySelector(\'.search-modal input[aria-label="Search symbols"]\').focus()' });
         await cdp.send("Input.insertText", { text: "TSLA" });
         await waitForPagePredicate(cdp, `(() => {
           const sources = Array.from(document.querySelectorAll('.search-modal .result-exchange'));
-          return sources.length === 3 && ["Bybit", "Hyperliquid", "NASDAQ"].every((source, index) =>
+          return sources.length === 3 && ["Hyperliquid", "Bybit", "NASDAQ"].every((source, index) =>
             sources[index].textContent.includes(source) && sources[index].getClientRects().length > 0);
-        })()`, "Bybit, Hyperliquid and NASDAQ results are visible and ranked by current turnover");
-        recordAudit(vp, "/ universal symbol search", await inspectViewportDom(cdp, true));
+        })()`, "Hyperliquid, Bybit and NASDAQ results are visible and ranked by exchange priority");
+        await tapWorkspaceTarget(cdp, ".search-venue-toggle", 36);
+        await waitForPagePredicate(cdp, '!!document.querySelector(".search-venue-panel")', "exchange filter and priority controls open");
+        recordAudit(vp, "/ universal symbol search (exchange priority)", await inspectViewportDom(cdp, true));
+        await tapWorkspaceTarget(cdp, '.search-priority-actions button[aria-label="Bybit nach oben"]', 36);
+        await waitForPagePredicate(cdp, `(() => {
+          const sources = Array.from(document.querySelectorAll('.search-modal .result-exchange'));
+          return sources.length === 3 && ["Bybit", "Hyperliquid", "NASDAQ"].every((source, index) =>
+            sources[index].textContent.includes(source));
+        })()`, "moving Bybit up puts Bybit first in search results");
+        await tapWorkspaceTarget(cdp, '.search-exchange-chips button:nth-child(5)', 36);
+        await waitForPagePredicate(cdp, `(() => {
+          const sources = Array.from(document.querySelectorAll('.search-modal .result-exchange'));
+          return sources.length === 2 && !sources.some(s => s.textContent.includes("NASDAQ"));
+        })()`, "disabling Yahoo Finance hides NASDAQ results");
+        await tapWorkspaceTarget(cdp, ".search-venue-reset", 36);
+        await waitForPagePredicate(cdp, `(() => {
+          const sources = Array.from(document.querySelectorAll('.search-modal .result-exchange'));
+          return sources.length === 3 && sources[0].textContent.includes("Hyperliquid");
+        })()`, "reset restores default exchange filter and priority");
         await tapWorkspaceTarget(cdp, '.search-modal [aria-label="Close dialog"]', 36);
         await waitForPagePredicate(cdp, '!document.querySelector(".search-modal")', "symbol search closes");
+
+        activeLabel = "main menu Konto erstellen";
+        await tapWorkspaceTarget(cdp, '.workspace-toolbar [aria-label="Main menu"]', 36);
+        await waitForPagePredicate(cdp, `[...document.querySelectorAll(".main-menu button")].some(b => b.textContent.trim() === "Konto erstellen")`, "main menu exposes Konto erstellen");
+        recordAudit(vp, "/ main menu account actions", await inspectViewportDom(cdp, true));
+        await tapWorkspaceTarget(cdp, '.workspace-toolbar [aria-label="Main menu"]', 36);
+        await waitForPagePredicate(cdp, '!document.querySelector(".main-menu")', "main menu closes");
+
         await verifyOrderflowDock(vp);
         activeLabel = "phone drawings overlay";
         const widthBefore = (await cdp.send("Runtime.evaluate", {
@@ -1751,9 +1777,19 @@ async function run() {
           ["Watchlists", "Watchlist sidebar"], ["Alerts", "Alerts sidebar"], ["Object tree", "Object tree sidebar"],
         ]) {
           activeLabel = `touch resize of ${label}`;
-          await cdp.send("Runtime.evaluate", {
-            expression: `document.querySelector(${JSON.stringify(`.utility-rail button[aria-label="${button}"]`)}).click()`,
-          });
+          if (button === "Object tree") {
+            await cdp.send("Runtime.evaluate", {
+              expression: 'document.querySelector(\'.phone-chart-actions [aria-label="More chart controls"]\').click()',
+            });
+            await waitForPagePredicate(cdp, '!!document.querySelector(".phone-chart-actions .mobile-chart-controls")', "phone overflow opens for object tree");
+            await cdp.send("Runtime.evaluate", {
+              expression: '[...document.querySelectorAll(".phone-chart-actions .mobile-chart-controls > button")].find(b => b.textContent.includes("Objektbaum"))?.click()',
+            });
+          } else {
+            await cdp.send("Runtime.evaluate", {
+              expression: `document.querySelector(${JSON.stringify(`.utility-rail button[aria-label="${button}"]`)}).click()`,
+            });
+          }
           await waitForPagePredicate(
             cdp,
             `document.querySelector(".right-sidebar")?.getAttribute("aria-label") === ${JSON.stringify(label)}
@@ -1795,7 +1831,7 @@ async function run() {
           sidebarSheetsChecked++;
         }
         await cdp.send("Runtime.evaluate", {
-          expression: `document.querySelector('.utility-rail button[aria-label="Object tree"]').click()`,
+          expression: `document.querySelector('.utility-rail button[aria-label="Chart"]').click()`,
         });
         await waitForPagePredicate(cdp, '!document.querySelector(".right-sidebar")', "mobile sidebar closes");
       }
@@ -1933,48 +1969,67 @@ async function run() {
       activeLabel = `${vp.name} compact workspace navigation`;
       await setViewport(vp);
       await cdp.send("Page.navigate", { url: `${baseUrl}/` });
-      await waitForPagePredicate(cdp, `(() => {
-        const nav = document.querySelector("nav.utility-rail");
-        if (!nav || getComputedStyle(nav).position !== "fixed") return false;
-        const rect = nav.getBoundingClientRect();
-        const usable = [...nav.querySelectorAll("button")].filter(button => button.getClientRects().length > 0);
-        return Math.abs(rect.bottom - innerHeight) <= 1 && usable.length === 6
-          && usable.every(button => button.offsetWidth >= 44 && button.offsetHeight >= 44);
-      })()`, `${vp.name} workspace bottom navigation`);
+      if (vp.verifySavedLayout) {
+        await waitForPagePredicate(cdp, `(() => {
+          const app = document.querySelector(".trading-app.tablet-workspace");
+          const nav = document.querySelector("nav.utility-rail.tablet-right-rail");
+          if (!app || !nav || getComputedStyle(nav).position !== "relative") return false;
+          const rect = nav.getBoundingClientRect();
+          const usable = [...nav.querySelectorAll("button")].filter(button => button.getClientRects().length > 0);
+          return Math.abs(rect.right - innerWidth) <= 2 && rect.width >= 44 && rect.width <= 56
+            && usable.length === 6 && usable.every(button => button.offsetWidth >= 36 && button.offsetHeight >= 36);
+        })()`, `${vp.name} TradingView-style right vertical tablet navigation rail`);
+      } else {
+        await waitForPagePredicate(cdp, `(() => {
+          const nav = document.querySelector("nav.utility-rail.phone-bottom-nav");
+          if (!nav || getComputedStyle(nav).position !== "fixed") return false;
+          const rect = nav.getBoundingClientRect();
+          const usable = [...nav.querySelectorAll("button")].filter(button => button.getClientRects().length > 0);
+          return Math.abs(rect.bottom - innerHeight) <= 1 && usable.length === 5
+            && usable.every(button => button.offsetWidth >= 44 && button.offsetHeight >= 44);
+        })()`, `${vp.name} 5-tab phone bottom navigation`);
+      }
       await waitForPagePredicate(cdp, `(() => {
         const canvases = [...document.querySelectorAll(".vela-container canvas")]
           .filter(canvas => canvas.width > 0 && canvas.clientWidth > 0);
         return devicePixelRatio === 3 && canvases.length > 0 && canvases.every(canvas =>
           Math.abs(canvas.width - canvas.clientWidth * 1.25) <= 2);
       })()`, `${vp.name} Vela canvas drawing density is capped on DPR-3 touch screens`);
-      await tapWorkspaceTarget(cdp, 'nav.utility-rail [aria-label="Chart"]');
-      await waitForPagePredicate(cdp, 'document.querySelector(\'nav.utility-rail [aria-label="Chart"]\')?.getAttribute("aria-pressed") === "true"', "Chart is active");
+      if (!vp.verifySavedLayout) {
+        await tapWorkspaceTarget(cdp, 'nav.utility-rail [aria-label="Chart"]');
+        await waitForPagePredicate(cdp, 'document.querySelector(\'nav.utility-rail [aria-label="Chart"]\')?.getAttribute("aria-pressed") === "true"', "Chart is active");
+      }
       await settleUi(cdp, 200);
       if (!opts.liveApis) {
         await waitForPagePredicate(cdp, "window.__sidebarMounted === false", `${vp.name} chart startup skips the sidebar`);
       }
-      recordAudit(vp, "/ compact navigation", await inspectViewportDom(cdp, true));
+      recordAudit(vp, vp.verifySavedLayout ? "/ tablet TradingView layout" : "/ compact navigation", await inspectViewportDom(cdp, true));
       if (vp.name === "844x390" && !opts.liveApis) await verifyOrderflowDock(vp);
-      await tapWorkspaceTarget(cdp, 'nav.utility-rail [aria-label="Watchlists"]');
+      await tapWorkspaceTarget(cdp, 'nav.utility-rail [aria-label="Watchlists"]', 36);
       if (vp.verifySavedLayout) {
         await waitForPagePredicate(cdp, `(() => {
-          const sidebar = document.querySelector('.right-sidebar[aria-label="Watchlist sidebar"]');
+          const sidebar = document.querySelector('.right-sidebar.tablet-right-sidebar[aria-label="Watchlist sidebar"]');
           const chart = document.querySelector('.center-workspace');
-          if (!sidebar || !chart) return false;
+          const rail = document.querySelector('nav.utility-rail.tablet-right-rail');
+          if (!sidebar || !chart || !rail) return false;
           const dock = sidebar.getBoundingClientRect();
           const plot = chart.getBoundingClientRect();
+          const navRect = rail.getBoundingClientRect();
           return getComputedStyle(sidebar).position === "relative" && dock.left >= plot.right - 1
-            && dock.width >= 260 && Math.abs(dock.top - plot.top) <= 2 && !sidebar.querySelector('.sidebar-sheet-resizer').getClientRects().length;
-        })()`, `${vp.name} Watchlist docks at the right edge alongside the chart`);
+            && dock.right <= navRect.left + 1 && dock.width >= 260
+            && Math.abs(dock.top - plot.top) <= 2 && !sidebar.querySelector('.sidebar-sheet-resizer').getClientRects().length;
+        })()`, `${vp.name} Watchlist docks cleanly at the right edge beside the chart and right rail`);
         recordAudit(vp, "/ tablet Watchlist dock", await inspectViewportDom(cdp, true));
+        await tapWorkspaceTarget(cdp, '.right-sidebar [aria-label="Watchlist schließen"]', 36);
+        await waitForPagePredicate(cdp, '!document.querySelector(".right-sidebar")', "Tablet Watchlist closes cleanly");
       } else {
         await waitForPagePredicate(cdp, '!!document.querySelector(\'.right-sidebar[aria-label="Watchlist sidebar"] .sidebar-sheet-resizer[aria-valuenow]\')', "Watchlist opens from bottom navigation");
+        await tapWorkspaceTarget(cdp, 'nav.utility-rail [aria-label="Chart"]');
+        await waitForPagePredicate(cdp, '!document.querySelector(".right-sidebar")', "Chart closes the sheet");
       }
-      await tapWorkspaceTarget(cdp, 'nav.utility-rail [aria-label="Chart"]');
-      await waitForPagePredicate(cdp, '!document.querySelector(".right-sidebar")', "Chart closes the sheet");
       if (vp.verifySavedLayout && !opts.liveApis) {
         activeLabel = `${vp.name} tablet chart focus`;
-        await verifyFocusedChartLayout(cdp, vp.width - 70);
+        await verifyFocusedChartLayout(cdp, vp.width - 110);
         tabletChartFocusViewports.push(vp.name);
       }
 

@@ -4,7 +4,13 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { Watchlist, WatchFlag } from "@/types/trading";
 import { yahooSymbol } from "@/lib/symbolId";
-import { LIQUID_MARKET_GROUPS, LIQUID_MARKETS_ID, LIQUID_MARKETS_NAME } from "@/lib/watchlistPresets";
+import {
+  LIQUID_MARKET_GROUPS,
+  LIQUID_MARKETS_ID,
+  LIQUID_MARKETS_NAME,
+  resolveWatchlistEntries,
+  type WatchlistVenueCatalogs,
+} from "@/lib/watchlistPresets";
 import {
   DEFAULT_COLUMNS,
   isSection,
@@ -24,7 +30,8 @@ interface WatchlistState {
   rename: (id: string, name: string) => void;
   remove: (id: string) => void;
   select: (id: string) => void;
-  openLiquidMarkets: () => void;
+  openLiquidMarkets: (catalogs?: WatchlistVenueCatalogs) => void;
+  applyVenueResolution: (listId: string, catalogs: WatchlistVenueCatalogs) => number;
   duplicate: (id: string) => void;
   clear: (id: string) => void;
   addSymbol: (symbol: string) => void;
@@ -120,19 +127,40 @@ export const useWatchlistStore = create<WatchlistState>()(
         }),
       select: (id) =>
         set((s) => (s.lists.some((l) => l.id === id) ? { activeId: id } : {})),
-      openLiquidMarkets: () =>
+      openLiquidMarkets: (catalogs) =>
         set((s) => {
           if (s.lists.some((list) => list.id === LIQUID_MARKETS_ID)) return { activeId: LIQUID_MARKETS_ID };
           if (s.lists.length >= MAX_LISTS) return s;
-          const symbols = LIQUID_MARKET_GROUPS.flatMap(({ name, listings }) => [
+          const rawSymbols = LIQUID_MARKET_GROUPS.flatMap(({ name, listings }) => [
             makeSection(name), ...listings.map(([ticker]) => yahooSymbol(ticker)),
           ]);
+          const symbols = catalogs ? resolveWatchlistEntries(rawSymbols, catalogs).entries : rawSymbols;
           return {
             lists: [...s.lists, { id: LIQUID_MARKETS_ID, name: LIQUID_MARKETS_NAME, symbols }],
             activeId: LIQUID_MARKETS_ID,
             sort: null,
           };
         }),
+      applyVenueResolution: (listId, catalogs) => {
+        let changed = 0;
+        set((s) => {
+          let touched = false;
+          const lists = s.lists.map((list) => {
+            if (list.id !== listId) return list;
+            const resolved = resolveWatchlistEntries(list.symbols, catalogs);
+            changed = resolved.changed;
+            if (!resolved.changed) return list;
+            touched = true;
+            const nextFlags: Record<string, WatchFlag> = {};
+            for (const [key, flag] of Object.entries(list.flags ?? {})) {
+              nextFlags[resolved.replacements.get(key) ?? key] = flag;
+            }
+            return { ...list, symbols: resolved.entries, flags: nextFlags };
+          });
+          return touched ? { lists } : s;
+        });
+        return changed;
+      },
       duplicate: (id) =>
         set((s) => {
           const source = s.lists.find((l) => l.id === id);

@@ -6,6 +6,7 @@ import { SymbolSearch } from "@/components/SymbolSearch";
 import { SYMBOLS } from "@/lib/symbols";
 import { useChartStore } from "@/stores/useChartStore";
 import { useWatchlistStore } from "@/stores/useWatchlistStore";
+import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
 import type { Quote } from "@/types/trading";
 
 const { renderBadge, loadCatalog, loadBybit, loadHyperliquid, yahooSearch, snapshot } = vi.hoisted(() => ({
@@ -34,6 +35,7 @@ afterEach(() => {
   cleanup();
   useChartStore.setState(initialChart);
   useWatchlistStore.setState(initialWatchlist);
+  useWorkspaceStore.getState().resetSearchPreferences();
   vi.clearAllMocks();
 });
 
@@ -94,14 +96,14 @@ it("updates watchlist membership without closing the search", async () => {
   expect(useChartStore.getState().searchOpen).toBe(true);
 });
 
-it("shows live and listed TSLA instruments together and ranks live matches by turnover", async () => {
+it("ranks TSLA by exchange priority (Hyperliquid before Bybit before Yahoo) and supports filtering & reordering", async () => {
   loadCatalog.mockResolvedValue(SYMBOLS);
-  loadHyperliquid.mockResolvedValueOnce([
+  loadHyperliquid.mockResolvedValue([
     { symbol: "HL:xyz:TSLA", name: "TSLA", dex: "xyz", dexName: "XYZ", volume: 30_000_000, mark: 430 },
     { symbol: "HL:other:TSLA", name: "TSLA", dex: "other", dexName: "Other", volume: 900_000, mark: 431 },
   ]);
-  loadBybit.mockResolvedValueOnce([{ category: "linear", ticker: { pair: "TSLAUSDT", turnover: 45_000_000, price: 432 } }]);
-  yahooSearch.mockResolvedValueOnce([{ symbol: "TSLA", name: "Tesla, Inc.", exchange: "NASDAQ", type: "stock" }]);
+  loadBybit.mockResolvedValue([{ category: "linear", ticker: { pair: "TSLAUSDT", turnover: 45_000_000, price: 432 } }]);
+  yahooSearch.mockResolvedValue([{ symbol: "TSLA", name: "Tesla, Inc.", exchange: "NASDAQ", type: "stock" }]);
   useChartStore.setState({ searchOpen: true, searchTarget: "chart" });
   const { container, getByRole } = render(<SymbolSearch />);
   expect(getByRole("tab", { name: "All markets" }).getAttribute("aria-selected")).toBe("true");
@@ -109,11 +111,28 @@ it("shows live and listed TSLA instruments together and ranks live matches by tu
   const rows = () => [...container.querySelectorAll(".symbol-result")];
   await waitFor(() => expect(rows()).toHaveLength(4));
   expect(rows().map(row => row.querySelector(".result-exchange")?.textContent)).toEqual([
-    "Bybit · Perp · Live · $45M / 24h",
     "Hyperliquid · XYZ · Perp · Live · $30M / 24h",
     "Hyperliquid · Other · Perp · Live · $900K / 24h",
+    "Bybit · Perp · Live · $45M / 24h",
     "NASDAQ · Yahoo Finance · Delayed",
   ]);
+
+  // Open exchange filter & priority controls, move Bybit ahead of Hyperliquid, and hide Yahoo Finance
+  fireEvent.click(container.querySelector(".search-venue-toggle")!);
+  fireEvent.click(getByRole("button", { name: "Bybit nach oben" }));
+  await waitFor(() =>
+    expect(rows().map(row => row.querySelector(".result-exchange")?.textContent)).toEqual([
+      "Bybit · Perp · Live · $45M / 24h",
+      "Hyperliquid · XYZ · Perp · Live · $30M / 24h",
+      "Hyperliquid · Other · Perp · Live · $900K / 24h",
+      "NASDAQ · Yahoo Finance · Delayed",
+    ]),
+  );
+
+  fireEvent.click(getByRole("button", { name: "Yahoo Finance" }));
+  await waitFor(() => expect(rows()).toHaveLength(3));
+  expect(rows().some(row => row.textContent?.includes("Yahoo Finance"))).toBe(false);
+
   fireEvent.keyDown(getByRole("textbox", { name: "Search symbols" }), { key: "Enter" });
   expect(useChartStore.getState()).toMatchObject({ symbol: "BYBIT:LINEAR:TSLAUSDT", searchOpen: false });
 });

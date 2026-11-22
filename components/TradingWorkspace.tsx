@@ -59,8 +59,13 @@ const PHONE_CHART_QUERY = "(max-width: 600px), (max-width: 1024px) and (max-heig
 export default function TradingWorkspace({ deployment, initialSidebar }: WorkspaceProps) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
-    if (window.matchMedia(PHONE_CHART_QUERY).matches && useChartStore.getState().bottomOpen) {
-      useChartStore.getState().set({ bottomOpen: false });
+    const isPhone = window.matchMedia(PHONE_CHART_QUERY).matches;
+    if (isPhone) {
+      const state = useChartStore.getState();
+      const patch: Partial<Pick<typeof state, "bottomOpen" | "legendCollapsed">> = {};
+      if (state.bottomOpen) patch.bottomOpen = false;
+      if (!state.legendCollapsed) patch.legendCollapsed = true;
+      if (Object.keys(patch).length) state.set(patch);
     }
     const setupId = new URLSearchParams(window.location.search).get("setup");
     const setup = setupId ? useSetupJournal.getState().records.find(row => row.id === setupId) : undefined;
@@ -107,14 +112,25 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
   const [compactLayout, setCompactLayout] = useState(() => window.matchMedia(COMPACT_WORKSPACE_QUERY).matches);
   const [showChartGrid, setShowChartGrid] = useState(false);
   const [phoneChart, setPhoneChart] = useState(() => window.matchMedia(PHONE_CHART_QUERY).matches);
+  const [tabletLayout, setTabletLayout] = useState(() => window.matchMedia(TABLET_WORKSPACE_QUERY).matches);
   const [drawingToolsOpen, setDrawingToolsOpen] = useState(false);
   const [phoneTradingOpen, setPhoneTradingOpen] = useState(false);
   useEffect(() => {
     const query = window.matchMedia(PHONE_CHART_QUERY);
-    const update = () => { setPhoneChart(query.matches); setDrawingToolsOpen(false); setPhoneTradingOpen(false); };
+    const tablet = window.matchMedia(TABLET_WORKSPACE_QUERY);
+    const update = () => {
+      setPhoneChart(query.matches);
+      setTabletLayout(tablet.matches);
+      setDrawingToolsOpen(false);
+      setPhoneTradingOpen(false);
+    };
     update();
     query.addEventListener("change", update);
-    return () => query.removeEventListener("change", update);
+    tablet.addEventListener("change", update);
+    return () => {
+      query.removeEventListener("change", update);
+      tablet.removeEventListener("change", update);
+    };
   }, []);
   const sidebarRef = useRef<HTMLElement | null>(null);
   const sidebarHandle = useRef<HTMLDivElement | null>(null);
@@ -252,8 +268,10 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
   const requiresAlpaca = symbol.startsWith("IEX:") && iexStatus !== "authenticated" || symbol.startsWith("SIP:") && !alpacaEnabled;
   const dataLabel = status === "simulation" ? "Simulation" : requiresAlpaca ? "Datenzugang" : status !== "live" ? "Verbinden…"
     : market.delayed ? "Verzögert" : "Live";
+  const isTablet = tabletLayout && !phoneChart;
+  const feedBadge = { label: dataLabel, description: `${market.feed} · ${dataLabel}`, connected: status === "live" && !requiresAlpaca };
   return (
-    <main className={`trading-app theme-${theme}${phoneChart ? " phone-workspace" : ""}`}>
+    <main className={`trading-app theme-${theme}${phoneChart ? " phone-workspace" : ""}${isTablet ? " tablet-workspace" : ""}`}>
       <NativeChartDialogs/>
       <MarketConnections/>
       <TradeArchive/>
@@ -264,8 +282,10 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
         onImport={() => workspaceFile.current?.click()}
         sidebarOpen={sidebarOpen}
         toggleSidebar={toggleSidebar}
-        phoneStatus={phoneChart ? { label: dataLabel, description: `${market.feed} · ${dataLabel}`, connected: status === "live" && !requiresAlpaca } : undefined}
+        phoneStatus={phoneChart ? feedBadge : undefined}
         phoneDeployment={phoneChart ? deployment : undefined}
+        tabletStatus={isTablet ? feedBadge : undefined}
+        tabletDeployment={isTablet ? deployment : undefined}
       />
       <input
         hidden
@@ -278,7 +298,7 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
           e.target.value = "";
         }}
       />
-      <div className={`workspace-main${phoneChart ? " phone-chart" : ""}`}>
+      <div className={`workspace-main${phoneChart ? " phone-chart" : ""}${isTablet ? " tablet-chart" : ""}`}>
         {(!phoneChart || drawingToolsOpen) && <DrawingRail id="workspace-drawing-tools" />}
         <div className="center-workspace">
           <ModuleErrorBoundary moduleName="Chart Grid">
@@ -289,7 +309,8 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
           </ModuleErrorBoundary>
           <ReplayBar />
           {phoneChart ? <PhoneChartActions drawingOpen={drawingToolsOpen} toggleDrawing={toggleDrawing}
-            toggleSidebar={toggleSidebar} tradingOpen={phoneTradingOpen} toggleTrading={() => setPhoneTradingOpen(open => !open)} openPanel={openPanel} /> : <RangeToolbar />}
+            toggleSidebar={toggleSidebar} tradingOpen={phoneTradingOpen} toggleTrading={() => setPhoneTradingOpen(open => !open)}
+            openPanel={openPanel} openObjects={() => toggleSidebar("objects")} /> : <RangeToolbar />}
           <ModuleErrorBoundary moduleName="Bottom Panel" compact>
             <BottomPanel phone={phoneChart} />
           </ModuleErrorBoundary>
@@ -297,7 +318,7 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
         {sidebarOpen ? (
           <aside
             ref={sidebarRef}
-            className={`right-sidebar${phoneChart && sidebar === "watchlist" ? " phone-watchlist" : ""}`}
+            className={`right-sidebar${phoneChart && sidebar === "watchlist" ? " phone-watchlist" : ""}${isTablet ? " tablet-right-sidebar" : ""}`}
             aria-label={
               sidebar === "watchlist"
                 ? "Watchlist sidebar"
@@ -336,7 +357,11 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
               compact
             >
               {sidebar === "watchlist" ? (
-                <Watchlist phone={phoneChart} onOpenChart={phoneChart ? openChart : undefined} />
+                <Watchlist
+                  phone={phoneChart}
+                  onOpenChart={phoneChart ? openChart : undefined}
+                  onClose={isTablet ? () => setSidebarOpen(false) : undefined}
+                />
               ) : sidebar === "alerts" ? (
                 <AlertsPanel />
               ) : (
@@ -350,6 +375,8 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
           toggleSidebar={toggleSidebar}
           openPanel={openPanel}
           openChart={openChart}
+          phone={phoneChart}
+          tablet={isTablet}
         />
       </div>
       <footer className="app-status">
@@ -435,22 +462,33 @@ function ToastManager() {
 
 type SidebarTab = "watchlist" | "alerts" | "objects";
 
-function WorkspaceNavigation({ sidebar, toggleSidebar, openPanel, openChart }: {
+function WorkspaceNavigation({ sidebar, toggleSidebar, openPanel, openChart, phone, tablet }: {
   sidebar: SidebarTab | null;
   toggleSidebar: (tab: SidebarTab) => void;
   openPanel: (tab: "orderflow" | "terminal" | "pine") => void;
   openChart: () => void;
+  phone: boolean;
+  tablet: boolean;
 }) {
   const panel = useChartStore(s => s.bottomOpen ? s.bottomTab : null);
   const alertCount = useAlertStore(s => s.alerts.filter(a => a.status === "active").length);
+  const toggleBottom = (tab: "orderflow" | "terminal" | "pine") => {
+    if (tablet && panel === tab) {
+      useChartStore.getState().set({ bottomOpen: false });
+      return;
+    }
+    openPanel(tab);
+  };
   return (
-    <nav className="utility-rail" aria-label="Workspace navigation">
-      <IconButton label="Chart" className="compact-nav-only" aria-pressed={!sidebar && !panel} onClick={openChart}>
-        <ChartCandlestick size={21} />
-        <span className="compact-nav-label" aria-hidden="true">Chart</span>
-      </IconButton>
+    <nav className={`utility-rail${phone ? " phone-bottom-nav" : ""}${tablet ? " tablet-right-rail" : ""}`} aria-label="Workspace navigation">
+      {!tablet ? (
+        <IconButton label="Chart" className="compact-nav-only" aria-pressed={!sidebar && !panel} onClick={openChart}>
+          <ChartCandlestick size={20} />
+          <span className="compact-nav-label" aria-hidden="true">Chart</span>
+        </IconButton>
+      ) : null}
       <IconButton label="Watchlists" aria-pressed={sidebar === "watchlist"} onClick={() => toggleSidebar("watchlist")}>
-        <List size={21} />
+        <List size={20} />
         <span className="compact-nav-label" aria-hidden="true">Watchlist</span>
       </IconButton>
       <div className="rail-alert">
@@ -460,19 +498,22 @@ function WorkspaceNavigation({ sidebar, toggleSidebar, openPanel, openChart }: {
         </IconButton>
         {alertCount ? <span>{alertCount}</span> : null}
       </div>
-      <IconButton label="Object tree" aria-pressed={sidebar === "objects"} onClick={() => toggleSidebar("objects")}>
-        <ListTree size={20} />
-        <span className="compact-nav-label" aria-hidden="true">Objects</span>
-      </IconButton>
-      <IconButton label="Order flow panel" aria-pressed={panel === "orderflow"} onClick={() => openPanel("orderflow")}>
+      {!phone ? (
+        <IconButton label="Object tree" aria-pressed={sidebar === "objects"} onClick={() => toggleSidebar("objects")}>
+          <ListTree size={20} />
+          <span className="compact-nav-label" aria-hidden="true">Objekte</span>
+        </IconButton>
+      ) : null}
+      {tablet ? <span className="tablet-rail-divider" aria-hidden="true" /> : null}
+      <IconButton label="Order flow panel" aria-pressed={panel === "orderflow"} onClick={() => toggleBottom("orderflow")}>
         <Layers size={20} />
-        <span className="compact-nav-label" aria-hidden="true">Order flow</span>
+        <span className="compact-nav-label" aria-hidden="true">Flow</span>
       </IconButton>
-      <IconButton label="Terminal" className="compact-nav-only" aria-pressed={panel === "terminal"} onClick={() => openPanel("terminal")}>
+      <IconButton label="Terminal" className={tablet ? "tablet-rail-tool" : "compact-nav-only"} aria-pressed={panel === "terminal"} onClick={() => toggleBottom("terminal")}>
         <Terminal size={20} />
         <span className="compact-nav-label" aria-hidden="true">Terminal</span>
       </IconButton>
-      <IconButton label="Pine editor" className="desktop-nav-only" onClick={() => openPanel("pine")}>
+      <IconButton label="Pine editor" className={tablet ? "tablet-rail-tool" : "desktop-nav-only"} aria-pressed={panel === "pine"} onClick={() => toggleBottom("pine")}>
         <SquareTerminal size={20} />
       </IconButton>
       <span className="flex-1 desktop-nav-only" />

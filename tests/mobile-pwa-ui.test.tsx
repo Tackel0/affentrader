@@ -629,4 +629,13 @@ describe("Mobile PWA & Touch UI regressions", () => {
     expect(parseFloat(group.style.top)).toBeLessThanOrEqual(800 - 142);
     expect(parseFloat(group.style.left)).toBeLessThanOrEqual(360 - 168);
   });
+
+  it("exposes Konto erstellen directly in MainMenu alongside Konto and Konto anmelden", async () => {
+    const { MainMenu } = await import("@/components/WorkspaceMenus");
+    const { container } = render(<MainMenu onExport={vi.fn()} onImport={vi.fn()} />);
+    fireEvent.click(within(container).getByRole("button", { name: "Main menu" }));
+    expect(within(container).getByRole("button", { name: "Konto" })).toBeTruthy();
+    expect(within(container).getByRole("button", { name: "Konto erstellen" })).toBeTruthy();
+    expect(within(container).getByRole("button", { name: "Konto anmelden" })).toBeTruthy();
+  });
 });

@@ -4,6 +4,14 @@ import { statusLinePreferences } from "@/lib/chart/statusLine";
 import { clampSidebarWidth } from "@/lib/chart/sidebarResize";
 import { setLinkedCrosshair } from "@/lib/chart/crosshairBus";
 import { defaultDomPreferences,readDomPreferences,setDomGrouping,validDomPreferences,type DomPreferences } from "@/lib/orderflow/domPreferences";
+import {
+  defaultSearchPreferences,
+  moveExchangePriority,
+  readSearchPreferences,
+  validSearchPreferences,
+  type SearchExchangeId,
+  type SearchPreferences,
+} from "@/lib/market/symbolSearch";
 import { create } from "zustand";
 import { scopedName } from "@/lib/windowScope";
 import { persist } from "zustand/middleware";
@@ -116,6 +124,11 @@ interface WorkspaceState {
   domPreferences:DomPreferences;
   setDomPreferences:(patch:Partial<Omit<DomPreferences,"groups">>)=>void;
   setDomGroup:(symbol:string,group:number)=>void;
+  searchPreferences: SearchPreferences;
+  setSearchPreferences: (patch: Partial<SearchPreferences>) => void;
+  toggleSearchExchange: (id: SearchExchangeId) => void;
+  moveSearchExchange: (id: SearchExchangeId, direction: "up" | "down" | "top") => void;
+  resetSearchPreferences: () => void;
   applyingCell: boolean;
   theme: WorkspaceTheme;
   layout: LayoutId;
@@ -153,6 +166,34 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       domPreferences:defaultDomPreferences(),
       setDomPreferences:(patch)=>set(s=>{const domPreferences={...s.domPreferences,...patch};if(!validDomPreferences(domPreferences))throw new Error("Invalid DOM settings.");return {domPreferences:structuredClone(domPreferences)};}),
       setDomGroup:(symbol,group)=>set(s=>({domPreferences:setDomGrouping(s.domPreferences,symbol,group)})),
+      searchPreferences: defaultSearchPreferences(),
+      setSearchPreferences: (patch) =>
+        set((s) => {
+          const next = readSearchPreferences({ ...s.searchPreferences, ...patch });
+          if (!validSearchPreferences(next)) throw new Error("Invalid search preferences.");
+          return { searchPreferences: next };
+        }),
+      toggleSearchExchange: (id) =>
+        set((s) => {
+          const has = s.searchPreferences.enabledExchanges.includes(id);
+          const enabledExchanges = has
+            ? s.searchPreferences.enabledExchanges.filter((item) => item !== id)
+            : [...s.searchPreferences.enabledExchanges, id];
+          return {
+            searchPreferences: readSearchPreferences({
+              ...s.searchPreferences,
+              enabledExchanges,
+            }),
+          };
+        }),
+      moveSearchExchange: (id, direction) =>
+        set((s) => ({
+          searchPreferences: readSearchPreferences({
+            ...s.searchPreferences,
+            exchangePriority: moveExchangePriority(s.searchPreferences.exchangePriority, id, direction),
+          }),
+        })),
+      resetSearchPreferences: () => set({ searchPreferences: defaultSearchPreferences() }),
       theme: "light",
       layout: "single",
       activeId: "cell-1",
@@ -297,7 +338,12 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       storage: createShallowPersistStorage(hotStorage),
       merge:(persisted,current)=>{
         const saved=persisted&&typeof persisted==="object"?persisted as Partial<WorkspaceState>:{};
-        return {...current,...saved,domPreferences:readDomPreferences(saved.domPreferences)};
+        return {
+          ...current,
+          ...saved,
+          domPreferences: readDomPreferences(saved.domPreferences),
+          searchPreferences: readSearchPreferences(saved.searchPreferences),
+        };
       },
       partialize: (s) => ({
         theme: s.theme,
@@ -309,6 +355,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         layouts: s.layouts,
         studies: s.studies,
         domPreferences:s.domPreferences,
+        searchPreferences: s.searchPreferences,
       }),
     },
   ),
