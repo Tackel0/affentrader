@@ -13,7 +13,7 @@ const privateHeaders = {
 
 const PERMISSIONS_POLICY = "camera=(), microphone=(), geolocation=(), payment=(), usb=()";
 const API_CSP = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'";
-const HEAVY_GET_API_PATHS = new Set(["/api/terminal-opportunities", "/api/stock-base", "/api/screener"]);
+const HEAVY_GET_API_PATHS = new Set(["/api/terminal-opportunities", "/api/terminal-insiders", "/api/terminal-setups", "/api/stock-base", "/api/screener"]);
 
 // Browsers fetch manifests with credentials omitted per HTML spec, and push SWs reference icons before auth.
 const PUBLIC_PWA_PATHS = new Set([

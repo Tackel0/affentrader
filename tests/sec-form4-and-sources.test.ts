@@ -73,6 +73,7 @@ describe("SEC Form 4 XML parser, dynamic CIK lookup & historical valuation", () 
     expect(buys).toHaveLength(1);
     expect(buys[0]).toEqual({
       date: "2026-02-12",
+      transactionDate: "2026-02-12",
       insider: "Cristiano R. Amon",
       role: "President and CEO / Director",
       shares: 2500,

@@ -160,7 +160,13 @@ export const useAlertStore = create<AlertState>()(
           const rule = s.rules.find(r => r.id === event.ruleId && !r.serverSide && r.status === "active");
           if (!rule || isExpired(rule, event.time) || scopeStopped(rule, event.symbol)) return s;
           const committed = commitBrowserFiring(rule, event); accepted = committed.accepted;
-          return { events: accepted ? events : s.events, rules: s.rules.map(r => r.id === rule.id ? committed.rule : r) };
+          const entryId = accepted && rule.exchangeOnly && rule.id.startsWith("setup:") && rule.id.endsWith(":stop")
+            ? `${rule.id.slice(0, -5)}:entry` : undefined;
+          return { events: accepted ? events : s.events, rules: s.rules.map(r => {
+            if (r.id === rule.id) return committed.rule;
+            if (r.id === entryId && r.status === "active" && r.exchangeOnly) return { ...r, status: "paused" };
+            return r;
+          }) };
         });
         return accepted;
       },

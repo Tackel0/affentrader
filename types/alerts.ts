@@ -147,6 +147,8 @@ export interface AlertRule extends AlertRateFields,AlertLifecycleFields {
   message?: string;
   sound: boolean;
   browserNotification: boolean;
+  /** Reject simulation for quote-driven research alerts. */
+  exchangeOnly?: boolean;
   /** Evaluate on the server so it keeps running when no browser is open. */
   serverSide: boolean;
   webhook?: Webhook;

@@ -48,6 +48,7 @@ import { SymbolSearch } from "./SymbolSearch";
 import { BottomPanel } from "./BottomPanel";
 import { ModuleErrorBoundary } from "./ModuleErrorBoundary";
 import { downloadFile } from "@/lib/files";
+import { useSetupJournal } from "@/stores/useSetupJournal";
 interface WorkspaceProps {
   deployment?: ReactNode;
   initialSidebar?: "watchlist" | "alerts";
@@ -57,6 +58,13 @@ const PHONE_CHART_QUERY = "(max-width: 600px), (max-width: 1024px) and (max-heig
 export default function TradingWorkspace({ deployment, initialSidebar }: WorkspaceProps) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
+    const setupId = new URLSearchParams(window.location.search).get("setup");
+    const setup = setupId ? useSetupJournal.getState().records.find(row => row.id === setupId) : undefined;
+    if (setup) {
+      useSetupJournal.getState().show(setup.id);
+      useChartStore.getState().set({ symbol: setup.symbol, timeframe: "1D",
+        ...(window.matchMedia(COMPACT_WORKSPACE_QUERY).matches ? { bottomOpen: false } : {}) });
+    }
     if (initialSidebar && useChartStore.getState().sidebarTab !== initialSidebar) {
       useChartStore.getState().set({ sidebarTab: initialSidebar });
     }

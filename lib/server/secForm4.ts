@@ -321,6 +321,7 @@ export function parseForm4Xml(
       aggregatedValueUsd > 0 ? Number((aggregatedValueUsd / aggregatedShares).toFixed(2)) : 0;
     out.push({
       date: latestTxDate || fallbackDate,
+      ...(latestTxDate ? { transactionDate: latestTxDate } : {}),
       insider,
       role,
       shares: Math.round(aggregatedShares),

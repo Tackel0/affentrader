@@ -1862,6 +1862,18 @@ button.dom-size:enabled:hover {
 .opportunity-risk label { width: min(100%, 190px); }
 .opportunity-risk dl { grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; }
 .opportunity-insider small { display: block; color: var(--muted); }
+.terminal-research-list { padding: 8px 10px; min-width: 0; overflow-wrap: anywhere; }
+.terminal-research-list > .screener-toolbar { padding-inline: 0; }
+.terminal-research-list .screener-toolbar input { max-width: min(100%, 170px); min-width: 0; }
+.terminal-research-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 290px), 1fr)); gap: 8px; }
+.terminal-research-card { border: 1px solid var(--border); padding: 8px; min-width: 0; }
+.terminal-research-card > header { display: flex; justify-content: space-between; gap: 8px; }
+.terminal-research-card > p { margin: 5px 0; }
+.terminal-research-card > .screener-toolbar { padding: 6px 0 0; border: 0; }
+@media (max-width: 768px), (pointer: coarse) {
+  .terminal-research-list :is(button, select, input, a.button) { min-height: 36px; min-width: 36px; }
+  .terminal-research-card a.button { display: inline-flex; align-items: center; }
+}
 @container opportunities (width > 760px) {
   .opportunity-workspace { grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr); align-items: start; }
   .opportunity-detail { border-top: 0; border-inline-start: 1px solid var(--border); }

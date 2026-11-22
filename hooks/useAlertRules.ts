@@ -24,7 +24,7 @@ function announce(rule: Pick<AlertRule, "sound" | "browserNotification" | "name"
   if (rule.sound) playChime();
   if (rule.browserNotification) browserNotify(event.name, message);
 }
-const definition = (r: AlertRule) => JSON.stringify([r.condition,r.scope,r.trigger,r.frequency,r.cooldownMs,r.repeat,r.expiresAt,r.rate?.resetAt]);
+const definition = (r: AlertRule) => JSON.stringify([r.condition,r.scope,r.trigger,r.frequency,r.cooldownMs,r.repeat,r.expiresAt,r.exchangeOnly,r.rate?.resetAt]);
 const report = (title: string, error: unknown) => useChartStore.getState().toast(title,error instanceof Error?error.message:String(error),"error");
 
 /** One origin-wide lease owns evaluation and notification; every persisted write is serialized. */
@@ -71,7 +71,7 @@ export function useAlertRules(role: AlertOwnerSnapshot) {
     expire();const timer=setInterval(expire,1000);return()=>clearInterval(timer);
   },[role.status,role.epoch]);
   useEffect(()=>{engineRef.current?.invalidateData();},[feedEpoch]);
-  const signature=JSON.stringify(rules.map(r=>[r.id,r.status,r.serverSide,r.scope,r.condition,r.frequency,r.repeat,r.cooldownMs,r.trigger,r.expiresAt,r.rate?.resetAt,Object.keys(r.rate?.stoppedSymbols??{})]));
+  const signature=JSON.stringify(rules.map(r=>[r.id,r.status,r.serverSide,r.scope,r.condition,r.frequency,r.repeat,r.cooldownMs,r.trigger,r.expiresAt,r.exchangeOnly,r.rate?.resetAt,Object.keys(r.rate?.stoppedSymbols??{})]));
   useEffect(()=>{
     const engine=engineRef.current;if(!engine)return;
     let cancelled=false;engine.prime();void engine.prepare().then(()=>{if(!cancelled)engine.prime();});return()=>{cancelled=true;};

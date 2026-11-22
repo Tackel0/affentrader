@@ -23,6 +23,9 @@ export const TERMINAL_MODULES: readonly TerminalModuleMeta[] = [
   { id: "heatmap", label: "Heatmap", selectLabel: "HEATMAP · Sectors", command: "HEATMAP", paneTitle: "HEATMAP" },
   { id: "osint", label: "Tanker & Flights (OSINT)", selectLabel: "OSINT · Radar", command: "OSINT", paneTitle: "OSINT RADAR" },
   { id: "help", label: "Commands", selectLabel: "HELP · Keys", command: "HELP", paneTitle: "COMMANDS CHEAT SHEET" },
+  { id: "journal", label: "Setup-Journal", selectLabel: "JOURNAL · Setups", command: "JOURNAL", paneTitle: "SETUP JOURNAL" },
+  { id: "insiders", label: "Insider", selectLabel: "INSIDER · SEC", command: "INSIDER", paneTitle: "INSIDER-MELDUNGEN" },
+  { id: "optionsflow", label: "Optionsflow", selectLabel: "OPTIONSFLOW · OPRA", command: "OPTIONSFLOW", paneTitle: "OPTIONSFLOW" },
 ];
 
 export interface AutocompleteItem {
@@ -33,6 +36,9 @@ export interface AutocompleteItem {
 
 export const BASE_AUTOCOMPLETE_ITEMS: readonly AutocompleteItem[] = [
   { key: "OPPS", description: "Trade-Möglichkeiten & Setups Hub (F2)", category: "VIEW" },
+  { key: "JOURNAL", description: "Setup-Watchlist und Signal-Historie", category: "VIEW" },
+  { key: "INSIDER", description: "SEC Form 4 Recherche", category: "VIEW" },
+  { key: "OPTIONSFLOW", description: "Alpaca OPRA Optionsausführungen", category: "VIEW" },
   { key: "FA", description: "Fundamentals, Ratios & SEC Form 4 (F3)", category: "VIEW" },
   { key: "SCAN", description: "Stock Base Scanner (Confirmed Bases) (F6)", category: "VIEW" },
   { key: "MARKETS", description: "World Markets & Index Matrix (WEI) (F4)", category: "VIEW" },

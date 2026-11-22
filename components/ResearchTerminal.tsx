@@ -27,6 +27,9 @@ import { broadcastWorkspaceAction } from "@/hooks/useWindowLink";
 import { openAffenTerminalWindow } from "@/lib/windowScope";
 import { StockBaseScanner } from "./StockBaseScanner";
 import { OpportunitiesHub } from "./OpportunitiesHub";
+import { SetupResearch } from "./SetupResearch";
+import { InsiderResearch } from "./InsiderResearch";
+import { OptionsFlowPanel } from "./OptionsFlowPanel";
 import { FundamentalsPanel } from "./FundamentalsPanel";
 import { NewsPanel } from "./NewsPanel";
 import { CalendarPanel } from "./CalendarPanel";
@@ -892,6 +895,12 @@ export function ResearchTerminal({
         );
       case "fa":
         return <FundamentalsPanel initialTicker={ticker} preloaded={faPreload} onOpenChart={openChart} />;
+      case "journal":
+        return <SetupResearch externalWindow={externalWindow} />;
+      case "insiders":
+        return <InsiderResearch initialTicker={ticker} />;
+      case "optionsflow":
+        return <OptionsFlowPanel initialTicker={ticker} />;
       case "scan":
         return (
           <StockBaseScanner

@@ -17,6 +17,9 @@ import { useStrategyStore } from "@/stores/useStrategyStore";
 import { strategyOverlays } from "@/lib/strategy/overlay";
 import type { CompareSeries, OHLCV } from "@/types/trading";
 import { invalidateCanvasLayers } from "@/lib/chart/canvasLayer";
+import { useSetupJournal } from "@/stores/useSetupJournal";
+import { setupOverlays } from "@/lib/screener/setupJournal";
+import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
 
 /** Cell id the active chart paints under (see `bindCellContext`). */
 export const PRIMARY_CELL = "primary";
@@ -60,6 +63,12 @@ export function useOverlays(chart: Vela | null) {
   const symbol = useChartStore((s) => s.symbol);
   const timeframe = useChartStore((s) => s.timeframe);
   const epoch = useChartStore((s) => s.feedEpoch);
+  const setup = useSetupJournal(state => state.records.find(row => row.id === state.chartId));
+  const replay = useWorkspaceStore(state => state.replay.active);
+  useEffect(() => {
+    if (chart && setup?.symbol === symbol && !replay) setOverlay(PRIMARY_CELL, "setup", setupOverlays(setup));
+    return () => setOverlay(PRIMARY_CELL, "setup", []);
+  }, [chart, setup, symbol, replay]);
   useEffect(() => {
     if (!chart) return;
     let disposed = false;

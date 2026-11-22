@@ -10,6 +10,7 @@ import { useScreenerStore } from "@/stores/useScreenerStore";
 import { useServerStore } from "@/stores/useServerStore";
 import { useStrategyStore } from "@/stores/useStrategyStore";
 import { useWatchlistStore } from "@/stores/useWatchlistStore";
+import { useSetupJournal } from "@/stores/useSetupJournal";
 import { parseLinkMessage, type WorkspaceLinkAction } from "@/lib/windowLink";
 import { receiveLinkedCrosshair, subscribeLinkedCrosshair } from "@/lib/chart/crosshairLink";
 import type { CrosshairPoint } from "@/types/trading";
@@ -42,6 +43,7 @@ const SHARED: Record<string, { persist: { rehydrate: () => Promise<void> | void 
   "affentrader-server-v1": useServerStore,
   "affentrader-strategy-v1": useStrategyStore,
   "affentrader-watchlists-v1": useWatchlistStore,
+  "affentrader-setups-v1": useSetupJournal,
 };
 
 /**

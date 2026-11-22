@@ -3,6 +3,9 @@ import { parseOrderTokens } from "./orders";
 
 export type TerminalView =
   | "opps"
+  | "journal"
+  | "insiders"
+  | "optionsflow"
   | "fa"
   | "scan"
   | "markets"
@@ -82,6 +85,12 @@ export function parseTerminalCommand(raw: string, currentTicker = "AAPL"): Parse
       case "ORDER":
       case "TRADE":
         return { kind: "view", view: "opps" };
+      case "JOURNAL":
+        return { kind: "view", view: "journal" };
+      case "INSIDER":
+        return { kind: "view", view: "insiders" };
+      case "OPTIONSFLOW":
+        return { kind: "view", view: "optionsflow" };
       case "SCAN":
       case "BASES":
         return { kind: "view", view: "scan" };
@@ -165,7 +174,7 @@ export function parseTerminalCommand(raw: string, currentTicker = "AAPL"): Parse
     }
 
     // General two-token commands: `<TICKER> <ACTION>` or `<ACTION> <TICKER>`
-    const actionTokens = ["FA", "VALUE", "FUNDAMENTALS", "CAPM", "BETA", "GP", "CHART", "FLOW", "FOOTPRINT", "ORDERFLOW", "NEWS", "OPPS", "SCAN"];
+    const actionTokens = ["FA", "VALUE", "FUNDAMENTALS", "CAPM", "BETA", "GP", "CHART", "FLOW", "FOOTPRINT", "ORDERFLOW", "NEWS", "OPPS", "SCAN", "INSIDER", "OPTIONSFLOW"];
     const actionFirst = actionTokens.includes(first) && isYahooTicker(second) && !/^\d+$/.test(second);
     const actionSecond = actionTokens.includes(second) && isYahooTicker(first) && !/^\d+$/.test(first);
 
@@ -183,6 +192,10 @@ export function parseTerminalCommand(raw: string, currentTicker = "AAPL"): Parse
         case "VALUE":
         case "FUNDAMENTALS":
           return { kind: "view", view: "fa", ticker };
+        case "INSIDER":
+          return { kind: "view", view: "insiders", ticker };
+        case "OPTIONSFLOW":
+          return { kind: "view", view: "optionsflow", ticker };
         case "CAPM":
         case "BETA":
           return { kind: "capm", ticker };

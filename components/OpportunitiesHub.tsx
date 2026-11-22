@@ -26,6 +26,8 @@ import { useWatchlistStore } from "@/stores/useWatchlistStore";
 import { hyperliquidCatalog } from "@/hooks/useHyperliquidCatalog";
 import { buildMissingOrderflowIndicators, resolveOrderflowTarget } from "@/lib/orderflow/equityOrderflow";
 import { broadcastWorkspaceAction } from "@/hooks/useWindowLink";
+import { useSetupJournal } from "@/stores/useSetupJournal";
+import { setupRecordId } from "@/lib/screener/setupJournal";
 
 const pct = (n: number | null | undefined) => (Number.isFinite(n) ? `${n! >= 0 ? "+" : ""}${n!.toFixed(1)}%` : "—");
 const distPct = (target: number, current: number) =>
@@ -250,7 +252,7 @@ export function OpportunitiesHub({
       if (entryFilter !== "all" && opportunityEntryState(item.levels) !== entryFilter) return false;
       if (minReward > 0 && (opportunityPlan(item.levels)?.reward ?? 0) < minReward) return false;
       if (maxEntryDistance > 0 && (opportunityEntryDistance(item.levels) ?? Infinity) > maxEntryDistance) return false;
-      if (requireFilings && !item.fundamentals?.recentInsiderFilings?.length) return false;
+      if (requireFilings && !item.fundamentals?.recentInsiderFilings?.some(filing => filing.sourceUrl && filing.filedAt && filing.filedAt <= item.session)) return false;
       if (categoryFilter !== "all" && item.category !== categoryFilter) return false;
       if (subTypeFilter !== "all" && item.subType !== subTypeFilter) return false;
       if (item.score < minScore) return false;
@@ -307,6 +309,12 @@ export function OpportunitiesHub({
   const benchmarkTicker = STOCK_BASE_MARKETS.find(m => m.id === (result?.market ?? market))?.benchmark;
 
   const plan = selected && opportunityPlan(selected.levels);
+  const disclosedFilings = selected?.fundamentals?.recentInsiderFilings?.filter(filing => filing.sourceUrl && filing.filedAt && filing.filedAt <= selected.session) ?? [];
+  const activeSetupId = selected ? setupRecordId(selected) : null;
+  const tracked = useSetupJournal(state => state.records.some(row => row.id === activeSetupId && row.tracked));
+  useEffect(() => {
+    if (result) useSetupJournal.getState().record(result.opportunities, result.generatedAt);
+  }, [result]);
   const size = plan && riskBudget.trim() ? opportunityShareSize(plan, Number(riskBudget)) : null;
   const setupState = selected ? opportunityEntryState(selected.levels) : "invalid";
   const canPrepare = !!plan && setupState !== "invalid" && setupState !== "target" &&
@@ -395,6 +403,7 @@ export function OpportunitiesHub({
             <strong>{filtered.length} von {result.opportunities.length} Setups</strong> · {result.evaluated}/{result.totalUniverse ?? result.universe} Aktien ausgewertet
             {(result.pages ?? 1) > 1 && <> · <span>Gruppe {(result.page ?? 0) + 1} von {result.pages}</span></>}
             <span className="opportunity-data-date"> · {result.benchmark} bis {result.benchmarkSession} · Tagesdaten</span>
+            <span className="opportunity-data-date"> · Scan {new Date(result.generatedAt).toLocaleString("de-DE")}</span>
           </> : loading ? "Erste Gruppe wird geprüft…" : "Long-Setups auf abgeschlossenen Tageskerzen"}
           {loading && result && " · Weitere Gruppen werden geprüft…"}
           {stopped && " · Angehalten"}
@@ -468,6 +477,11 @@ export function OpportunitiesHub({
           {(setupState === "invalid" || setupState === "target") &&
             <p className="form-help">Ein Paper-Entwurf steht für aktive Setups mit gültigem Stop und Ziel zur Verfügung.</p>}
           <div className="screener-toolbar">
+            <button type="button" className="button small" disabled={!plan || tracked} onClick={() => {
+              const journal = useSetupJournal.getState();
+              journal.record([selected], result?.generatedAt ?? Date.now());
+              journal.track(setupRecordId(selected), true);
+            }}>{tracked ? "In Setup-Watchlist" : "In Setup-Watchlist übernehmen"}</button>
             <button
               type="button"
               className="button small primary"
@@ -666,9 +680,9 @@ export function OpportunitiesHub({
           </dl>
 
           <details className="opportunity-insider">
-            <summary>Insider-Meldungen {selected.fundamentals?.recentInsiderFilings?.length ? `· ${selected.fundamentals.recentInsiderFilings.length}` : ""}</summary>
-            {selected.fundamentals?.recentInsiderFilings?.length ? <ul>
-              {selected.fundamentals.recentInsiderFilings.map((filing, index) => <li key={`${filing.date}-${filing.insider}-${index}`}>
+            <summary>Verifizierte Insider-Meldungen {disclosedFilings.length ? `· ${disclosedFilings.length}` : ""}</summary>
+            {disclosedFilings.length ? <ul>
+              {disclosedFilings.map((filing, index) => <li key={`${filing.date}-${filing.insider}-${index}`}>
                 <strong>{filing.date} · {filing.insider}</strong><small>{filing.role} · {filing.form} · {filing.shares.toLocaleString("de-DE")} Aktien · {formatPrice(filing.valueUsd)} USD</small>
               </li>)}
             </ul> : <p className="form-help">Für dieses Setup liegen im Scan keine einzelnen Insider-Meldungen vor.</p>}

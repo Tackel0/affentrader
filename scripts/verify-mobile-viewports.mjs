@@ -22,6 +22,9 @@ const COMPACT_NAV_VIEWPORTS = [
 
 const TERMINAL_VIEW_TABS = [
   { key: "OPPS", label: "Trade-Möglichkeiten" },
+  { key: "JOURNAL", label: "Setup-Journal", content: '[aria-label="Setup-Watchlist und Historie"]' },
+  { key: "INSIDER", label: "Insider", content: '[aria-label="Insider-Recherche"]' },
+  { key: "OPTIONSFLOW", label: "Optionsflow", content: '[aria-label="Optionsflow"]' },
   { key: "FA", label: "Fundamentals (FA)" },
   { key: "SCAN", label: "Stock bases" },
   { key: "MARKETS", label: "Markets" },
@@ -1774,7 +1777,12 @@ async function run() {
           await cdp.send("Input.insertText", { text: "25" });
           await waitForPagePredicate(cdp, `document.querySelector(".opportunity-risk")?.textContent.includes("2 Aktien")`, "the planned risk rounds down to two whole shares");
           recordAudit(vp, "/terminal(OPPS risk)", await inspectViewportDom(cdp, true));
+          await cdp.send("Runtime.evaluate", {
+            expression: '[...document.querySelectorAll(".opportunity-workspace button")].find(button => button.textContent.trim() === "In Setup-Watchlist übernehmen")?.click()',
+          });
         }
+        if (vp.width === 390 && mod.key === "JOURNAL" && !opts.liveApis)
+          await waitForPagePredicate(cdp, `!!document.querySelector('.terminal-research-card a[href^="/?setup="]')`, "the saved setup is available with a main-chart link");
       }
     }
 

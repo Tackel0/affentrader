@@ -6,6 +6,15 @@ This document is the single self-contained architectural, operational, and itera
 
 ## 1. Completed Modules & Current Status
 
+### Research cycle 2026-11-22
+
+- Options flow from Alpaca OPRA appears in `OptionsFlowPanel` and eligible watchlist rows. `useOptionsFlow` polls visible symbols in batches of eight, caches across scrolling, and pauses in background tabs. `summarizeOptionsFlow` uses trade premium and an earlier unlocked quote within five seconds. The bias requires at least three classified prints and 60% of classified premium in one direction. The display reports sample time and coverage. Live OPRA access requires the user's Alpaca entitlement.
+- Insider research separates transaction date from publication date and links to SEC EDGAR. `fetchSecEdgarForm4Summary` attaches filing provenance. `detectHighConvictionOpportunities` uses disclosed SEC purchases and a provider-sourced earnings date for catalyst checks. Scan results show the completed market session and generation time.
+- `useSetupJournal` keeps original levels by symbol, setup and session. `SetupResearch` ranks entry proximity, saves one-shot browser alerts and opens entry, stop and targets in the primary chart. `BrowserRuleEngine` uses fresh exchange quotes, and `recordFiring` disarms a pending entry when the paired stop fires. The history endpoint reconstructs technical setups from daily prefixes and labels outcomes with unknown intraday ordering. Observed and reconstructed signals carry distinct labels.
+- Strategy Tester adds original ATR pullback and volatility contraction Pine templates. `presetBenchmark` reuses the strategy worker and common history, costs and slippage. It retains summary metrics for the ranking.
+- Regression coverage exercises OPRA trade classification, recorded levels, historical outcomes, quote provenance, one-shot alerts, terminal commands, catalyst evidence, SEC parsing and Pine execution. The mobile audit opens the new tabs and checks scan-to-journal transfer at 390px. The workspace network blocked direct SEC and Alpaca probes. Provider parsing and failure behavior were checked with fixtures.
+- Local release gate passed Next.js type generation, TypeScript, 2,825 tests in 284 files, the production build, Chrome E2E and the mobile viewport audit. The audit checked 3,239 mobile controls with a maximum document overflow ratio of 1.00.
+
 ### A. AffenTerminal Pro GUI, Command Bar & Multi-Pane Workspace (`components/ResearchTerminal.tsx`, `components/AffenTerminalWindow.tsx`, `app/terminal/page.tsx`, `lib/terminal/commands.ts`, `lib/terminal/orders.ts`, `lib/terminal/workspace.ts`)
 - **Standalone External Window (`/terminal`) & Institutional Dark Theme:**
   - Launchable via the toolbar **`AffenTerminal ↗`** button, File menu, or the terminal's **`Pop-out ↗`** button (`openAffenTerminalWindow()` in `lib/windowScope.ts`), automatically isolated into the `"affen-terminal"` storage scope (`popoutId()` in `lib/windowScope.ts`) for `/terminal` and `/terminal/*` routes so `useChartStore` never collides with the main `"Chart Workspace"` tab.

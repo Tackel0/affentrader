@@ -1,20 +1,9 @@
 import type { TerminalView } from "@/lib/terminal/commands";
+import { TERMINAL_MODULES } from "@/lib/terminal/workspace";
 import { AffenTerminalWindow } from "@/components/AffenTerminalWindow";
 import { DeploymentDate } from "../DeploymentDate";
 
-const VALID_VIEWS = new Set<TerminalView>([
-  "opps",
-  "fa",
-  "scan",
-  "markets",
-  "compare",
-  "capm",
-  "macro",
-  "news",
-  "heatmap",
-  "osint",
-  "help",
-]);
+const VALID_VIEWS = new Set(TERMINAL_MODULES.map(module => module.id));
 
 export default async function TerminalPage({ searchParams }: PageProps<"/terminal">) {
   const { view, ticker } = await searchParams;

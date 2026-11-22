@@ -125,7 +125,14 @@ export class BrowserRuleEngine {
     if (!current || current.status !== "active" || scopeStopped(current, symbol)) return;
     rule = current;
     const key = `${rule.id}:${symbol}`, now = this.now();
-    const step = stepRule(rule, symbol, this.states.get(key), this.resolve, now, closedThrough);
+    let previous = this.states.get(key);
+    if (rule.exchangeOnly) {
+      const quote = this.deps.quote(symbol);
+      if (!quote || quote.simulated !== false || typeof quote.time !== "number" || !Number.isFinite(quote.time) ||
+        quote.time < rule.createdAt || quote.time < now - 30 * 60_000 || quote.time > now + 60_000) return;
+      previous = { met: false, firedAt: 0, ...previous, initialized: true };
+    }
+    const step = stepRule(rule, symbol, previous, this.resolve, now, closedThrough);
     this.states.set(key, step.state);
     if (!step.fire || !step.evaluation) return;
     if (oneShot(rule)) this.completed.add(key);
@@ -161,10 +168,10 @@ export class BrowserRuleEngine {
     const active = new Set(rules.filter(rule => rule.status === "active" && !rule.serverSide && !isPineRule(rule)).map(rule => rule.id));
     for (const id of this.signatures.keys()) if (!active.has(id)) this.reset(id);
     for (const rule of rules.filter(rule => rule.status === "active" && !rule.serverSide && !isPineRule(rule))) {
-      const signature = JSON.stringify([rule.condition, rule.scope, rule.frequency, rule.repeat, rule.cooldownMs, rule.trigger, rule.expiresAt, rule.rate?.resetAt]);
+      const signature = JSON.stringify([rule.condition, rule.scope, rule.frequency, rule.repeat, rule.cooldownMs, rule.trigger, rule.expiresAt, rule.exchangeOnly, rule.rate?.resetAt]);
       if (this.signatures.get(rule.id) !== signature) {
         const before = this.definitions.get(rule.id);
-        const definition = (value: AlertRule) => JSON.stringify([value.condition, value.scope, value.frequency, value.repeat, value.cooldownMs, value.trigger, value.expiresAt]);
+        const definition = (value: AlertRule) => JSON.stringify([value.condition, value.scope, value.frequency, value.repeat, value.cooldownMs, value.trigger, value.expiresAt, value.exchangeOnly]);
         if (before && rule.rate?.resetSymbols?.length && before.rate?.resetAt !== rule.rate.resetAt && definition(before) === definition(rule)) {
           for (const symbol of rule.rate.resetSymbols) { this.states.delete(`${rule.id}:${symbol}`); this.completed.delete(`${rule.id}:${symbol}`); }
           this.indexedRules = undefined;
@@ -178,6 +185,7 @@ export class BrowserRuleEngine {
         this.signatures.set(rule.id, signature);
         this.definitions.set(rule.id, rule);
       }
+      if (rule.exchangeOnly) continue;
       for (const symbol of this.symbolsOf(rule)) {
         if (scopeStopped(rule, symbol)) continue;
         const key = `${rule.id}:${symbol}`;

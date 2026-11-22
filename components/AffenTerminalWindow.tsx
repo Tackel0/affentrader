@@ -13,6 +13,7 @@ import { resolveOrderTargetSymbol } from "@/lib/terminal/orders";
 import { scopedName } from "@/lib/windowScope";
 import { ResearchTerminal } from "./ResearchTerminal";
 import { ModuleErrorBoundary } from "./ModuleErrorBoundary";
+import { MarketConnections } from "./MarketConnections";
 
 function AffenUtcClock() {
   const [clock, setClock] = useState("");
@@ -211,6 +212,7 @@ export function AffenTerminalWindow({
       ) : null}
 
       <main className="affen-window-body">
+        <MarketConnections />
         <ModuleErrorBoundary moduleName="AffenTerminal">
           <ResearchTerminal
             externalWindow

@@ -249,10 +249,16 @@ describe("Multi-Strategy Trade-Möglichkeiten Engine", () => {
     peadBars[75].open = 104.5; // +4.5% gap open, +6.5% close
     const peadBench = peadBars.map(b => ({ ...b, close: 100, open: 100, high: 101, low: 99 }));
 
-    const insiderFundamentals = resolveFundamentalSnapshot("ADBE", 106.8, "USD", "Adobe Inc.");
+    const baseline = resolveFundamentalSnapshot("ADBE", 106.8, "USD", "Adobe Inc.");
+    const filing = { date: peadBars[73].session, filedAt: peadBars[74].session, insider: "Fixture Director", role: "Director", shares: 4000, price: 100, valueUsd: 400_000, form: "4", sourceUrl: "https://www.sec.gov/Archives/edgar/data/796343/000079634326000001/0000796343-26-000001-index.htm" };
+    const insiderFundamentals = { ...baseline, recentInsiderFilings: [filing], verifiedEarningsSession: peadBars[75].session };
     const catCOpps = detectHighConvictionOpportunities(peadBars, peadBench, meta, insiderFundamentals);
     expect(catCOpps.some(o => o.subType === "insider-cluster")).toBe(true);
     expect(catCOpps.some(o => o.subType === "earnings-drift")).toBe(true);
+    const unconfirmed = detectHighConvictionOpportunities(peadBars, peadBench, meta, baseline);
+    expect(unconfirmed.some(o => o.subType === "insider-cluster" || o.subType === "earnings-drift")).toBe(false);
+    const future = detectHighConvictionOpportunities(peadBars, peadBench, meta, { ...baseline, recentInsiderFilings: [{ ...filing, filedAt: "2099-01-01" }] });
+    expect(future.some(o => o.subType === "insider-cluster")).toBe(false);
   });
 
   it("exports opportunities to CSV and escapes formula-injection strings", () => {

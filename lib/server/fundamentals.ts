@@ -776,7 +776,13 @@ export async function fetchSecEdgarForm4Summary(
               okCount++;
               const buys = parseForm4Xml(xml, item.date, `SEC Form ${item.form}`);
               if (buys.length > 0) {
-                parsedFilings.push(...buys);
+                parsedFilings.push(...buys.map(buy => ({
+                  ...buy,
+                  filedAt: item.date,
+                  ...(/^\d{10}-\d{2}-\d{6}$/.test(item.accession)
+                    ? { sourceUrl: `https://www.sec.gov/Archives/edgar/data/${Number(cik)}/${item.accession.replace(/-/g, "")}/${item.accession}-index.htm` }
+                    : {}),
+                })));
                 if (stopAfterBuys && parsedFilings.length >= stopAfterBuys) {
                   shouldStop = true;
                 }
@@ -1060,6 +1066,7 @@ export function resolveFundamentalSnapshot(
     recentInsiderFilings,
     earningsSurprisePct: yp?.earningsSurprisePct ?? base?.earningsSurprisePct ?? null,
     lastEarningsDate: yp?.lastEarningsDate ?? base?.lastEarningsDate ?? null,
+    ...(yp?.lastEarningsDate ? { verifiedEarningsSession: yp.lastEarningsDate } : {}),
     dataSources,
     source,
   };

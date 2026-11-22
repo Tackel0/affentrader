@@ -15,6 +15,9 @@ export type OpportunitySubType =
 
 export interface InsiderFilingSummary {
   date: string;
+  transactionDate?: string;
+  filedAt?: string;
+  sourceUrl?: string;
   insider: string;
   role: string;
   shares: number;
@@ -74,6 +77,7 @@ export interface FundamentalSnapshot {
   recentInsiderFilings: InsiderFilingSummary[];
   earningsSurprisePct: number | null;
   lastEarningsDate: string | null;
+  verifiedEarningsSession?: string;
   dataSources?: string[];
   source: "tradingview+sec+yahoo" | "yahoo+sec" | "curated-baseline";
 }
@@ -88,6 +92,7 @@ export interface OpportunityKeyLevels {
 }
 
 export function opportunityPlan(levels: OpportunityKeyLevels) {
+  if (!Array.isArray(levels?.entryZone) || levels.entryZone.length !== 2) return null;
   const [low, high] = levels.entryZone;
   const { invalidation: stop, target1 } = levels;
   if (![low, high, stop, target1].every(value => Number.isFinite(value) && value > 0) ||
@@ -101,7 +106,7 @@ export function opportunityPlan(levels: OpportunityKeyLevels) {
   return Number.isFinite(reward) && risk > 0 ? { entry, stop, target1, target2, risk, reward } : null;
 }
 
-export function opportunityEntryState(levels: OpportunityKeyLevels) {
+export function opportunityEntryState(levels: OpportunityKeyLevels): "invalid" | "target" | "zone" | "below" | "above" {
   if (!opportunityPlan(levels) || !Number.isFinite(levels.lastClose) || levels.lastClose <= levels.invalidation) return "invalid";
   if (levels.lastClose >= levels.target1) return "target";
   if (levels.lastClose < levels.entryZone[0]) return "below";
@@ -856,10 +861,14 @@ export function detectHighConvictionOpportunities(
     });
   }
 
+  // Only filings already published by the signal session qualify as a catalyst.
+  const disclosedBuys = fundamentals?.recentInsiderFilings?.filter(filing =>
+    filing.sourceUrl && filing.filedAt && filing.filedAt <= current.session && filing.shares > 0) ?? [];
+  const disclosedValue = disclosedBuys.reduce((sum, filing) => sum + filing.valueUsd, 0);
   // --- C2: Insider-Cluster & Institutional Accumulation ---
   if (
     fundamentals &&
-    (fundamentals.insiderBuys90d >= 2 || fundamentals.insiderNetValueUsd >= 250_000) &&
+    (disclosedBuys.length >= 2 || disclosedValue >= 250_000) &&
     current.close >= tech.ema20 * 0.985 &&
     (tech.upDownVolumeRatio >= 1.05 || tech.obvDivergence || tech.adDivergence)
   ) {
@@ -870,13 +879,13 @@ export function detectHighConvictionOpportunities(
     const target1 = round2(Math.max(current.close + 2.6 * unit, fundamentals.analystTarget ? Math.min(fundamentals.analystTarget, current.close * 1.15) : current.close + 2.6 * unit));
     const target2 = round2(Math.max(target1 + 2 * unit, fundamentals.fairValue ?? target1 * 1.08));
     const scoreBreakdown: Record<string, number> = {
-      "SEC Form 4 Insider-Cluster": clamp(fundamentals.insiderBuys90d * 9 + (fundamentals.insiderNetValueUsd >= 1_000_000 ? 10 : 5), 16, 32),
+      "SEC Form 4 Insider-Cluster": clamp(disclosedBuys.length * 9 + (disclosedValue >= 1_000_000 ? 10 : 5), 16, 32),
       "Institutionelle Akkumulation (OBV/Vol)": clamp(Math.round((tech.upDownVolumeRatio - 0.9) * 18 + (tech.obvDivergence ? 7 : 0)), 8, 22),
       "Technische Stabilisierung (EMA/VWAP)": (current.close >= tech.ema20 ? 10 : 5) + (current.close >= tech.vwap20 ? 8 : 4),
       "Relative Stärke & Bewertung": clamp(Math.round(Math.max(0, tech.relativeStrengthPct) * 2 + (fundamentals.fcfYieldPct && fundamentals.fcfYieldPct > 3 ? 6 : 2)), 6, 18),
     };
     const score = clamp(Math.round(Object.values(scoreBreakdown).reduce((a, b) => a + b, 0)), 60, 98);
-    const topFiling = fundamentals.recentInsiderFilings[0];
+    const topFiling = disclosedBuys[0];
 
     out.push({
       id: `${meta.symbol}:insider-cluster`,
@@ -893,7 +902,7 @@ export function detectHighConvictionOpportunities(
       score,
       scoreBreakdown,
       whySetup: [
-        `Insider-Cluster: ${fundamentals.insiderBuys90d} Insider-Käufe (90d) mit Netto-Volumen $${(fundamentals.insiderNetValueUsd / 1_000).toFixed(0)}k${topFiling ? ` (zuletzt ${topFiling.insider}, ${topFiling.role} am ${topFiling.date})` : ""}.`,
+        `Veröffentlichte SEC-Meldungen: ${disclosedBuys.length} Käufe mit Volumen $${(disclosedValue / 1_000).toFixed(0)}k${topFiling ? ` (zuletzt ${topFiling.insider}, ${topFiling.role} am ${topFiling.date})` : ""}.`,
         `Institutionelle Akkumulation: Aufwärts-/Abwärts-Volumen ${tech.upDownVolumeRatio.toFixed(2)}× · Kurs hält über 20d-VWAP (${tech.vwap20.toFixed(2)}) und EMA 20 (${tech.ema20.toFixed(2)}).`,
         `Kombination aus Smart-Money-Käufen und technischer Bodenbildung mit positivem Risk/Reward.`,
       ],
@@ -916,6 +925,7 @@ export function detectHighConvictionOpportunities(
     if (i < 21) continue;
     const prev = bars[i - 1];
     const eventBar = bars[i];
+    if (fundamentals?.verifiedEarningsSession !== eventBar.session && fundamentals?.verifiedEarningsSession !== prev.session) continue;
     const gapPct = ((eventBar.open - prev.close) / prev.close) * 100;
     const dayReturnPct = ((eventBar.close - prev.close) / prev.close) * 100;
     const baseVol = mean(bars.slice(i - 20, i).map(b => b.volume));
