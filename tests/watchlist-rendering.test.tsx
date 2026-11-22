@@ -4,11 +4,13 @@ import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { Watchlist } from "@/components/Watchlist";
 import { useQuoteRanges } from "@/hooks/useQuoteRanges";
+import { useOptionsFlow } from "@/hooks/useOptionsFlow";
 import { useChartStore } from "@/stores/useChartStore";
 import { useWatchlistStore } from "@/stores/useWatchlistStore";
 import type { Quote } from "@/types/trading";
 
 vi.mock("@/hooks/useQuoteRanges", () => ({ useQuoteRanges: vi.fn() }));
+vi.mock("@/hooks/useOptionsFlow", () => ({ useOptionsFlow: vi.fn(() => ({ enabled: false, sample: null })) }));
 vi.mock("@/components/TechnicalsCard", () => ({ TechnicalsCard: () => null }));
 
 function quote(symbol: string, price: number): Quote {
@@ -25,7 +27,18 @@ afterEach(() => {
   cleanup();
   useChartStore.setState(initialChart);
   useWatchlistStore.setState(initialWatchlist);
+  vi.mocked(useOptionsFlow).mockReturnValue({ enabled: false, sample: null });
   vi.clearAllMocks();
+});
+
+it("shows options directions and distinguishes stocks without classified samples", () => {
+  useWatchlistStore.setState({ activeId: "flow", lists: [{ id: "flow", name: "US Stocks", symbols: ["YF:AAPL", "YF:MSFT", "YF:NVDA"] }] });
+  const base = { asOf: Date.now(), newestTrade: Date.now() - 1000, classified: 3, contracts: 4, truncated: false, bullUnits: 0, bearUnits: 0, prints: [] };
+  vi.mocked(useOptionsFlow).mockReturnValue({ enabled: true, sample: { key: "fixture", unavailable: {}, result: {
+    AAPL: { ...base, ticker: "AAPL", bias: "bullish" }, MSFT: { ...base, ticker: "MSFT", bias: "bearish" },
+  } } });
+  const { container } = render(<Watchlist />);
+  expect([...container.querySelectorAll(".watch-flow")].map(badge => badge.textContent)).toEqual(["↑ Bullisch", "↓ Bärisch", "Flow —"]);
 });
 
 it("updates quote cells independently and renders the list again when the sorted order changes", () => {

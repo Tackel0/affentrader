@@ -95,6 +95,22 @@
 .sidebar-sheet-resizer { display: none; }
 .watchlist-instrument { display: flex; min-width: 0; align-items: center; gap: 4px; }
 .watchlist-instrument .watchlist-asset { flex: 1; }
+.watchlist-instrument .watchlist-asset .watch-flow[data-bias] {
+  display: inline-block;
+  color: var(--text);
+  background: var(--surface2);
+  border-radius: 3px;
+  padding-inline: 3px;
+  max-width: 100%;
+}
+.watchlist-instrument .watchlist-asset .watch-flow[data-bias="bullish"] {
+  color: var(--green);
+  background: color-mix(in srgb, var(--green) 12%, transparent);
+}
+.watchlist-instrument .watchlist-asset .watch-flow[data-bias="bearish"] {
+  color: var(--red);
+  background: color-mix(in srgb, var(--red) 12%, transparent);
+}
 .watchlist-flag { flex-shrink: 0; display: grid; place-items: center; padding: 0; width: 12px; height: 24px; }
 .watchlist-flag > .flag-dot { display: block; }
 .utility-rail :is(.compact-nav-only, .compact-nav-label) { display: none; }

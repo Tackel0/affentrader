@@ -21,9 +21,11 @@ import {
   Search,
   ArrowDownUp,
   Heading,
+  Activity,
 } from "lucide-react";
 import { useWatchlistStore } from "@/stores/useWatchlistStore";
 import { useChartStore } from "@/stores/useChartStore";
+import { useAlpacaStore } from "@/stores/useAlpacaStore";
 import { getSymbol, formatPrice, formatVolume, describeSymbol } from "@/lib/symbols";
 import { quotePriceLabel } from "@/lib/market/hyperliquidQuotes";
 import {
@@ -183,10 +185,11 @@ const SymbolRow = memo(function SymbolRow({
           <AssetBadge symbol={symbol} />
           <span>
             <strong>{asset.base}</strong>
-            <small title={optionsFlow ? `${optionsBiasLabels[optionsFlow.bias]} · OPRA-Momentaufnahme · ${new Date(optionsFlow.asOf).toLocaleString("de-DE")}` : optionsStatus}>
-              {optionsFlow?.bias === "bullish" ? <span className="positive">Flow ↑ Bull</span> :
-                optionsFlow?.bias === "bearish" ? <span className="negative">Flow ↓ Bär</span> :
-                optionsFlow?.bias === "balanced" ? "Flow gemischt" :
+            <small className={optionsStatus || optionsFlow ? "watch-flow" : undefined} data-bias={optionsFlow?.bias}
+              title={optionsFlow ? `${optionsBiasLabels[optionsFlow.bias]} · ${optionsFlow.classified} Ausführungen · OPRA · ${new Date(optionsFlow.asOf).toLocaleString("de-DE")}` : optionsStatus}>
+              {optionsFlow?.bias === "bullish" ? "↑ Bullisch" :
+                optionsFlow?.bias === "bearish" ? "↓ Bärisch" :
+                optionsFlow?.bias === "balanced" ? "↔ Gemischt" :
                 optionsStatus || optionsFlow ? "Flow —" : describeSymbol(symbol).quote}
             </small>
           </span>
@@ -537,6 +540,7 @@ export function Watchlist() {
   }, [matched, sort, flags]);
   const entries = useChartStore(useShallow(selectEntries));
   const count = active.symbols.filter((e) => !isSection(e)).length;
+  const flowEligible = useMemo(() => active.symbols.some(entry => optionsFlowTicker(entry)), [active.symbols]);
   const viewHeight = Math.min(entries.length * rowHeight, MAX_VIEW);
   const first = Math.max(0, Math.floor(scroll / rowHeight) - 4);
   const last = Math.min(entries.length, Math.ceil((scroll + viewHeight) / rowHeight) + 4);
@@ -609,6 +613,9 @@ export function Watchlist() {
           ) : null}
         </div>
         <div className="flex items-center">
+          {flowEligible && !flow.enabled && <IconButton label="Optionsflow verbinden" onClick={() => useAlpacaStore.setState({ open: true })}>
+            <Activity size={16} />
+          </IconButton>}
           <IconButton
             label="Add symbol"
             onClick={() => useChartStore.getState().set({ searchOpen: true, searchTarget: "watchlist" })}
