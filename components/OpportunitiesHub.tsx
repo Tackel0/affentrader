@@ -7,7 +7,11 @@ import {
   opportunityEntryDistance,
   opportunityEntryState,
   opportunityPlan,
+  opportunityReadiness,
   opportunityShareSize,
+  rankOpportunities,
+  setupReadinessLabels,
+  MIN_SETUP_REWARD,
   SUBTYPE_LABELS,
   type FundamentalSnapshot,
   type OpportunityCategory,
@@ -139,7 +143,7 @@ export function OpportunitiesHub({
   const [categoryFilter, setCategoryFilter] = useState<"all" | OpportunityCategory>("all");
   const [subTypeFilter, setSubTypeFilter] = useState<"all" | OpportunitySubType>("all");
   const [minScore, setMinScore] = useState(55);
-  const [sortBy, setSortBy] = useState<"score" | "rr" | "rs" | "upside" | "entry">("score");
+  const [sortBy, setSortBy] = useState<"readiness" | "score" | "rr" | "rs" | "upside" | "entry">("readiness");
   const [result, setResult] = useState<OpportunityScanResult | null>(null);
   const [query, setQuery] = useState("");
   const [entryFilter, setEntryFilter] = useState("all");
@@ -259,6 +263,7 @@ export function OpportunitiesHub({
       return true;
     });
     return [...list].sort((a, b) => {
+      if (sortBy === "readiness") return rankOpportunities(a, b);
       const rrA = opportunityPlan(a.levels)?.reward ?? -Infinity;
       const rrB = opportunityPlan(b.levels)?.reward ?? -Infinity;
       if (sortBy === "entry") return (opportunityEntryDistance(a.levels) ?? Infinity) - (opportunityEntryDistance(b.levels) ?? Infinity) || b.score - a.score;
@@ -316,8 +321,8 @@ export function OpportunitiesHub({
     if (result) useSetupJournal.getState().record(result.opportunities, result.generatedAt);
   }, [result]);
   const size = plan && riskBudget.trim() ? opportunityShareSize(plan, Number(riskBudget)) : null;
-  const setupState = selected ? opportunityEntryState(selected.levels) : "invalid";
-  const canPrepare = !!plan && setupState !== "invalid" && setupState !== "target" &&
+  const readiness = selected && opportunityReadiness(selected.levels);
+  const canPrepare = !!plan && !!readiness?.canPrepare &&
     scanKey === currentKey && (!riskBudget.trim() || size !== null);
   const stateLabels = {
     zone: "In Einstiegszone",
@@ -363,6 +368,7 @@ export function OpportunitiesHub({
             {Object.entries(stateLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
           </select></label>
           <label>Sortieren<select value={sortBy} onChange={event => setSortBy(event.target.value as typeof sortBy)}>
+            <option value="readiness">Einstiegsreife</option>
             <option value="score">Setup-Score</option><option value="rr">CRV am Einstieg</option>
             <option value="rs">Relative Stärke</option><option value="entry">Nähe zum Einstieg</option><option value="upside">Abstand zu Ziel 1</option>
           </select></label>
@@ -426,13 +432,13 @@ export function OpportunitiesHub({
             <thead><tr><th scope="col">Aktie &amp; Setup</th><th scope="col">Kurslage</th><th scope="col">Score</th><th scope="col">CRV</th><th scope="col" className="opportunity-wide-cell">RS</th></tr></thead>
             <tbody>{pageRows.map(row => {
               const isSelected = selected?.id === row.id;
-              const state = opportunityEntryState(row.levels);
+              const { status } = opportunityReadiness(row.levels);
               return <tr key={row.id} className={isSelected ? "selected-row" : undefined} onClick={() => selectRow(row)}>
                 <td><button type="button" className="button opportunity-row-button" aria-pressed={isSelected} aria-label={`${row.ticker} · ${row.setupLabel}`}
                   onClick={event => { event.stopPropagation(); selectRow(row); }} title={`${row.name} · ${row.sector}`}>
                   <strong>{row.ticker}</strong><small>{row.setupLabel}</small>
                 </button></td>
-                <td><span className={`opportunity-entry-state ${state === "zone" ? "positive" : state === "invalid" ? "negative" : ""}`}>{stateLabels[state]}</span><small className="mono">{formatPrice(row.levels.lastClose)} {row.currency}</small></td>
+                <td><span className={`opportunity-entry-state ${status === "ready" ? "positive" : status === "invalid" ? "negative" : ""}`}>{setupReadinessLabels[status]}</span><small className="mono">{formatPrice(row.levels.lastClose)} {row.currency}</small></td>
                 <td className="mono">{row.score}</td>
                 <td className="mono">{fixed(opportunityPlan(row.levels)?.reward, 1)} R</td>
                 <td className="mono opportunity-wide-cell">{pct(row.technicals.relativeStrengthPct)}</td>
@@ -458,7 +464,7 @@ export function OpportunitiesHub({
           }}>Zur Trefferliste</button>
           <header className="opportunity-detail-heading">
             <div><h3>{selected.ticker} <span>{selected.name}</span></h3><p>{selected.setupLabel} · {categoryLabel(selected.category)}</p>
-              <p>Schluss {formatPrice(selected.levels.lastClose)} {selected.currency} · {stateLabels[setupState]}</p></div>
+              <p>Schluss {formatPrice(selected.levels.lastClose)} {selected.currency} · {readiness && setupReadinessLabels[readiness.status]}</p></div>
             <div><strong>{selected.score}/100</strong><small>{selected.session} · Long</small></div>
           </header>
           {plan && <section className="opportunity-risk" aria-label="Risikoplan">
@@ -468,14 +474,17 @@ export function OpportunitiesHub({
               <div><dt>Ziel 1 / Ziel 2</dt><dd className="mono positive">{formatPrice(plan.target1)} / {formatPrice(plan.target2)}</dd></div>
               <div><dt>CRV bis Ziel 1</dt><dd className="mono">{fixed(plan.reward, 2)} R</dd></div>
             </dl>
+            {readiness && readiness.edgeReward !== null && <p className="form-help">
+              CRV am oberen Zonenrand {fixed(readiness.edgeReward, 2)} R
+              {readiness.edgeReward < MIN_SETUP_REWARD && <> · Für {MIN_SETUP_REWARD} R höchstens {formatPrice(readiness.maxEntry!)} {selected.currency}</>}
+            </p>}
             <label>Risikobudget ({selected.currency})<input type="number" inputMode="decimal" min="0" step="any" placeholder="Optional" value={riskBudget}
               onChange={event => setRiskBudget(event.target.value)} /></label>
             {size && <p role="status"><strong>{size.quantity} Aktien</strong> · Einsatz {formatPrice(size.capital)} · Stop-Risiko {formatPrice(size.risk)} {selected.currency}</p>}
             {riskBudget.trim() && !size && <p className="form-help" role="status">Das Budget muss das Stop-Risiko mindestens einer Aktie abdecken.</p>}
             <p className="form-help">Bruttorechnung zum Limit. Gebühren, Slippage und Kurslücken können den tatsächlichen Verlust verändern.</p>
           </section>}
-          {(setupState === "invalid" || setupState === "target") &&
-            <p className="form-help">Ein Paper-Entwurf steht für aktive Setups mit gültigem Stop und Ziel zur Verfügung.</p>}
+          {readiness && !readiness.canPrepare && <p className="form-help">Paper-Entwurf pausiert · {setupReadinessLabels[readiness.status]}.</p>}
           <div className="screener-toolbar">
             <button type="button" className="button small" disabled={!plan || tracked} onClick={() => {
               const journal = useSetupJournal.getState();

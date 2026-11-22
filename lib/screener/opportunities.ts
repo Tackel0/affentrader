@@ -78,6 +78,7 @@ export interface FundamentalSnapshot {
   earningsSurprisePct: number | null;
   lastEarningsDate: string | null;
   verifiedEarningsSession?: string;
+  valuationEvidence?: Pick<FundamentalSnapshot, "forwardPe" | "evToEbitda" | "pegRatio" | "fcfYieldPct" | "netDebtToEbitda" | "operatingMarginPct" | "analystTarget">;
   dataSources?: string[];
   source: "tradingview+sec+yahoo" | "yahoo+sec" | "curated-baseline";
 }
@@ -89,6 +90,7 @@ export interface OpportunityKeyLevels {
   target1: number;
   target2: number;
   riskReward: number;
+  entryTrigger?: number;
 }
 
 export function opportunityPlan(levels: OpportunityKeyLevels) {
@@ -107,7 +109,11 @@ export function opportunityPlan(levels: OpportunityKeyLevels) {
 }
 
 export function opportunityEntryState(levels: OpportunityKeyLevels): "invalid" | "target" | "zone" | "below" | "above" {
-  if (!opportunityPlan(levels) || !Number.isFinite(levels.lastClose) || levels.lastClose <= levels.invalidation) return "invalid";
+  return entryState(levels, opportunityPlan(levels));
+}
+
+function entryState(levels: OpportunityKeyLevels, plan: ReturnType<typeof opportunityPlan>) {
+  if (!plan || !Number.isFinite(levels.lastClose) || levels.lastClose <= plan.stop) return "invalid";
   if (levels.lastClose >= levels.target1) return "target";
   if (levels.lastClose < levels.entryZone[0]) return "below";
   return levels.lastClose > levels.entryZone[1] ? "above" : "zone";
@@ -117,6 +123,34 @@ export function opportunityEntryDistance(levels: OpportunityKeyLevels) {
   const { lastClose, entryZone: [low, high] } = levels;
   if (![lastClose, low, high].every(value => Number.isFinite(value) && value > 0) || low > high) return null;
   return Math.max(0, low - lastClose, lastClose - high) / lastClose * 100;
+}
+
+export const MIN_SETUP_REWARD = 1.5;
+export const setupReadinessLabels = {
+  ready: "In Einstiegszone", pullback: "Rücklauf abwarten", trigger: "Ausbruch abwarten",
+  below: "Zone unterschritten", weak: "CRV zu gering", target: "Kurs am Ziel", invalid: "Invalidiert",
+} as const;
+
+export function opportunityReadiness(levels: OpportunityKeyLevels) {
+  const plan = opportunityPlan(levels);
+  const state = entryState(levels, plan);
+  if (!plan || state === "invalid" || state === "target") return { status: state === "target" ? "target" as const : "invalid" as const, maxEntry: null, edgeReward: null, canPrepare: false };
+  const [low, high] = levels.entryZone;
+  const maxEntry = plan.stop + (plan.target1 - plan.stop) / (1 + MIN_SETUP_REWARD);
+  const edgeReward = (plan.target1 - high) / (high - plan.stop);
+  const canPrepare = plan.reward >= MIN_SETUP_REWARD && state !== "below";
+  const status = plan.reward < MIN_SETUP_REWARD ? "weak" : state === "below"
+    ? levels.entryTrigger === low ? "trigger" : "below"
+    : state === "above" || levels.lastClose > maxEntry ? "pullback" : "ready";
+  return { status, maxEntry, edgeReward, canPrepare } as const;
+}
+
+const opportunityPriority = { ready: 0, pullback: 1, trigger: 2, below: 3, weak: 4, target: 5, invalid: 6 } as const;
+export function rankOpportunities(a: TradeOpportunity, b: TradeOpportunity) {
+  const first = opportunityReadiness(a.levels), second = opportunityReadiness(b.levels);
+  return opportunityPriority[first.status] - opportunityPriority[second.status] ||
+    (opportunityEntryDistance(a.levels) ?? Infinity) - (opportunityEntryDistance(b.levels) ?? Infinity) ||
+    b.score - a.score || (second.edgeReward ?? 0) - (first.edgeReward ?? 0) || a.ticker.localeCompare(b.ticker);
 }
 
 export function opportunityShareSize(plan: Pick<NonNullable<ReturnType<typeof opportunityPlan>>, "risk" | "entry">, budget: number) {
@@ -226,7 +260,7 @@ export const SUBTYPE_LABELS: Record<OpportunitySubType, string> = {
   "double-bottom": "Bestätigter Doppelboden + EMA/VWAP-Reclaim",
   "value-garp": "Unterbewertete Qualitätsaktie (Value & GARP)",
   "vcp-squeeze": "VCP & Bollinger-Squeeze vor Widerstand",
-  "insider-cluster": "Insider-Cluster & Institutionelle Akkumulation",
+  "insider-cluster": "Insider-Käufe & Technische Stabilisierung",
   "earnings-drift": "Earnings-Gap & Post-Earnings-Drift (PEAD)",
 };
 
@@ -572,15 +606,16 @@ export function detectStructuralBottomOpportunity(
       };
       const score = clamp(Math.round(Object.values(scoreBreakdown).reduce((a, b) => a + b, 0)), 50, 99);
 
-      const entryLow = round2(Math.max(secondLow, Math.min(current.close * 0.985, tech.ema20, tech.vwap20)));
-      const entryHigh = round2(Math.max(current.close, neckline * 1.002));
+      const support = Math.min(neckline, Math.max(secondLow, Math.min(tech.ema20, tech.vwap20)));
+      const entryLow = round2(Math.max(secondLow, support - 0.35 * unit));
+      const entryHigh = round2(Math.min(neckline, support + 0.35 * unit));
       const invalidation = round2(supportFloor);
       const measuredMove = neckline + (neckline - Math.min(firstLow, secondLow));
       const fib618 = Math.min(firstLow, secondLow) + 0.618 * (peakHigh - Math.min(firstLow, secondLow));
-      const target1 = round2(Math.max(measuredMove, fib618, current.close + 2.5 * unit));
-      const target2 = round2(Math.max(peakHigh, target1 + 2 * unit));
+      const target1 = round2(Math.min(measuredMove, fib618, peakHigh));
+      const target2 = round2(peakHigh);
       const lastClose = round2(current.close);
-      const entryZone: TradeOpportunity["levels"]["entryZone"] = [Math.min(entryLow, lastClose), Math.max(entryHigh, lastClose)];
+      const entryZone: TradeOpportunity["levels"]["entryZone"] = [entryLow, entryHigh];
       const entryMid = (entryZone[0] + entryZone[1]) / 2;
 
       const whySetup: string[] = [
@@ -629,7 +664,7 @@ export function detectStructuralBottomOpportunity(
         chart: bars.slice(-45).map(({ session, open, high, low, close, volume }) => ({ session, open, high, low, close, volume })),
       };
 
-      if (!best || candidate.score > best.score) best = candidate;
+      if (opportunityPlan(candidate.levels) && (!best || rankOpportunities(candidate, best) < 0)) best = candidate;
     }
   }
   return best;
@@ -638,7 +673,7 @@ export function detectStructuralBottomOpportunity(
 /**
  * Category B: Fundamentally Undervalued Quality Stocks (Value & GARP)
  * Combines valuation discount vs. sector median, healthy balance sheet, FCF yield,
- * stable/rising margins, positive EPS revisions, and analyst/fair-value upside with technical stability.
+ * reported margins and analyst upside with technical stability.
  */
 export function detectValueGarpOpportunity(
   bars: readonly DailyStockBar[],
@@ -646,42 +681,30 @@ export function detectValueGarpOpportunity(
   meta: { symbol: string; ticker: string; name: string; market: string; sector: string; currency: string },
   fundamentals: FundamentalSnapshot | null,
 ): TradeOpportunity | null {
-  if (!fundamentals || bars.length < 60 || benchmark.length < 20) return null;
+  if (!fundamentals?.valuationEvidence || bars.length < 60 || benchmark.length < 20) return null;
   const tech = buildOpportunityTechnicals(bars, benchmark);
   if (!tech) return null;
 
   const current = bars.at(-1)!;
   const unit = atr(bars, 14).at(-1) ?? current.close * 0.02;
 
-  const {
-    forwardPe,
-    sectorMedianPe,
-    historicalMedianPe,
-    peVsHistoryPct,
-    evToEbitda,
-    sectorMedianEvEbitda,
-    fcfYieldPct,
-    pegRatio,
-    netDebtToEbitda,
-    operatingMarginPct,
-    epsRevisionPct,
-    analystTarget,
-    fairValue,
-    analystConsensus,
-  } = fundamentals;
+  const inputs = fundamentals.valuationEvidence;
+  if (Object.values(inputs).some(value => value !== null && !Number.isFinite(value))) return null;
+  const { forwardPe, evToEbitda, fcfYieldPct, pegRatio, netDebtToEbitda, operatingMarginPct, analystTarget } = inputs;
+  const { sectorMedianPe, historicalMedianPe, sectorMedianEvEbitda, analystConsensus } = fundamentals;
 
   // Valuation discount vs sector median, own historical multiple, or PEG <= 1.35
   const peDiscountPct =
-    forwardPe !== null && sectorMedianPe !== null && sectorMedianPe > 0
+    forwardPe !== null && forwardPe > 0 && sectorMedianPe !== null && sectorMedianPe > 0
       ? ((sectorMedianPe - forwardPe) / sectorMedianPe) * 100
       : 0;
   const evDiscountPct =
-    evToEbitda !== null && sectorMedianEvEbitda !== null && sectorMedianEvEbitda > 0
+    evToEbitda !== null && evToEbitda > 0 && sectorMedianEvEbitda !== null && sectorMedianEvEbitda > 0
       ? ((sectorMedianEvEbitda - evToEbitda) / sectorMedianEvEbitda) * 100
       : 0;
   const histDiscountPct =
-    peVsHistoryPct !== undefined && peVsHistoryPct !== null && peVsHistoryPct < 0
-      ? Math.abs(peVsHistoryPct)
+    forwardPe !== null && forwardPe > 0 && historicalMedianPe && historicalMedianPe > forwardPe
+      ? (1 - forwardPe / historicalMedianPe) * 100
       : 0;
 
   const hasValuationDiscount =
@@ -692,13 +715,13 @@ export function detectValueGarpOpportunity(
   if (!hasValuationDiscount) return null;
 
   // Balance sheet health & FCF quality
+  if (fcfYieldPct === null && operatingMarginPct === null) return null;
   if (netDebtToEbitda !== null && netDebtToEbitda > 2.6) return null;
   if (fcfYieldPct !== null && fcfYieldPct < 3.2) return null;
   if (operatingMarginPct !== null && operatingMarginPct < 10) return null;
-  if (epsRevisionPct !== null && epsRevisionPct < -1) return null;
 
   // Target / Fair-Value upside >= 12%
-  const modelTarget = Math.max(analystTarget ?? 0, fairValue ?? 0, analystConsensus?.targetMean ?? 0);
+  const modelTarget = analystTarget ?? 0;
   const upsidePct = modelTarget > current.close ? ((modelTarget - current.close) / current.close) * 100 : 0;
   if (upsidePct < 12) return null;
 
@@ -722,10 +745,10 @@ export function detectValueGarpOpportunity(
       8,
       26,
     ),
-    "Free-Cashflow-Yield & Margen": clamp(Math.round((fcfYieldPct ?? 3.5) * 2.2 + ((operatingMarginPct ?? 12) - 10) * 0.45), 6, 22),
-    "Bilanzqualität (Net Debt/EBITDA)": netDebtToEbitda !== null ? clamp(Math.round((2.5 - netDebtToEbitda) * 7), 4, 16) : 8,
-    "Analysten-Konsens & Fair-Value": clamp(Math.round(upsidePct * 0.55 + buyRatio * 6), 6, 18),
-    "EPS-Revisionen & Technische Basis": clamp(Math.round((epsRevisionPct ?? 1) * 2 + (current.close >= tech.ema20 ? 6 : 2) + (tech.relativeStrengthPct > 0 ? 4 : 0)), 4, 18),
+    "Free-Cashflow-Yield & Margen": clamp(Math.round((fcfYieldPct ?? 0) * 2.2 + Math.max(0, (operatingMarginPct ?? 0) - 10) * 0.45), 0, 22),
+    "Bilanzqualität (Net Debt/EBITDA)": netDebtToEbitda !== null ? clamp(Math.round((2.5 - netDebtToEbitda) * 7), 0, 16) : 0,
+    "Analystenziel": clamp(Math.round(upsidePct * 0.55 + buyRatio * 6), 6, 18),
+    "Technische Basis": (current.close >= tech.ema20 ? 10 : 4) + (tech.relativeStrengthPct > 0 ? 8 : 0),
   };
   const score = clamp(Math.round(Object.values(scoreBreakdown).reduce((a, b) => a + b, 0)), 55, 98);
 
@@ -734,20 +757,20 @@ export function detectValueGarpOpportunity(
   const entryLow = round2(Math.min(current.close * 0.985, Math.max(supportLevel, tech.ema20 * 0.99)));
   const entryHigh = round2(current.close * 1.01);
   const target1 = round2(Math.min(modelTarget, current.close + Math.max(2.5 * unit, (modelTarget - current.close) * 0.65)));
-  const target2 = round2(Math.max(modelTarget, target1 + 1.5 * unit));
+  const target2 = round2(modelTarget);
 
   const historyNote =
     historicalMedianPe && histDiscountPct >= 5
       ? ` · Historischer KGV-Median ${historicalMedianPe.toFixed(1)}× (−${histDiscountPct.toFixed(0)}%)`
       : "";
-  const consensusNote = analystConsensus
+  const consensusNote = analystConsensus?.analystCount
     ? ` · Konsens: ${analystConsensus.ratingLabel} (${analystConsensus.analystCount} Analysten)`
     : "";
 
   const whySetup: string[] = [
     `Attraktive Bewertung (${meta.sector}): Forward-KGV ${forwardPe?.toFixed(1) ?? "—"}× (Sektor-Median ${sectorMedianPe?.toFixed(1) ?? "—"}×, ${peDiscountPct.toFixed(0)}% Abschlag${historyNote}) · EV/EBITDA ${evToEbitda?.toFixed(1) ?? "—"}×${pegRatio ? ` · PEG ${pegRatio.toFixed(2)}` : ""}.`,
     `Starke Bilanz & Cashflow: Free-Cashflow-Yield ${fcfYieldPct?.toFixed(1) ?? "—"}% · Net Debt/EBITDA ${netDebtToEbitda?.toFixed(2) ?? "—"}× · Operative Marge ${operatingMarginPct?.toFixed(1) ?? "—"}%.`,
-    `Fundamentales Kurspotenzial: +${upsidePct.toFixed(1)}% Abschlag zum Fair-Value/Analysten-Ziel (${modelTarget.toFixed(2)} ${meta.currency})${consensusNote}${epsRevisionPct !== null ? ` · ${epsRevisionPct > 0 ? "+" : ""}${epsRevisionPct.toFixed(1)}% EPS-Revisionen` : ""}.`,
+    `Gemeldetes Analystenziel ${modelTarget.toFixed(2)} ${meta.currency} · Abstand zum Schlusskurs +${upsidePct.toFixed(1)}%${consensusNote}.`,
     `Technische Stabilisierung: Kurs hält über Support (${recentSwingLow.toFixed(2)}) mit ${current.close >= tech.ema20 ? "Rückeroberung des 20-EMA" : "stabiler Bodenbildung"} und RVOL ${tech.rvol20.toFixed(2)}×.`,
   ];
 
@@ -801,23 +824,26 @@ export function detectHighConvictionOpportunities(
   const unit = atr(bars, 14).at(-1) ?? current.close * 0.02;
 
   // --- C1: Volatility Contraction / Bollinger-Squeeze ---
-  const high40 = Math.max(...bars.slice(-40).map(b => b.high));
+  const high40 = Math.max(...bars.slice(-41, -1).map(b => b.high));
   const distToHighPct = ((high40 - current.close) / high40) * 100;
   const recentVol5 = mean(bars.slice(-6, -1).map(b => b.volume));
   const avgVol30 = mean(bars.slice(-35, -5).map(b => b.volume));
   const squeezeVolRatio = avgVol30 > 0 ? recentVol5 / avgVol30 : 1;
+  const trigger = round2(high40 + Math.max(0.01, 0.1 * unit));
+  const beyondTrigger = round2(current.close) >= trigger;
 
   const isTightSqueeze = (tech.vcpContractions >= 2 || tech.bbSqueezePercentile <= 28 || tech.bbBandwidthPct <= 6.5) &&
     distToHighPct >= -1 && distToHighPct <= 5.5 &&
     squeezeVolRatio <= 0.92 &&
     current.close >= tech.ema20 * 0.99 &&
-    tech.relativeStrengthPct >= 0;
+    tech.relativeStrengthPct >= 0 &&
+    (!beyondTrigger || tech.rvol20 >= 1.25);
 
   if (isTightSqueeze) {
     const tightLow = Math.min(...bars.slice(-10).map(b => b.low));
     const invalidation = round2(Math.max(0.01, tightLow - 0.35 * unit));
-    const entryLow = round2(Math.min(current.close, high40 * 0.99));
-    const entryHigh = round2(high40 * 1.005);
+    const entryLow = trigger;
+    const entryHigh = round2(trigger + Math.min(high40 * 0.005, unit * 0.35));
     const target1 = round2(high40 + 2.5 * unit);
     const target2 = round2(high40 + 4.5 * unit);
     const scoreBreakdown: Record<string, number> = {
@@ -845,11 +871,14 @@ export function detectHighConvictionOpportunities(
       whySetup: [
         `Volatility Contraction (VCP): ${tech.vcpContractions} Kontraktionswellen · Bollinger-Bandbreite ${tech.bbBandwidthPct.toFixed(1)}% (${tech.bbSqueezePercentile.toFixed(0)}. Perzentil).`,
         `Widerstands-Kompression: Kurs (${current.close.toFixed(2)}) notiert nur ${Math.max(0, distToHighPct).toFixed(1)}% unter dem 40d-Breakout-Level (${high40.toFixed(2)}).`,
+        beyondTrigger ? `Ausbruch über ${trigger.toFixed(2)} mit ${tech.rvol20.toFixed(2)}× Tagesvolumen bestätigt.`
+          : `Ausbruch ab ${trigger.toFixed(2)} mit mindestens 1,25× Tagesvolumen abwarten.`,
         `Volumen-Austrocknung in der Base (${(squeezeVolRatio * 100).toFixed(0)}% des 30d-Schnitts) bei +${tech.relativeStrengthPct.toFixed(1)}% Relativer Stärke vs. Index.`,
       ],
       levels: {
         lastClose: round2(current.close),
         entryZone: [entryLow, entryHigh],
+        entryTrigger: entryLow,
         invalidation,
         target1,
         target2,
@@ -876,13 +905,13 @@ export function detectHighConvictionOpportunities(
     const invalidation = round2(Math.max(0.01, recentLow - 0.4 * unit));
     const entryLow = round2(Math.min(current.close * 0.99, tech.ema20));
     const entryHigh = round2(current.close * 1.01);
-    const target1 = round2(Math.max(current.close + 2.6 * unit, fundamentals.analystTarget ? Math.min(fundamentals.analystTarget, current.close * 1.15) : current.close + 2.6 * unit));
-    const target2 = round2(Math.max(target1 + 2 * unit, fundamentals.fairValue ?? target1 * 1.08));
+    const target1 = round2(current.close + 2.6 * unit);
+    const target2 = round2(current.close + 4.6 * unit);
     const scoreBreakdown: Record<string, number> = {
       "SEC Form 4 Insider-Cluster": clamp(disclosedBuys.length * 9 + (disclosedValue >= 1_000_000 ? 10 : 5), 16, 32),
-      "Institutionelle Akkumulation (OBV/Vol)": clamp(Math.round((tech.upDownVolumeRatio - 0.9) * 18 + (tech.obvDivergence ? 7 : 0)), 8, 22),
+      "Kaufdruck (OBV/Volumen)": clamp(Math.round((tech.upDownVolumeRatio - 0.9) * 18 + (tech.obvDivergence ? 7 : 0)), 8, 22),
       "Technische Stabilisierung (EMA/VWAP)": (current.close >= tech.ema20 ? 10 : 5) + (current.close >= tech.vwap20 ? 8 : 4),
-      "Relative Stärke & Bewertung": clamp(Math.round(Math.max(0, tech.relativeStrengthPct) * 2 + (fundamentals.fcfYieldPct && fundamentals.fcfYieldPct > 3 ? 6 : 2)), 6, 18),
+      "Relative Stärke": clamp(Math.round(Math.max(0, tech.relativeStrengthPct) * 2), 0, 18),
     };
     const score = clamp(Math.round(Object.values(scoreBreakdown).reduce((a, b) => a + b, 0)), 60, 98);
     const topFiling = disclosedBuys[0];
@@ -903,8 +932,7 @@ export function detectHighConvictionOpportunities(
       scoreBreakdown,
       whySetup: [
         `Veröffentlichte SEC-Meldungen: ${disclosedBuys.length} Käufe mit Volumen $${(disclosedValue / 1_000).toFixed(0)}k${topFiling ? ` (zuletzt ${topFiling.insider}, ${topFiling.role} am ${topFiling.date})` : ""}.`,
-        `Institutionelle Akkumulation: Aufwärts-/Abwärts-Volumen ${tech.upDownVolumeRatio.toFixed(2)}× · Kurs hält über 20d-VWAP (${tech.vwap20.toFixed(2)}) und EMA 20 (${tech.ema20.toFixed(2)}).`,
-        `Kombination aus Smart-Money-Käufen und technischer Bodenbildung mit positivem Risk/Reward.`,
+        `Aufwärts-/Abwärts-Volumen ${tech.upDownVolumeRatio.toFixed(2)}× · Schlusskurs ${current.close.toFixed(2)} · VWAP20 ${tech.vwap20.toFixed(2)} · EMA20 ${tech.ema20.toFixed(2)}.`,
       ],
       levels: {
         lastClose: round2(current.close),
@@ -941,13 +969,10 @@ export function detectHighConvictionOpportunities(
 
       if (heldGapSupport && current.close >= anchoredVwap * 0.985 && current.close <= eventBar.high * 1.06) {
         const invalidation = round2(Math.max(0.01, gapSupport - 0.35 * unit));
-        const entryLow = round2(Math.min(current.close, anchoredVwap));
-        const entryHigh = round2(Math.max(current.close, Math.max(eventBar.high, current.close * 1.01)));
-        const target1 = round2(Math.max(eventBar.high, current.close) + 2.2 * unit);
-        const target2 = round2(Math.max(eventBar.high, current.close) + 4.2 * unit);
-        const surpriseNote = fundamentals?.earningsSurprisePct
-          ? ` (EPS-Surprise +${fundamentals.earningsSurprisePct.toFixed(1)}%)`
-          : "";
+        const entryLow = round2(Math.max(gapSupport, anchoredVwap - 0.35 * unit));
+        const entryHigh = round2(anchoredVwap + 0.35 * unit);
+        const target1 = round2(eventBar.high + 2.2 * unit);
+        const target2 = round2(eventBar.high + 4.2 * unit);
         const scoreBreakdown: Record<string, number> = {
           "Impuls-Gap & Relativvolumen": clamp(Math.round(eventRvol * 8 + dayReturnPct * 1.8), 16, 30),
           "Anchored-VWAP & Gap-Support": current.close >= anchoredVwap ? 22 : 16,
@@ -971,7 +996,7 @@ export function detectHighConvictionOpportunities(
           score,
           scoreBreakdown,
           whySetup: [
-            `Katalysator-Impuls am ${eventBar.session}${surpriseNote}: +${dayReturnPct.toFixed(1)}% Tagessprung (Gap +${Math.max(0, gapPct).toFixed(1)}%) unter ${eventRvol.toFixed(2)}× Relativvolumen.`,
+            `Katalysator-Impuls am ${eventBar.session}: +${dayReturnPct.toFixed(1)}% Tagessprung (Gap +${Math.max(0, gapPct).toFixed(1)}%) unter ${eventRvol.toFixed(2)}× Relativvolumen.`,
             `Sauberer Pullback auf den Event-Anchored-VWAP (${anchoredVwap.toFixed(2)}) und Verteidigung des Gap-Supports (${gapSupport.toFixed(2)}).`,
             `Post-Earnings-Announcement-Drift (PEAD) mit +${tech.relativeStrengthPct.toFixed(1)}% Relativer Stärke gegenüber dem Index.`,
           ],
@@ -1009,7 +1034,7 @@ export function evaluateTickerOpportunities(
   if (catB) results.push(catB);
   const catC = detectHighConvictionOpportunities(bars, benchmark, meta, fundamentals);
   results.push(...catC);
-  return results.filter(({ levels }) => levels.riskReward > 0).sort((a, b) => b.score - a.score);
+  return results.filter(({ levels }) => opportunityPlan(levels)).sort(rankOpportunities);
 }
 
 const encodeCsvCell = (value: string | number) =>

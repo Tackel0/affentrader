@@ -232,6 +232,15 @@ function buildMockApiPayload(urlStr) {
     return { events: [] };
   }
 
+  if (url.pathname === "/api/terminal-setups") {
+    return { sessions: 60, benchmark: "S&P 500", records: [{
+      id: "replay:opp-aapl@2026-11-16", symbol: "YF:AAPL", ticker: "AAPL", name: "Apple Inc.", label: "BOS Reclaim",
+      currency: "USD", session: "2026-11-16", observedAt: now, score: 79, tracked: false, reconstructed: true,
+      levels: { lastClose: 225, entryZone: [222, 226], invalidation: 214, target1: 242, target2: 256, riskReward: 1.8 },
+      outcome: { status: "target", session: "2026-11-18" },
+    }] };
+  }
+
   if (url.pathname === "/api/terminal-opportunities") {
     return {
       market: "us",
@@ -611,6 +620,7 @@ const MOCKED_API_PREFIXES = new Set([
   "/api/osint-map",
   "/api/feeds",
   "/api/terminal-opportunities",
+  "/api/terminal-setups",
   "/api/terminal-fundamentals",
   "/api/terminal-markets",
   "/api/terminal-capm",
@@ -1781,8 +1791,19 @@ async function run() {
             expression: '[...document.querySelectorAll(".opportunity-workspace button")].find(button => button.textContent.trim() === "In Setup-Watchlist übernehmen")?.click()',
           });
         }
-        if (vp.width === 390 && mod.key === "JOURNAL" && !opts.liveApis)
+        if (vp.width === 390 && mod.key === "JOURNAL" && !opts.liveApis) {
           await waitForPagePredicate(cdp, `!!document.querySelector('.terminal-research-card a[href^="/?setup="]')`, "the saved setup is available with a main-chart link");
+          await cdp.send("Runtime.evaluate", {
+            expression: '[...document.querySelectorAll(".terminal-research-list button")].find(button => button.textContent.trim() === "Signal-Historie")?.click()',
+          });
+          await waitForPagePredicate(cdp, `!!document.querySelector('.terminal-research-list form input[placeholder="AAPL"]')`, "the historical ticker input is available");
+          await cdp.send("Runtime.evaluate", { expression: 'document.querySelector(\'.terminal-research-list form input[placeholder="AAPL"]\').focus()' });
+          await cdp.send("Input.insertText", { text: "AAPL" });
+          await cdp.send("Runtime.evaluate", { expression: 'document.querySelector(".terminal-research-list form button[type=submit]").click()' });
+          await waitForPagePredicate(cdp, `document.querySelector(".terminal-research-list [role=status]")?.textContent.includes("Ziel 1 1")`,
+            "the historical setup summary displays the replay outcomes");
+          recordAudit(vp, "/terminal(JOURNAL replay)", await inspectViewportDom(cdp, true));
+        }
       }
     }
 

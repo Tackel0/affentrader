@@ -7,6 +7,7 @@ import {
 } from "@/lib/screener/stockBase";
 import {
   evaluateTickerOpportunities,
+  rankOpportunities,
   opportunityHistoryIssue,
   type OpportunityScanResult,
   type TradeOpportunity,
@@ -214,6 +215,9 @@ export async function scanTradeOpportunities(
             if (!fundamentals.analystTarget && nasdaqAnalyst.targetMean) {
               fundamentals.analystTarget = nasdaqAnalyst.targetMean;
             }
+            if (fundamentals.valuationEvidence && !fundamentals.valuationEvidence.analystTarget && nasdaqAnalyst.targetMean) {
+              fundamentals.valuationEvidence.analystTarget = nasdaqAnalyst.targetMean;
+            }
             fundamentals.dataSources ??= [];
             if (!fundamentals.dataSources.includes("Nasdaq Analyst")) {
               fundamentals.dataSources.push("Nasdaq Analyst");
@@ -247,7 +251,7 @@ export async function scanTradeOpportunities(
   );
   cancellation?.throwIfAborted();
 
-  opportunities.sort((a, b) => b.score - a.score || b.levels.riskReward - a.levels.riskReward || a.ticker.localeCompare(b.ticker));
+  opportunities.sort(rankOpportunities);
   unavailable.sort((a, b) => a.symbol.localeCompare(b.symbol));
 
   const result: OpportunityScanResult = {

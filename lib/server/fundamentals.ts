@@ -915,6 +915,16 @@ export function resolveFundamentalSnapshot(
   const fvTarget = normalizeTargetToQuoteCurrency(fv?.analystTarget, quoteCurrency === "USD" ? "USD" : undefined, quoteCurrency);
   const baseTarget = normalizeTargetToQuoteCurrency(base?.analystTarget, base?.currency, quoteCurrency);
   const baseFairValue = normalizeTargetToQuoteCurrency(base?.fairValue, base?.currency, quoteCurrency);
+  const reportedPriceToFcf = tvPartial?.priceToFcf ?? fv?.priceToFcf;
+  const valuationEvidence: NonNullable<FundamentalSnapshot["valuationEvidence"]> = {
+    forwardPe: tvPartial?.forwardPe ?? yp?.forwardPe ?? fv?.forwardPe ?? null,
+    evToEbitda: tvPartial?.evToEbitda ?? yp?.evToEbitda ?? fv?.evToEbitda ?? null,
+    pegRatio: tvPartial?.pegRatio ?? yp?.pegRatio ?? fv?.pegRatio ?? null,
+    fcfYieldPct: tvPartial?.fcfYieldPct ?? yp?.fcfYieldPct ?? (reportedPriceToFcf && reportedPriceToFcf > 0 ? 100 / reportedPriceToFcf : null),
+    netDebtToEbitda: tvPartial?.netDebtToEbitda ?? null,
+    operatingMarginPct: tvPartial?.operatingMarginPct ?? yp?.operatingMarginPct ?? fv?.operatingMarginPct ?? null,
+    analystTarget: tvTarget ?? yfTarget ?? fvTarget ?? null,
+  };
 
   let analystTarget = tvTarget ?? yfTarget ?? fvTarget ?? baseTarget ?? null;
   let fairValue = baseFairValue ?? null;
@@ -1066,6 +1076,7 @@ export function resolveFundamentalSnapshot(
     recentInsiderFilings,
     earningsSurprisePct: yp?.earningsSurprisePct ?? base?.earningsSurprisePct ?? null,
     lastEarningsDate: yp?.lastEarningsDate ?? base?.lastEarningsDate ?? null,
+    valuationEvidence,
     ...(yp?.lastEarningsDate ? { verifiedEarningsSession: yp.lastEarningsDate } : {}),
     dataSources,
     source,

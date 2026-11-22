@@ -6,6 +6,14 @@ This document is the single self-contained architectural, operational, and itera
 
 ## 1. Completed Modules & Current Status
 
+### Setup quality cycle 2026-11-22
+
+- Scanner scores previously ranked patterns without checking the price at which a trader could enter. `opportunityReadiness` and `rankOpportunities` now rank entries in range first, followed by pullbacks and unconfirmed breakouts. The detail view compares reward at the top of the zone with the limit midpoint, and paper drafts require at least 1.5 R to the first target at the planned limit.
+- `detectStructuralBottomOpportunity` anchors entries to reclaimed support and keeps the first target within measured structure. VCP uses the previous 40-session high and requires 1.25× average volume when the daily close clears the trigger. Earnings entries use the event VWAP and targets anchored to the event high. Value/GARP requires reported valuation inputs and a sourced analyst target. Insider targets use price volatility.
+- `reconstructSetupHistory` replays up to 60 sessions using technical inputs available at signal time. It collapses repeating actionable patterns, then evaluates a midpoint limit for ten sessions and the first target or stop through session twenty. The Setup Journal reports open, unfilled and ambiguous cases separately. Original captured signals retain their saved prices.
+- Regression coverage checks priority and paper gating, sourced valuation inputs, structural entry boundaries, daily replay outcomes and the absence of future data in signal levels. The mobile audit also exercises the replay request and its result summary.
+- The full local release gate passed 2,827 tests in 284 files, production build and both Chrome checks. The viewport audit reported zero document overflow and covered 3,277 mobile controls. A direct replay of Yahoo daily data for AAPL, MSFT, NVDA, QCOM and AMD returned seven planable technical signals over 60 sessions per ticker. One reached target 1 and six never entered in the model.
+
 ### Research cycle 2026-11-22
 
 - Options flow from Alpaca OPRA appears in `OptionsFlowPanel` and eligible watchlist rows. `useOptionsFlow` polls visible symbols in batches of eight, caches across scrolling, and pauses in background tabs. `summarizeOptionsFlow` uses trade premium and an earlier unlocked quote within five seconds. The bias requires at least three classified prints and 60% of classified premium in one direction. The display reports sample time and coverage. Live OPRA access requires the user's Alpaca entitlement.

@@ -45,13 +45,16 @@ describe("terminal research signals", () => {
   it("preserves original levels and does not guess the sequence inside a daily candle", () => {
     expect(mergeSetupHistory([setup], [{ ...setup, tracked: false, score: 98 }])).toEqual([setup]);
     expect(setupOverlays(setup).map(level => level.kind === "hline" && level.price)).toEqual([99, 102, 95, 110, 115]);
-    const entered = bar("2026-11-20", 104, 101, 105);
+    const entered = bar("2026-11-20", 104, 100, 105);
     const target = bar("2026-11-23", 105, 101, 113);
     const uncertain = bar("2026-11-23", 105, 93, 113);
     expect(historicalSetupOutcome(setup.levels, [entered, target])).toEqual({ status: "target", session: target.session });
     expect(historicalSetupOutcome(setup.levels, [entered, uncertain])?.status).toBe("ambiguous");
     expect(historicalSetupOutcome(setup.levels, [bar("2026-11-20", 94, 93, 113)])?.status).toBe("invalid");
     expect(historicalSetupOutcome(setup.levels, [bar("2026-11-20", 111, 108, 113)])?.status).toBe("waiting");
+    expect(historicalSetupOutcome(setup.levels, [bar("2026-11-20", 100, 99, 111)])?.status).toBe("target");
+    expect(historicalSetupOutcome(setup.levels, [bar("2026-11-20", 107, 102, 108)])?.status).toBe("waiting");
+    expect(historicalSetupOutcome(setup.levels, Array.from({ length: 10 }, (_, i) => bar(`2026-11-${20 + i}`, 107, 102, 108)))?.status).toBe("expired");
   });
 
   it("fires each setup alert once and only from a fresh exchange quote after activation", () => {

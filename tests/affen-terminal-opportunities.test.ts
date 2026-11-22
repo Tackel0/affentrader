@@ -10,10 +10,14 @@ import {
   mergeOpportunityGroups,
   opportunityEntryState,
   opportunityPlan,
+  opportunityReadiness,
   opportunityShareSize,
+  rankOpportunities,
   opportunitiesToCsv,
   type FundamentalSnapshot,
+  type TradeOpportunity,
 } from "@/lib/screener/opportunities";
+import { reconstructSetupHistory } from "@/lib/screener/setupJournal";
 import type { DailyStockBar } from "@/lib/screener/stockBase";
 import { clearOpportunityScanCache, scanTradeOpportunities } from "@/lib/server/opportunities";
 import { fetchSecEdgarForm4Summary, fetchTradingViewScannerBatch, resolveFundamentalSnapshot } from "@/lib/server/fundamentals";
@@ -114,6 +118,17 @@ describe("Multi-Strategy Trade-Möglichkeiten Engine", () => {
     expect(opportunityShareSize(plan, Infinity)).toBeNull();
   });
 
+  it("ranks available entries ahead of chased moves and blocks paper drafts below an unconfirmed trigger", () => {
+    const ready = { lastClose: 99, entryZone: [98, 102] as [number, number], invalidation: 95, target1: 110, target2: 115, riskReward: 2 };
+    expect(opportunityReadiness(ready)).toMatchObject({ status: "ready", maxEntry: 101, canPrepare: true });
+    expect(opportunityReadiness({ ...ready, lastClose: 102 }).status).toBe("pullback");
+    expect(opportunityReadiness({ ...ready, lastClose: 97, entryTrigger: 98 })).toMatchObject({ status: "trigger", canPrepare: false });
+    expect(opportunityReadiness({ ...ready, target1: 105 })).toMatchObject({ status: "weak", canPrepare: false });
+    const actionable = { levels: ready, score: 58, ticker: "AAA" } as TradeOpportunity;
+    const missed = { levels: { ...ready, lastClose: 110 }, score: 99, ticker: "BBB" } as TradeOpportunity;
+    expect([missed, actionable].sort(rankOpportunities)[0]).toBe(actionable);
+  });
+
   it("keeps scan totals and rejects pages from a revised benchmark", () => {
     const first = { market: "us", benchmark: "S&P 500", benchmarkSession: "2026-11-20", benchmarkRevision: "a",
       generatedAt: 1000, page: 0, pages: 2, universe: 24, totalUniverse: 31, evaluated: 23, excluded: 1,
@@ -155,6 +170,8 @@ describe("Multi-Strategy Trade-Möglichkeiten Engine", () => {
     expect(opp!.levels.target1).toBeGreaterThan(opp!.levels.entryZone[1]);
     expect(opp!.levels.target2).toBeGreaterThan(opp!.levels.target1);
     expect(opp!.levels.riskReward).toBeGreaterThan(1);
+    expect(opp!.levels.entryZone[1]).toBeLessThan(opp!.levels.lastClose);
+    expect(opp!.levels.entryZone[1]).toBeLessThanOrEqual(opp!.structure!.neckline);
     expect(opp!.technicals.volumeDryUpRatio).toBeLessThan(0.95);
     expect(opp!.technicals.relativeStrengthPct).toBeGreaterThan(0);
     expect(opp!.whySetup.length).toBeGreaterThanOrEqual(3);
@@ -208,7 +225,8 @@ describe("Multi-Strategy Trade-Möglichkeiten Engine", () => {
       recentInsiderFilings: [],
       earningsSurprisePct: 6.9,
       lastEarningsDate: "2026-02-04",
-      source: "curated-baseline",
+      valuationEvidence: { forwardPe: 14.8, evToEbitda: 11.6, fcfYieldPct: 6.1, pegRatio: 0.98, netDebtToEbitda: 0.35, operatingMarginPct: 27.4, analystTarget: 135 },
+      source: "tradingview+sec+yahoo",
     };
 
     const valueOpp = detectValueGarpOpportunity(structuralBars, benchmarkBars, meta, qualityFundamentals);
@@ -219,8 +237,13 @@ describe("Multi-Strategy Trade-Möglichkeiten Engine", () => {
     expect(valueOpp!.whySetup.some(line => line.includes("Forward-KGV"))).toBe(true);
 
     // Reject if Net Debt / EBITDA is excessive (> 2.6)
-    const leveredTrap: FundamentalSnapshot = { ...qualityFundamentals, netDebtToEbitda: 4.2 };
+    const leveredTrap: FundamentalSnapshot = { ...qualityFundamentals, valuationEvidence: { ...qualityFundamentals.valuationEvidence!, netDebtToEbitda: 4.2 } };
     expect(detectValueGarpOpportunity(structuralBars, benchmarkBars, meta, leveredTrap)).toBeNull();
+    const baseline = resolveFundamentalSnapshot("QCOM", 103, "USD", "Qualcomm", { marketCapBn: 190, sector: "Semiconductors" });
+    expect(baseline.valuationEvidence?.analystTarget).toBeNull();
+    expect(detectValueGarpOpportunity(structuralBars, benchmarkBars, meta, baseline)).toBeNull();
+    const lossMaker = { ...qualityFundamentals, valuationEvidence: { ...qualityFundamentals.valuationEvidence!, forwardPe: -10, evToEbitda: -8, pegRatio: null } };
+    expect(detectValueGarpOpportunity(structuralBars, benchmarkBars, meta, lossMaker)).toBeNull();
   });
 
   it("Category C: detects VCP Squeeze, Insider Cluster, and Post-Earnings-Drift (PEAD)", () => {
@@ -237,6 +260,9 @@ describe("Multi-Strategy Trade-Möglichkeiten Engine", () => {
 
     const vcpOpps = detectHighConvictionOpportunities(vcpBars, benchmarkBars, meta, null);
     expect(vcpOpps.some(o => o.subType === "vcp-squeeze")).toBe(true);
+    const squeeze = vcpOpps.find(o => o.subType === "vcp-squeeze")!;
+    expect(squeeze.levels.entryTrigger).toBe(squeeze.levels.entryZone[0]);
+    expect(squeeze.levels.entryZone[0]).toBeGreaterThan(squeeze.levels.lastClose);
 
     // 2. Insider Cluster + Earnings Gap & Drift
     const peadCloses = [
@@ -259,6 +285,19 @@ describe("Multi-Strategy Trade-Möglichkeiten Engine", () => {
     expect(unconfirmed.some(o => o.subType === "insider-cluster" || o.subType === "earnings-drift")).toBe(false);
     const future = detectHighConvictionOpportunities(peadBars, peadBench, meta, { ...baseline, recentInsiderFilings: [{ ...filing, filedAt: "2099-01-01" }] });
     expect(future.some(o => o.subType === "insider-cluster")).toBe(false);
+  });
+
+  it("replays repeated technical patterns once and holds original levels across different follow-through", () => {
+    const later = makeBars([...structuralPrices, 104, 104.2, 103.8, 104.4, 104.5]);
+    const prices = [...structuralBars, ...later.slice(structuralBars.length)];
+    const benchmark = prices.map((bar, i) => ({ ...bar, close: 100 - i * 0.04, open: 100 - i * 0.04, high: 101 - i * 0.04, low: 99 - i * 0.04 }));
+    const replay = reconstructSetupHistory(prices, prices, benchmark, meta);
+    const structure = replay.find(row => row.label.includes("Break of Structure"));
+    expect(structure).toBeDefined();
+    expect(replay.filter(row => row.label === structure!.label)).toHaveLength(1);
+    const changed = prices.map((bar, i) => i === prices.length - 1 ? { ...bar, low: 80 } : bar);
+    const before = reconstructSetupHistory(changed, changed, benchmark, meta).find(row => row.id === structure!.id);
+    expect(before?.levels).toEqual(structure?.levels);
   });
 
   it("exports opportunities to CSV and escapes formula-injection strings", () => {
