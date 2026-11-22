@@ -39,7 +39,7 @@ const SOURCES: { id: Source; label: string; note: string }[] = [
 ];
 
 /** Pegged assets would dominate the map without telling anything about the market. */
-const STABLES = new Set(["USDC", "FDUSD", "TUSD", "USDP", "BUSD", "DAI", "USDE", "USD1", "EUR", "EURI", "AEUR", "XUSD", "PAXG", "XAUT"]);
+const STABLES = new Set(["USDC", "FDUSD", "TUSD", "USDP", "BUSD", "DAI", "USDE", "USD1", "RLUSD", "RWUSD", "PYUSD", "USDD", "EUR", "EURI", "AEUR", "XUSD", "PAXG", "XAUT"]);
 
 async function load(source: Source, signal: AbortSignal): Promise<SectorHeatItem[]> {
   if (source === "us-sectors" || source === "de-sectors" || source === "uk-sectors") {
@@ -223,11 +223,13 @@ export function HeatmapPanel({ onSelectSymbol }: { onSelectSymbol?: (symbol: str
   return (
     <div className="heatmap-panel">
       <div className="heatmap-bar" style={{ flexWrap: "wrap" }}>
-        {SOURCES.map((s) => (
-          <button key={s.id} className={source === s.id ? "active" : ""} aria-pressed={source === s.id} title={s.note} onClick={() => setSource(s.id)}>
-            {s.label}
-          </button>
-        ))}
+        <div className="heatmap-sources" role="group" aria-label="Heatmap markets">
+          {SOURCES.map((s) => (
+            <button key={s.id} type="button" className={source === s.id ? "active" : ""} aria-pressed={source === s.id} title={s.note} onClick={() => setSource(s.id)}>
+              {s.label}
+            </button>
+          ))}
+        </div>
         <span className="heatmap-mode-group" role="group" aria-label="Change reference">
           <button
             type="button"
@@ -252,7 +254,7 @@ export function HeatmapPanel({ onSelectSymbol }: { onSelectSymbol?: (symbol: str
             aria-label="Filter GICS sector"
             value={selectedSector}
             onChange={(e) => setSectorFilter(e.target.value)}
-            style={{ fontSize: 11, height: 24, padding: "2px 6px", background: "var(--surface)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: 1 }}
+            style={{ fontSize: 11, height: 24, padding: "2px 6px", background: "var(--surface)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: 4 }}
           >
             <option value="all">All Sectors ({sectors.length})</option>
             {sectors.map((sec) => (
@@ -305,10 +307,10 @@ const HeatmapTiles = memo(function HeatmapTiles({ rects, isStockSectors, changeS
         onBlur={() => onHover(null)}
         onClick={() => onSelect(item.symbol)}
       >
-        {width > 34 && height > 22 ? (
+        {width >= 44 && height >= 24 ? (
           <>
             <strong>{item.label}</strong>
-            {height > 38 ? <span className="mono">{pct}</span> : null}
+            {width >= 52 && height >= 40 ? <span className="mono">{pct}</span> : null}
           </>
         ) : null}
       </button>

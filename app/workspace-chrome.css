@@ -290,10 +290,10 @@
   .drawing-rail-actions .icon-button { width: 36px; height: 36px; }
 }
 @media (min-width: 768px) and (max-width: 1366px) and (min-height: 560px) and (pointer: coarse) {
-  .right-sidebar:not(.collapsed) {
+  .right-sidebar:not(.collapsed):not(.tablet-right-sidebar) {
     position: relative;
     inset: auto;
-    width: clamp(320px, 32vw, 380px) !important;
+    width: clamp(320px, 36vw, 390px);
     max-width: 100%;
     height: auto;
     max-height: none;
@@ -941,18 +941,23 @@
   height: 40px;
   min-width: 40px;
   min-height: 40px;
-  border-radius: 8px;
+  padding: 0;
+  border-radius: 10px;
   color: var(--muted);
   touch-action: manipulation;
+  transition: transform 90ms ease, background-color 120ms ease, color 120ms ease;
+}
+.tablet-workspace .utility-rail.tablet-right-rail .icon-button:active {
+  transform: scale(0.94);
 }
 .tablet-workspace .utility-rail.tablet-right-rail .icon-button[aria-pressed="true"] {
   color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  background: color-mix(in srgb, var(--accent) 13%, var(--surface));
 }
 .tablet-workspace .utility-rail.tablet-right-rail .icon-button[aria-pressed="true"]::after {
   content: "";
   position: absolute;
-  right: -4px;
+  right: 0;
   top: 8px;
   bottom: 8px;
   width: 3px;
@@ -982,13 +987,19 @@
 .tablet-workspace .right-sidebar.tablet-right-sidebar:not(.collapsed) {
   position: relative;
   inset: auto;
-  width: clamp(300px, 34vw, 380px) !important;
-  max-width: 46vw;
+  flex: 0 0 auto;
+  width: clamp(324px, 38vw, 400px);
+  min-width: 308px;
+  max-width: 48vw;
   height: auto;
   max-height: none;
   margin-inline: 0;
   border-left: 1px solid var(--border);
   box-shadow: none;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 18px;
   z-index: 18;
 }
 .tablet-workspace .right-sidebar.tablet-right-sidebar .sidebar-sheet-resizer { display: none; }
@@ -996,10 +1007,65 @@
   display: block;
   width: 8px;
 }
+.tablet-workspace .right-sidebar.tablet-right-sidebar .watchlist-row.dynamic,
+.tablet-workspace .right-sidebar.tablet-right-sidebar .watchlist-columns.dynamic {
+  padding-right: 10px;
+}
+.tablet-workspace .right-sidebar.tablet-right-sidebar .watchlist-columns.dynamic.editing,
+.tablet-workspace .right-sidebar.tablet-right-sidebar .watchlist-columns.dynamic.editing ~ .watchlist-rows .watchlist-row.dynamic {
+  padding-right: 42px;
+}
+.tablet-workspace .right-sidebar.tablet-right-sidebar .watchlist-flag {
+  width: 24px;
+  min-width: 24px;
+}
+.tablet-workspace .right-sidebar.tablet-right-sidebar .panel-heading {
+  gap: 4px;
+  padding-inline: 10px 6px;
+}
+.tablet-workspace .right-sidebar.tablet-right-sidebar .watchlist-select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.tablet-workspace .right-sidebar.tablet-right-sidebar .watchlist-select > button {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tablet-workspace .range-toolbar {
+  gap: 6px;
+  padding-inline: 8px;
+}
+.tablet-workspace .range-toolbar .range-shortcuts {
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.tablet-workspace .range-toolbar .range-shortcuts::-webkit-scrollbar { display: none; }
+.tablet-workspace .range-toolbar .range-shortcuts > button {
+  flex: none;
+  white-space: nowrap;
+}
+.tablet-workspace .range-toolbar .utc-clock {
+  flex: none;
+  white-space: nowrap;
+  max-width: none;
+  font-size: 11px;
+}
+.tablet-workspace .workspace-panel-strip {
+  padding-inline: 6px;
+  scroll-padding-inline: 12px;
+}
 .tablet-workspace .workspace-panel-strip .panel-tab {
   min-height: 38px;
   font-size: 12px;
   padding: 0 12px;
+  flex: none;
+  white-space: nowrap;
 }
 
 /* Symbol Search: exchange visibility filter & priority controls. */
@@ -1303,6 +1369,228 @@
 .phone-workspace .search-exchange-chips > button {
   flex: none;
   white-space: nowrap;
+}
+
+/* Native iOS / iPadOS app polish: scrollbars, tap feel, grabber handles, compact controls */
+html,
+body {
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.trading-app :is(button, .panel-tab, .watchlist-columns, .utility-rail, .tv-toolbar, .phone-panel-heading) {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Sleek thin scrollbars instead of heavy browser scrollbars */
+.tv-popover,
+.right-sidebar,
+.watchlist-rows,
+.bottom-panel-content,
+.search-results,
+.modal {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--muted) 34%, transparent) transparent;
+}
+:is(.tv-popover, .right-sidebar, .watchlist-rows, .bottom-panel-content, .search-results, .modal)::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+:is(.tv-popover, .right-sidebar, .watchlist-rows, .bottom-panel-content, .search-results, .modal)::-webkit-scrollbar-track {
+  background: transparent;
+}
+:is(.tv-popover, .right-sidebar, .watchlist-rows, .bottom-panel-content, .search-results, .modal)::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--muted) 36%, transparent);
+  border-radius: 999px;
+}
+
+/* Tactile iOS-native press feedback on touch workspaces (opacity + highlight without shrinking 44px hitboxes) */
+:is(.phone-workspace, .tablet-workspace) :is(.utility-rail .icon-button, .phone-chart-actions > .icon-button, .phone-chart-actions > :is(.toolbar-popover-host, .toolbar-mobile-overflow) > :is(.icon-button, .toolbar-button), .phone-panel-list button, .tv-toolbar > .icon-button, .tv-toolbar .symbol-selector) {
+  transition: opacity 90ms ease, background-color 120ms ease, color 120ms ease;
+}
+:is(.phone-workspace, .tablet-workspace) :is(.utility-rail .icon-button, .phone-chart-actions > .icon-button, .phone-chart-actions > :is(.toolbar-popover-host, .toolbar-mobile-overflow) > :is(.icon-button, .toolbar-button), .phone-panel-list button, .tv-toolbar > .icon-button, .tv-toolbar .symbol-selector):active {
+  opacity: 0.62;
+}
+
+/* Soft translucent pill for watchlist remove button instead of heavy dark block */
+:is(.phone-workspace, .tablet-workspace) .watchlist-row .row-remove {
+  width: 32px;
+  height: 32px;
+  top: 4px;
+  right: 4px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--red, #f23645) 14%, var(--surface));
+  color: var(--red, #f23645);
+  border: 1px solid color-mix(in srgb, var(--red, #f23645) 28%, transparent);
+}
+:is(.phone-workspace, .tablet-workspace) .watchlist-row .row-remove:active {
+  transform: scale(0.92);
+}
+
+/* Single-row custom interval input + compact Set pill */
+.interval-popover .interval-custom {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px 8px;
+}
+.interval-popover .interval-custom > input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 36px;
+  border-radius: 8px;
+}
+.interval-popover .interval-custom > button {
+  flex: none;
+  width: auto;
+  min-width: 54px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 8px;
+  margin: 0;
+}
+
+/* Horizontal swipeable market tabs in Symbol Search on iPhone (no lone second-row wrap) */
+.phone-workspace .search-modal .filter-tabs.market-tabs {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  gap: 6px;
+  padding-inline: 12px;
+}
+.phone-workspace .search-modal .filter-tabs.market-tabs::-webkit-scrollbar { display: none; }
+.phone-workspace .search-modal .filter-tabs.market-tabs > button {
+  flex: none;
+  white-space: nowrap;
+  border-radius: 999px;
+}
+
+/* Consistent iOS sheet grabber handle on bottom sheets and search modal */
+.phone-workspace .search-modal::before,
+.modal.phone-action-sheet::before {
+  content: "";
+  display: block;
+  width: 38px;
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--muted) 55%, transparent);
+  margin: 8px auto 2px;
+  flex: none;
+}
+
+/* Rounded glass bottom panel look on iPhone */
+.phone-workspace .center-workspace > .bottom-panel.expanded {
+  border-radius: 18px 18px 0 0;
+  overflow: hidden;
+  border-top: 1px solid color-mix(in srgb, var(--border) 68%, rgba(255, 255, 255, 0.14));
+  box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.24);
+}
+.phone-workspace .phone-chart-actions {
+  background: var(--surface);
+}
+.phone-workspace .utility-rail.phone-bottom-nav {
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+
+/* Clean horizontal heatmap market pill strip + anti-clipping tile text */
+.heatmap-sources {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  max-width: 100%;
+  min-width: 0;
+}
+.heatmap-sources::-webkit-scrollbar { display: none; }
+.heatmap-sources > button {
+  flex: none;
+  white-space: nowrap;
+  border-radius: 999px;
+}
+.heatmap-mode-group > button {
+  border-radius: 999px;
+}
+.heat-tile {
+  overflow: hidden;
+  padding: 2px 3px;
+}
+.heat-tile strong,
+.heat-tile span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Final anti-clipping & unified glass surfaces across Strategy, Portfolio, Alerts, and Modals */
+.watch-cell {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.strategy-toolbar {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.strategy-toolbar .button {
+  flex: none;
+  white-space: nowrap;
+}
+.strategy-toolbar select {
+  max-width: 100%;
+  min-width: 0;
+}
+.phone-workspace .lot-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+.phone-workspace .lot-form :is(input, select, button) {
+  width: 100%;
+  min-width: 0;
+}
+.phone-workspace .right-sidebar:not(.collapsed) {
+  border-radius: 18px 18px 0 0;
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(145%);
+  backdrop-filter: blur(16px) saturate(145%);
+  border-top: 1px solid color-mix(in srgb, var(--border) 68%, rgba(255, 255, 255, 0.14));
+}
+.phone-workspace .modal:not(.phone-action-sheet):not(.search-modal) {
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(155%);
+  backdrop-filter: blur(18px) saturate(155%);
+  border: 1px solid color-mix(in srgb, var(--border) 68%, rgba(255, 255, 255, 0.14));
+}
+
+/* Subtle native entrance animations for menus and bottom sheets (no scale/transform on popovers to preserve 44px touch hitboxes and fixed sub-popover positioning) */
+@keyframes af-popover-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes af-sheet-in {
+  from { opacity: 0.5; transform: translateY(18px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .tv-popover {
+    animation: af-popover-in 120ms ease-out;
+  }
+  .modal.phone-action-sheet,
+  .phone-workspace .search-modal {
+    animation: af-sheet-in 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
 }
 
 @media (max-width: 480px) {

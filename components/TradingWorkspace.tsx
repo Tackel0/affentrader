@@ -364,6 +364,7 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
               {sidebar === "watchlist" ? (
                 <Watchlist
                   phone={phoneChart}
+                  tablet={isTablet}
                   onOpenChart={phoneChart ? openChart : undefined}
                   onClose={isTablet ? () => setSidebarOpen(false) : undefined}
                 />

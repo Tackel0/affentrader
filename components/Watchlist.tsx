@@ -71,8 +71,8 @@ const openSymbol = (symbol: string) => {
 };
 const COLUMN_WIDTH: Record<WatchColumn, number> = {
   last: 74,
-  change: 58,
-  changePercent: 58,
+  change: 66,
+  changePercent: 62,
   usClosePercent: 68,
   high: 78,
   low: 78,
@@ -81,6 +81,15 @@ const COLUMN_WIDTH: Record<WatchColumn, number> = {
   range: 64,
   trend: 54,
 };
+
+function formatCompactDelta(change: number): string {
+  const abs = Math.abs(change);
+  const sign = change >= 0 ? "+" : "-";
+  if (abs > 0 && abs < 0.01) {
+    return `${sign}${abs.toFixed(abs < 0.001 ? 5 : 4)}`;
+  }
+  return `${change >= 0 ? "+" : ""}${formatPrice(change)}`;
+}
 
 function Cell({
   column,
@@ -110,8 +119,7 @@ function Cell({
       if (!Number.isFinite(quote.change)) return <span className="watch-cell muted">—</span>;
       return (
         <span className={`watch-cell mono ${quote.change >= 0 ? "positive" : "negative"}`}>
-          {quote.change >= 0 ? "+" : ""}
-          {formatPrice(quote.change)}
+          {formatCompactDelta(quote.change)}
         </span>
       );
     case "changePercent":
@@ -554,7 +562,17 @@ const SymbolDetail = memo(function SymbolDetail({ symbol }: { symbol: string }) 
   );
 });
 
-export function Watchlist({ phone = false, onOpenChart, onClose }: { phone?: boolean; onOpenChart?: () => void; onClose?: () => void } = {}) {
+export function Watchlist({
+  phone = false,
+  tablet = false,
+  onOpenChart,
+  onClose,
+}: {
+  phone?: boolean;
+  tablet?: boolean;
+  onOpenChart?: () => void;
+  onClose?: () => void;
+} = {}) {
   const store = useWatchlistStore();
   const symbol = useChartStore((s) => s.symbol);
   const [menu, setMenu] = useState(false),
@@ -571,8 +589,9 @@ export function Watchlist({ phone = false, onOpenChart, onClose }: { phone?: boo
   const [phoneListHeight, setPhoneListHeight] = useState(MAX_VIEW);
   const rowsRef = useRef<HTMLDivElement>(null);
   const resolvedListsRef = useRef<Set<string>>(new Set());
-  const editMode = phone && editing;
-  const showActions = !phone || editMode;
+  const touch = phone || tablet;
+  const editMode = touch && editing;
+  const showActions = !touch || editMode;
   useLayoutEffect(() => {
     const rows = rowsRef.current;
     if (!phone || !rows) return;
@@ -771,6 +790,20 @@ export function Watchlist({ phone = false, onOpenChart, onClose }: { phone?: boo
           {flowEligible && !flow.enabled && <IconButton label="Optionsflow verbinden" onClick={() => useAlpacaStore.setState({ open: true })}>
             <Activity size={16} />
           </IconButton>}
+          {tablet ? (
+            <IconButton
+              label={editing ? "Bearbeitung beenden" : "Watchlist bearbeiten"}
+              aria-pressed={editing}
+              className={editing ? "active" : ""}
+              onClick={() => {
+                setEditing(!editing);
+                setSelected(new Set());
+                setFlagMenu(null);
+              }}
+            >
+              <Pencil size={15} />
+            </IconButton>
+          ) : null}
           <IconButton
             label="Add symbol"
             onClick={() => useChartStore.getState().set({ searchOpen: true, searchTarget: "watchlist" })}
@@ -809,7 +842,7 @@ export function Watchlist({ phone = false, onOpenChart, onClose }: { phone?: boo
               resetScroll();
             }}
           />
-          {phone ? <select aria-label="Filter by flag" value={flagFilter ?? ""} onChange={event => {
+          {touch ? <select aria-label="Filter by flag" value={flagFilter ?? ""} onChange={event => {
             setFlagFilter(FLAG_ORDER.find(flag => flag === event.target.value) ?? null);
             resetScroll();
           }}>
@@ -829,7 +862,7 @@ export function Watchlist({ phone = false, onOpenChart, onClose }: { phone?: boo
           </div>}
         </div>
       ) : null}
-      <div className="watchlist-columns dynamic" style={{ gridTemplateColumns: gridColumns }}>
+      <div className={`watchlist-columns dynamic${editMode ? " editing" : ""}`} style={{ gridTemplateColumns: gridColumns }}>
         <button onClick={() => toggleSort("symbol")}>
           Symbol{arrow("symbol")}
           <ArrowDownUp size={9} className="sort-hint" />
