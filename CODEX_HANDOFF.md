@@ -6,6 +6,15 @@ This document is the single self-contained architectural, operational, and itera
 
 ## 1. Completed Modules & Current Status
 
+### Personal accounts cycle 2026-11-22
+
+- The private site password and existing key synchronization still work at their original entry points. Personal accounts can be invited using the site password. `accounts.ts` stores scrypt password hashes and hashes of revocable browser sessions in the existing durable data volume.
+- `googleAccount.ts` uses an expiring signed state and PKCE. An active account links its matching verified Google identity from `/konto`. Google may create a new account during an existing private-site session. Accounts remain keyed by Google subject after linking. Hosted Google OAuth requires a configured web client and the exact callback path `/api/account/google/callback` on the live origin.
+- The active profile namespaces browser stores, recordings, locks and cross-window events. `/api/sync` resolves account workspaces using a verified session and matching profile header. Key documents stay separate. Account sync opens the remote copy on an untouched browser, uses revision checks before writing and protects unsynced edits during a pull. Workspace backups include watchlist preferences, chart and indicator templates, drawings, Pine and alerts, plus the setup journal. Existing local workspaces can be adopted explicitly.
+- Account routes and the Google exchange are covered by registration, revocation, tenant isolation, legacy key compatibility and OAuth state fixtures. The browser audit exercises account login and restores a watchlist seeded by another device.
+- The release gate passed 2,838 tests, production build, Chrome E2E and the viewport audit with zero document overflow. The browser restored the seeded personal watchlist and left the legacy storage key separate.
+- To enable Google in production, register a Google OAuth Web client with the exact callback `https://affenterminal.livelydesert-dd29fc84.germanywestcentral.azurecontainerapps.io/api/account/google/callback`. Set the Container App environment bindings `AFFENTRADER_GOOGLE_CLIENT_ID`, `AFFENTRADER_GOOGLE_CLIENT_SECRET` and `AFFENTRADER_GOOGLE_REDIRECT_URI`. Store the client secret as an Azure Container App secret reference.
+
 ### Social research cycle 2026-11-22
 
 - `SocialResearch` adds ticker searches, source coverage and mention rankings for the prior 24 or 72 hours. `summarizeSocial` counts each post or comment once per ticker, using cashtags and recognized uppercase symbols. Original links and post times remain visible, and unavailable feeds have a distinct state.

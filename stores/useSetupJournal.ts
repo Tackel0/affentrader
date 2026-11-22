@@ -1,4 +1,5 @@
 "use client";
+import { accountScopedName } from "@/lib/accountScope";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { mergeSetupHistory, mergeSetupRecords, type SetupRecord } from "@/lib/screener/setupJournal";
@@ -30,4 +31,4 @@ export const useSetupJournal = create<SetupJournal>()(persist((set, get) => ({
     set(state => ({ records: state.records.map(item => item.id === id ? { ...item, tracked } : item) }));
   },
   show(chartId) { set({ chartId }); },
-}), { name: "affentrader-setups-v1", partialize: state => ({ records: state.records }) }));
+}), { name: accountScopedName("affentrader-setups-v1"), partialize: state => ({ records: state.records }) }));

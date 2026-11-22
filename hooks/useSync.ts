@@ -1,10 +1,11 @@
 "use client";
 import { useEffect } from "react";
-import { useSyncStore } from "@/stores/useSyncStore";
+import { useAccountSyncStore, useSyncStore } from "@/stores/useSyncStore";
 import { useChartStore } from "@/stores/useChartStore";
-import { checkRemote, pushWorkspace } from "@/lib/sync";
+import { checkRemote, pullWorkspace, pushWorkspace } from "@/lib/sync";
 import { isPopout } from "@/lib/windowScope";
 import { workspaceFingerprint } from "@/lib/workspaceBackup";
+import { hadLocalAccountWorkspace, workspaceProfile } from "@/lib/accountScope";
 
 const CHECK_MS = 30_000;
 const CHANGE_MS = 10_000;
@@ -17,48 +18,64 @@ const CHANGE_MS = 10_000;
 export function useSync() {
   const key = useSyncStore((s) => s.key);
   useEffect(() => {
-    if (!key) {
+    const account = !key && Boolean(workspaceProfile());
+    const store = account ? useAccountSyncStore : useSyncStore;
+    if (!key && !account) {
       useSyncStore.getState().set({ status: "off", remote: null });
       return;
     }
     // One window syncs the shared workspace; pop-outs only follow it.
     if (isPopout()) return;
-    let disposed = false;
+    let disposed = false, checking = false;
     let announced = 0;
+    const initial = store.getState();
+    if (account && initial.adopt) initial.set({ adopt: false, syncedFingerprint: workspaceFingerprint() });
+    const initialFingerprint = account && !hadLocalAccountWorkspace() && !initial.revision && !initial.syncedFingerprint ? workspaceFingerprint() : null;
     // After a pull the restored workspace becomes the baseline once stores have settled.
     const adopt = setTimeout(() => {
-      const s = useSyncStore.getState();
+      const s = store.getState();
       if (s.adopt) s.set({ adopt: false, syncedFingerprint: workspaceFingerprint() });
     }, 2500);
     const tick = async () => {
-      const s = useSyncStore.getState();
-      if (disposed || s.status === "syncing" || s.adopt) return;
-      const remote = await checkRemote();
-      if (!remote || disposed) return;
-      const state = useSyncStore.getState();
-      const changed = state.syncedFingerprint !== workspaceFingerprint();
-      if (remote.revision > state.revision && !changed && announced !== remote.revision) {
-        announced = remote.revision;
-        useChartStore
-          .getState()
-          .toast("Newer workspace available", `${remote.device || "Another device"} synced changes. Open Sync in the menu to pull them.`, "info");
+      const s = store.getState();
+      if (disposed || checking || s.status === "syncing" || s.adopt || document.hidden) return;
+      checking = true;
+      try {
+        const remote = await checkRemote();
+        if (!remote || disposed) return;
+        const state = store.getState();
+        const fingerprint = workspaceFingerprint();
+        const changed = state.syncedFingerprint !== fingerprint;
+        const untouched = !changed || (state.revision === 0 && !state.syncedFingerprint && initialFingerprint === fingerprint);
+        if (account && remote.revision > state.revision && untouched && state.auto) {
+          await pullWorkspace(fingerprint);
+          return;
+        }
+        if (remote.revision > state.revision && !changed && announced !== remote.revision) {
+          announced = remote.revision;
+          useChartStore.getState().toast("Neuere Workspace-Kopie", "Öffne die Synchronisierung, um den neueren Stand zu laden.", "info");
+        }
+        if (state.auto && changed && remote.revision === state.revision && state.status !== "conflict") await pushWorkspace();
+      } finally {
+        checking = false;
       }
-      if (state.auto && changed && remote.revision === state.revision && state.status !== "conflict") await pushWorkspace();
     };
-    const first = setTimeout(() => void tick(), 3000);
+    const first = setTimeout(() => void tick(), account ? 150 : 3000);
     const remoteTimer = setInterval(() => void tick(), CHECK_MS);
     const changeTimer = setInterval(() => {
-      const s = useSyncStore.getState();
-      if (!s.auto || s.status !== "idle" || s.adopt) return;
+      const s = store.getState();
+      if (!s.auto || s.status !== "idle" || s.adopt || checking || document.hidden) return;
       if (s.syncedFingerprint !== workspaceFingerprint() && s.remote && s.remote.revision === s.revision)
         void pushWorkspace();
     }, CHANGE_MS);
+    document.addEventListener("visibilitychange", tick);
     return () => {
       disposed = true;
       clearTimeout(adopt);
       clearTimeout(first);
       clearInterval(remoteTimer);
       clearInterval(changeTimer);
+      document.removeEventListener("visibilitychange", tick);
     };
   }, [key]);
 }

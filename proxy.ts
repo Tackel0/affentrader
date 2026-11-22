@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { apiRateBucketKey, isSameOriginRequest, takeApiAttempt } from "@/lib/server/security";
 import { createSiteSession, matchesSitePassword, safeReturnPath, SESSION_SECONDS, SITE_COOKIE, siteAccessConfig, takeLoginAttempt, validSiteSession } from "@/lib/server/siteAccess";
-import { siteLoginPage } from "@/lib/server/siteLoginPage";
+import { siteLoginPage, type SignInMode } from "@/lib/server/siteLoginPage";
+import { ACCOUNT_COOKIE, readAccountSession, revokeAccountSession } from "@/lib/server/accounts";
+import { clearAccountCookies, googleSettings } from "@/lib/server/accountHttp";
+import { ACCOUNT_SCOPE_COOKIE } from "@/lib/accountScope";
 
 const privateHeaders = {
   "Cache-Control": "private, no-store, max-age=0",
@@ -14,6 +17,7 @@ const privateHeaders = {
 const PERMISSIONS_POLICY = "camera=(), microphone=(), geolocation=(), payment=(), usb=()";
 const API_CSP = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'";
 const HEAVY_GET_API_PATHS = new Set(["/api/terminal-opportunities", "/api/terminal-insiders", "/api/terminal-setups", "/api/stock-base", "/api/screener"]);
+const ACCOUNT_ENTRY_PATHS = new Set(["/api/account/login", "/api/account/register", "/api/account/google/start", "/api/account/google/callback"]);
 
 // Browsers fetch manifests with credentials omitted per HTML spec, and push SWs reference icons before auth.
 const PUBLIC_PWA_PATHS = new Set([
@@ -66,8 +70,8 @@ function appCsp(https: boolean): string {
   return directives.join("; ");
 }
 
-function login(next: string, error = "", status = 200): NextResponse {
-  return new NextResponse(siteLoginPage(next, error), { status, headers: {
+function login(next: string, error = "", status = 200, mode: SignInMode = "legacy"): NextResponse {
+  return new NextResponse(siteLoginPage(next, error, mode, Boolean(googleSettings())), { status, headers: {
     ...privateHeaders, "Content-Type": "text/html; charset=utf-8",
     "Permissions-Policy": PERMISSIONS_POLICY,
     "Content-Security-Policy": "default-src 'none'; img-src 'self'; manifest-src 'self'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
@@ -101,6 +105,7 @@ export async function proxy(request: NextRequest) {
   }
   const settings = siteAccessConfig();
   if (!settings) return new NextResponse("Der Website-Zugang ist noch nicht konfiguriert.", { status: 503, headers: privateHeaders });
+  if (ACCOUNT_ENTRY_PATHS.has(path)) return NextResponse.next();
   if (PUBLIC_PWA_PATHS.has(path) && ["GET", "HEAD"].includes(request.method)) {
     const response = NextResponse.next();
     response.headers.set("X-Content-Type-Options", "nosniff");
@@ -114,21 +119,28 @@ export async function proxy(request: NextRequest) {
     return response;
   }
   const sessionCookie = request.cookies.get(SITE_COOKIE)?.value;
-  const authenticated = validSiteSession(sessionCookie, settings);
+  const accountCookie = request.cookies.get(ACCOUNT_COOKIE)?.value;
+  const account = await readAccountSession(accountCookie).catch(() => null);
+  const legacyAuthenticated = validSiteSession(sessionCookie, settings);
+  const authenticated = Boolean(account || legacyAuthenticated);
   const secure = isHttpsRequest(request);
   const sessionCookieOptions = { httpOnly: true, sameSite: "lax", secure, path: "/" } as const;
   if (path === "/logout") {
     if (request.method !== "POST") return new NextResponse("POST required", { status: 405, headers: { ...privateHeaders, Allow: "POST" } });
     if (!sameOrigin(request)) return new NextResponse("Forbidden", { status: 403, headers: privateHeaders });
+    await revokeAccountSession(accountCookie).catch(() => undefined);
     const response = NextResponse.redirect(externalUrl(request, "/login"), 303);
     response.cookies.set(SITE_COOKIE, "", { ...sessionCookieOptions, maxAge: 0 });
+    clearAccountCookies(response, request);
     for (const [key, value] of Object.entries(privateHeaders)) response.headers.set(key, value);
     return response;
   }
   if (path === "/login") {
     const next = safeReturnPath(request.nextUrl.searchParams.get("next"));
     if (request.method === "GET" || request.method === "HEAD") {
-      return authenticated ? NextResponse.redirect(externalUrl(request, next), { status: 303, headers: privateHeaders }) : login(next);
+      const selected = request.nextUrl.searchParams.get("mode");
+      const mode: SignInMode = selected === "account" || selected === "register" ? selected : "legacy";
+      return authenticated && selected === null ? NextResponse.redirect(externalUrl(request, next), { status: 303, headers: privateHeaders }) : login(next, "", 200, mode);
     }
     if (request.method !== "POST") return new NextResponse("Method not allowed", { status: 405, headers: { ...privateHeaders, Allow: "GET, HEAD, POST" } });
     if (!sameOrigin(request)) return login(next, "Diese Anfrage wurde abgelehnt. Bitte öffne die Anmeldung erneut.", 403);
@@ -154,8 +166,10 @@ export async function proxy(request: NextRequest) {
     const form = new URLSearchParams(Buffer.concat(chunks).toString("utf8"));
     const destination = safeReturnPath(form.get("next"));
     if (!await matchesSitePassword(form.get("password") ?? "", settings)) return login(destination, "Das Passwort ist nicht richtig.", 401);
+    await revokeAccountSession(accountCookie).catch(() => undefined);
     const response = NextResponse.redirect(externalUrl(request, destination), 303);
     response.cookies.set(SITE_COOKIE, createSiteSession(settings), { ...sessionCookieOptions, maxAge: SESSION_SECONDS });
+    clearAccountCookies(response, request);
     for (const [key, value] of Object.entries(privateHeaders)) response.headers.set(key, value);
     return response;
   }
@@ -165,7 +179,8 @@ export async function proxy(request: NextRequest) {
     url.searchParams.set("next", safeReturnPath(path + request.nextUrl.search));
     return NextResponse.redirect(url, { status: 303, headers: privateHeaders });
   }
-  if (path.startsWith("/api/") && sessionCookie) {
+  const rateToken = account ? account.id : sessionCookie;
+  if (path.startsWith("/api/") && rateToken) {
     const writes = !["GET", "HEAD", "OPTIONS"].includes(request.method);
     const fetchSite = request.headers.get("sec-fetch-site");
     if (writes && (fetchSite === "cross-site" || fetchSite === "same-site"
@@ -175,7 +190,7 @@ export async function proxy(request: NextRequest) {
     const isHeavy = !["GET", "HEAD"].includes(request.method) || HEAVY_GET_API_PATHS.has(path);
     const tier = isHeavy ? "heavy" : "read";
     const limit = isHeavy ? 60 : 240;
-    const rate = takeApiAttempt(apiRateBucketKey(sessionCookie, tier), limit);
+    const rate = takeApiAttempt(apiRateBucketKey(rateToken, tier), limit);
     if (!rate.allowed) {
       return NextResponse.json(
         { error: "Too many requests. Please wait a moment." },
@@ -192,6 +207,10 @@ export async function proxy(request: NextRequest) {
     }
   }
   const response = NextResponse.next();
+  const profile = request.cookies.get(ACCOUNT_SCOPE_COOKIE)?.value ?? "";
+  if (!path.startsWith("/api/") && profile !== (account?.id ?? "")) {
+    response.cookies.set(ACCOUNT_SCOPE_COOKIE, account?.id ?? "", { sameSite: "lax", secure, path: "/", maxAge: account ? SESSION_SECONDS : 0 });
+  }
   for (const [key, value] of Object.entries(privateHeaders)) response.headers.set(key, value);
   response.headers.set("Permissions-Policy", PERMISSIONS_POLICY);
   response.headers.set("Content-Security-Policy", path.startsWith("/api/") ? API_CSP : appCsp(secure));

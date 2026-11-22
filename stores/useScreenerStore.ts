@@ -1,4 +1,5 @@
 "use client";
+import { accountScopedName } from "@/lib/accountScope";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { ScreenerFilter, ScreenerPreset } from "@/lib/screener/technical";
@@ -43,7 +44,7 @@ export const useScreenerStore = create<ScreenerState>()(
       removePreset: (id) => set((s) => ({ presets: s.presets.filter((p) => p.id !== id) })),
     }),
     {
-      name: "affentrader-screener-v1",
+      name: accountScopedName("affentrader-screener-v1"),
       partialize: (s) => ({
         timeframe: s.timeframe,
         limit: s.limit,

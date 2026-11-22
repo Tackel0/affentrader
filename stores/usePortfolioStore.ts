@@ -1,4 +1,5 @@
 "use client";
+import { accountScopedName } from "@/lib/accountScope";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { Lot, Portfolio } from "@/lib/portfolio";
@@ -66,6 +67,6 @@ export const usePortfolioStore = create<PortfolioState>()(
           ),
         })),
     }),
-    { name: "affentrader-portfolio-v1" },
+    { name: accountScopedName("affentrader-portfolio-v1") },
   ),
 );

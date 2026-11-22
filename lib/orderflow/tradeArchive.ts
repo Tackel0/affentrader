@@ -1,3 +1,4 @@
+import { accountScopedName } from "@/lib/accountScope";
 import type { Tick } from "@/types/trading";
 import type { TradeArchiveRead, TradeArchiveRecord, TradeArchiveSelection, TradeArchiveStats, TradeArchiveWrite } from "@/types/tradeArchive";
 import { isSymbolId, providerOf } from "@/lib/symbolId";
@@ -30,7 +31,7 @@ function cleanTick(tick: Tick): Tick { return { id: tick.id, symbol: tick.symbol
   ...(tick.seq === undefined ? {} : { seq: tick.seq }), ...(tick.tradeCount === undefined ? {} : { tradeCount: tick.tradeCount }) }; }
 export class TradeArchiveDb {
   private opened?: Promise<IDBDatabase>;
-  constructor(private name = NAME, private capacity = ARCHIVE_MAX_TRADES, private retention = ARCHIVE_RETENTION_MS, private now = Date.now) {
+  constructor(private name = accountScopedName(NAME), private capacity = ARCHIVE_MAX_TRADES, private retention = ARCHIVE_RETENTION_MS, private now = Date.now) {
     if (!Number.isInteger(capacity) || capacity < 1 || capacity > ARCHIVE_MAX_TRADES || !Number.isFinite(retention) || retention <= 0) throw new Error("Invalid trade archive policy.");
   }
   private open(): Promise<IDBDatabase> {

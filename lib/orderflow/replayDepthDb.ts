@@ -1,3 +1,4 @@
+import { accountScopedName } from "@/lib/accountScope";
 import type { OrderBook } from "@/types/trading";
 import { MAX_DEPTH_COLUMNS } from "./depthHeatmap";
 import { REPLAY_DEPTH_RETENTION_MS } from "./replayDepth";
@@ -8,7 +9,7 @@ const CAPACITY = 4 * MAX_DEPTH_COLUMNS;
 export class ReplayDepthDb {
   private connection?: Promise<IDBDatabase>;
 
-  constructor(private name = "affentrader-replay-depth-v1", private now = Date.now) {}
+  constructor(private name = accountScopedName("affentrader-replay-depth-v1"), private now = Date.now) {}
 
   private open() {
     return this.connection ??= new Promise<IDBDatabase>((resolve, reject) => {

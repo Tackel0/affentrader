@@ -1,4 +1,5 @@
 "use client";
+import { accountScopedName } from "@/lib/accountScope";
 import type { ScriptDetail, ScriptKind, ScriptSummary, Visibility } from "@/lib/server/library";
 
 export type { ScriptDetail, ScriptKind, ScriptSummary, Visibility };
@@ -8,10 +9,10 @@ const READER_KEY = "affentrader-reader-v1";
 /** Anonymous per-browser id used only to count each like once. */
 export function readerToken(): string {
   try {
-    const existing = localStorage.getItem(READER_KEY);
+    const existing = localStorage.getItem(accountScopedName(READER_KEY));
     if (existing && /^[a-f0-9]{32}$/.test(existing)) return existing;
     const made = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, "0")).join("");
-    localStorage.setItem(READER_KEY, made);
+    localStorage.setItem(accountScopedName(READER_KEY), made);
     return made;
   } catch {
     return "0".repeat(32);

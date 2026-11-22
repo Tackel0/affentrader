@@ -1287,7 +1287,9 @@ async function run() {
             const query = new URL(reqUrl).searchParams;
             if (query.get("resource") === "aggTrades") requestedTradePages.push(query.get("fromId"));
           }
-          if (healthOverride || MOCKED_API_PREFIXES.has(pathname)) {
+          const accountSync = pathname === "/api/sync" && Object.keys(params.request?.headers ?? {})
+            .some(name => name.toLowerCase() === "x-affentrader-workspace-profile");
+          if (healthOverride || (MOCKED_API_PREFIXES.has(pathname) && !accountSync)) {
             const fixtureUrl = new URL(reqUrl);
             if (pathname === "/api/terminal-social" && params.request?.postData) {
               const ticker = JSON.parse(params.request.postData).ticker;
@@ -2001,6 +2003,7 @@ async function run() {
     let deploymentUpdateChecked = false;
     let pineWorkerLifecycleChecked = false;
     let pineLoadsOnDemandChecked = false;
+    let personalWorkspaceChecked = false;
     if (serverProc && !opts.liveApis) {
       await setViewport(VIEWPORTS[0]);
       activeLabel = "deployment update";
@@ -2117,6 +2120,48 @@ async function run() {
         `location.pathname === "/login" && !!document.querySelector('form[action="/login"]')`,
         "online navigation still requires login",
       );
+      activeLabel = "personal workspace synchronization";
+      const accountPassword = randomBytes(16).toString("hex");
+      const accountEmail = "viewport-account@example.test";
+      const registration = await fetch(`${baseUrl}/api/account/register`, {
+        method: "POST", redirect: "manual", headers: { origin: baseUrl },
+        body: new URLSearchParams({ email: accountEmail, password: accountPassword, invite: loginPassword }),
+      });
+      if (registration.status !== 303) throw new Error(`Account registration returned HTTP ${registration.status}`);
+      const cookies = registration.headers.getSetCookie().map(line => line.split(";", 1)[0]);
+      const profile = cookies.find(line => line.startsWith("affentrader-workspace-profile="))?.split("=")[1];
+      if (!/^[a-f0-9]{32}$/.test(profile ?? "")) throw new Error("Account registration did not set a workspace scope");
+      const data = JSON.stringify({
+        version: 1, chart: { state: { symbol: "YF:MSFT", timeframe: "1D", chartType: "candles", feedMode: "auto", indicators: [] } },
+        watchlists: { state: { lists: [{ id: "account-list", name: "Synced account list", symbols: ["YF:MSFT"] }], activeId: "account-list" } },
+        alerts: { state: { alerts: [], logs: [] } },
+      });
+      const seeded = await fetch(`${baseUrl}/api/sync`, { method: "PUT", headers: {
+        origin: baseUrl, "content-type": "application/json", "x-affentrader-workspace-profile": profile,
+        cookie: cookies.filter(line => line.startsWith("affentrader-account-session=")).join("; "),
+      }, body: JSON.stringify({ data, baseRevision: 0, device: "First device" }) });
+      if (!seeded.ok) throw new Error(`Seeding the account workspace returned HTTP ${seeded.status}`);
+      await cdp.send("Page.navigate", { url: `${baseUrl}/login?mode=account` });
+      await waitForPagePredicate(cdp, '!!document.querySelector(\'form[action="/api/account/login"] input[name="email"]\')', "personal account login form");
+      await cdp.send("Runtime.evaluate", { expression: `(() => {
+        const form = document.querySelector('form[action="/api/account/login"]');
+        form.elements.email.value = ${JSON.stringify(accountEmail)};
+        form.elements.password.value = ${JSON.stringify(accountPassword)};
+        form.requestSubmit();
+      })()` });
+      await waitForPagePredicate(cdp, `(() => {
+        const saved = localStorage.getItem(${JSON.stringify(`affentrader-profile-${profile}:affentrader-watchlists-v1`)});
+        const legacy = localStorage.getItem("affentrader-watchlists-v1") ?? "";
+        return location.pathname === "/" && !!document.querySelector(".trading-app") && saved?.includes("Synced account list") && !legacy.includes("Synced account list");
+      })()`, "a new browser profile automatically restores the personal watchlist");
+      await cdp.send("Runtime.evaluate", { expression: `(() => {
+        const form = Object.assign(document.createElement("form"), { method: "post", action: "/logout" });
+        document.body.append(form);
+        form.submit();
+      })()` });
+      await waitForPagePredicate(cdp, 'location.pathname === "/login" && !document.cookie.includes("affentrader-workspace-profile=")', "account logout clears the active workspace profile");
+      personalWorkspaceChecked = true;
+      activeLabel = "offline navigation";
       if (serverProc.exitCode === null && serverProc.signalCode === null) {
         const stopped = once(serverProc, "exit", { signal: AbortSignal.timeout(8_000) });
         serverProc.kill("SIGKILL");
@@ -2146,6 +2191,7 @@ async function run() {
           deploymentUpdateChecked,
           pineWorkerLifecycleChecked,
           pineLoadsOnDemandChecked,
+          personalWorkspaceChecked,
           strategyLoadsOnDemandChecked,
           compactDockSnapChecked,
           sidebarSheetsChecked,

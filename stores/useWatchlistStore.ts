@@ -1,4 +1,5 @@
 "use client";
+import { accountScopedName } from "@/lib/accountScope";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { Watchlist, WatchFlag } from "@/types/trading";
@@ -240,6 +241,6 @@ export const useWatchlistStore = create<WatchlistState>()(
         return { added: countSymbols(entries), rejected: parsed.rejected, truncated };
       },
     }),
-    { name: "affentrader-watchlists-v1" },
+    { name: accountScopedName("affentrader-watchlists-v1") },
   ),
 );

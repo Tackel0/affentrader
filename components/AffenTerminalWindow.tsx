@@ -1,7 +1,8 @@
 "use client";
+import { accountScopedName } from "@/lib/accountScope";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { Terminal, ExternalLink, Activity, Moon, Sun } from "lucide-react";
+import { Terminal, ExternalLink, Activity, Moon, Sun, UserRound } from "lucide-react";
 import { useChartStore } from "@/stores/useChartStore";
 import { LINK_GROUPS, useLinkStore } from "@/stores/useLinkStore";
 import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
@@ -79,7 +80,7 @@ export function AffenTerminalWindow({
       typeof window !== "undefined" && new URLSearchParams(window.location.search).has("link");
     let hasStoredLink = false;
     try {
-      hasStoredLink = typeof sessionStorage !== "undefined" && Boolean(sessionStorage.getItem("affentrader-link-group"));
+      hasStoredLink = typeof sessionStorage !== "undefined" && Boolean(sessionStorage.getItem(accountScopedName("affentrader-link-group")));
     } catch {
       /* sessionStorage unavailable */
     }
@@ -159,6 +160,9 @@ export function AffenTerminalWindow({
             title="Focus or open main chart workspace"
           >
             <ExternalLink size={14} aria-hidden="true" /><span>Chart</span>
+          </button>
+          <button type="button" className="button small" aria-label="Konto" title="Konto" onClick={() => window.location.assign("/konto")}>
+            <UserRound size={16} aria-hidden="true" />
           </button>
         </div>
 

@@ -1,9 +1,10 @@
+import { accountScopedName } from "@/lib/accountScope";
 import type {StateStorage} from "zustand/middleware";
 import type {Account} from "./broker";
 import {isSymbolId} from "@/lib/symbolId";
 import {validPaperSource} from "./executionSource";
 import {validateExitLevels} from "./exitLevels";
-export const PAPER_STORAGE_KEY="affentrader-paper-v1";
+export const PAPER_STORAGE_KEY=accountScopedName("affentrader-paper-v1");
 let observed:string|null|undefined,buffering=false,suppressed=false,pending:string|undefined;
 const backing=()=>typeof localStorage==="undefined"?undefined:localStorage;
 const object=(value:unknown):value is Record<string,unknown>=>Boolean(value)&&typeof value==="object"&&!Array.isArray(value);

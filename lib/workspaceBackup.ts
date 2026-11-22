@@ -7,6 +7,8 @@ import { parseWorkspace, type WorkspaceBackup } from "./workspace";
 import { useStrategyStore } from "@/stores/useStrategyStore";
 import { editAlerts, browserAlertOwner } from "@/lib/alerts/browserOwnership";
 import { shallow } from "zustand/vanilla/shallow";
+import { useSetupJournal } from "@/stores/useSetupJournal";
+import { accountScopedName, readWorkspaceProfile, workspaceProfile } from "@/lib/accountScope";
 
 function readBackupState() {
   const chart = useChartStore.getState();
@@ -44,7 +46,7 @@ function readBackupState() {
       bottomOpen: chart.bottomOpen,
       bottomTab: chart.bottomTab,
     },
-    watchlists: { lists: watchlists.lists, activeId: watchlists.activeId },
+    watchlists: { lists: watchlists.lists, activeId: watchlists.activeId, columns: watchlists.columns, sort: watchlists.sort },
     alerts: {
       alerts: alerts.alerts,
       logs: alerts.logs,
@@ -52,6 +54,7 @@ function readBackupState() {
       events: alerts.events,
     },
     strategy: { document: useStrategyStore.getState().document },
+    setups: { records: useSetupJournal.getState().records },
     premium: {
       theme: premium.theme,
       layout: premium.layout,
@@ -89,6 +92,7 @@ function buildBackup(state: BackupState): WorkspaceBackup {
       },
     },
     strategy: { version: 0, state: state.strategy },
+    setups: { version: 0, state: state.setups },
     premium: { version: 0, state: state.premium },
   };
 }
@@ -99,28 +103,63 @@ export function createWorkspaceBackup(): WorkspaceBackup {
 }
 
 /** Write a validated backup into the browser's storage and reload the app. */
-export async function restoreWorkspace(data: WorkspaceBackup): Promise<void> {
-  await editAlerts(()=>{
-  browserAlertOwner().stop();
-  // Queued writes of the live stores must not land on top of the restored data.
-  hotStorage.discard();
-  for (const [key, value] of [
-    ["affentrader-chart-v1", data.chart],
-    ["affentrader-watchlists-v1", data.watchlists],
-    ["affentrader-alerts-v1", data.alerts],
-  ] as const)
-    localStorage.setItem(key, JSON.stringify(value));
-  if (data.premium)
-    localStorage.setItem("affentrader-premium-v1", JSON.stringify(data.premium));
-  if (data.strategy)
-    localStorage.setItem("affentrader-strategy-v1", JSON.stringify(data.strategy));
-  window.location.reload();
+const backupStorage = {
+  chart: "affentrader-chart-v1", watchlists: "affentrader-watchlists-v1", alerts: "affentrader-alerts-v1",
+  premium: "affentrader-premium-v1", strategy: "affentrader-strategy-v1", setups: "affentrader-setups-v1",
+} as const;
+
+export async function restoreWorkspace(data: WorkspaceBackup, canRestore = () => true): Promise<void> {
+  await editAlerts(() => {
+    if (workspaceProfile() !== readWorkspaceProfile() || !canRestore()) throw new Error("Der Workspace wurde inzwischen geändert.");
+    const updates = (Object.keys(backupStorage) as (keyof typeof backupStorage)[]).flatMap(section => {
+      const value = data[section];
+      return value ? [[accountScopedName(backupStorage[section]), JSON.stringify(value)] as const] : [];
+    });
+    hotStorage.flush();
+    const previous = new Map(updates.map(([key]) => [key, localStorage.getItem(key)]));
+    const written: string[] = [];
+    try {
+      for (const [key, value] of updates) { localStorage.setItem(key, value); written.push(key); }
+    } catch (error) {
+      for (const key of written.reverse()) {
+        const value = previous.get(key);
+        if (value == null) localStorage.removeItem(key);
+        else localStorage.setItem(key, value);
+      }
+      throw error;
+    }
+    browserAlertOwner().stop();
+    hotStorage.discard();
+    window.location.reload();
   });
 }
 
 /** Parse, validate and restore a backup file's text. */
-export async function restoreWorkspaceText(text: string): Promise<void> {
-  await restoreWorkspace(parseWorkspace(text));
+export async function restoreWorkspaceText(text: string, canRestore?: () => boolean): Promise<void> {
+  await restoreWorkspace(parseWorkspace(text), canRestore);
+}
+
+export function hasLegacyWorkspace() {
+  try { return [backupStorage.chart, backupStorage.watchlists, backupStorage.premium].some(key => localStorage.getItem(key) !== null); }
+  catch { return false; }
+}
+
+export async function importLegacyWorkspace() {
+  if (!workspaceProfile() || !hasLegacyWorkspace()) throw new Error("In diesem Browser ist kein bisheriger Workspace verfügbar.");
+  const snapshot = createWorkspaceBackup();
+  const source = snapshot as unknown as Record<string, { state: Record<string, unknown>; version: number }>;
+  for (const [section, key] of Object.entries(backupStorage)) {
+    const raw = localStorage.getItem(key);
+    if (!raw) continue;
+    const loaded = JSON.parse(raw) as { state?: Record<string, unknown> };
+    if (!loaded?.state || typeof loaded.state !== "object") throw new Error("Der bisherige Workspace ist beschädigt.");
+    for (const field of Object.keys(source[section].state)) {
+      if (field in loaded.state) source[section].state[field] = loaded.state[field];
+    }
+  }
+  // Legacy webhook credentials are local to the previous profile.
+  if (Array.isArray(source.alerts.state.rules)) source.alerts.state.rules = source.alerts.state.rules.map(rule => rule.webhook ? { ...rule, webhook: { url: rule.webhook.url } } : rule);
+  await restoreWorkspaceText(JSON.stringify(snapshot));
 }
 
 function fingerprintText(text: string): string {
@@ -148,6 +187,7 @@ export function workspaceFingerprint(text?: string): string {
     && shallow(current.watchlists, previous.state.watchlists)
     && shallow(current.alerts, previous.state.alerts)
     && shallow(current.strategy, previous.state.strategy)
+    && shallow(current.setups, previous.state.setups)
     && shallow(current.premium, previous.state.premium)) {
     return previous.value;
   }

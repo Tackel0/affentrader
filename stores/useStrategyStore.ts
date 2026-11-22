@@ -1,4 +1,5 @@
 "use client";
+import { accountScopedName } from "@/lib/accountScope";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { IPineInput } from "pinets";
@@ -39,7 +40,7 @@ export const useStrategyStore = create<StrategyState>()(
       edit: (patch) => set((s) => ({ document: { ...s.document, ...patch } })),
     }),
     {
-      name: "affentrader-strategy-v1",
+      name: accountScopedName("affentrader-strategy-v1"),
       partialize: (s) => ({ document: s.document, showOnChart: s.showOnChart }),
     },
   ),

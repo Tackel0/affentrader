@@ -1,3 +1,4 @@
+import { accountScopedName } from "@/lib/accountScope";
 import type { PineJournal, PineJournalRecord } from "@/types/pineAlerts";
 const NAME = "affentrader-pine-recovery-v1";
 export const MAX_BROWSER_PINE_BYTES = 256 * 1024 * 1024;
@@ -9,7 +10,7 @@ export class PineJournalDb {
   private opened?: Promise<IDBDatabase>;
   private open(): Promise<IDBDatabase> {
     if (!this.opened) this.opened = new Promise((resolve, reject) => {
-      const request = indexedDB.open(NAME, 1);
+      const request = indexedDB.open(accountScopedName(NAME), 1);
       request.onupgradeneeded = () => {
         request.result.createObjectStore("meta", { keyPath: "key" });
         request.result.createObjectStore("records", { keyPath: ["owner", "sequence"] });

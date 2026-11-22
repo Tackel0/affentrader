@@ -1,4 +1,5 @@
 "use client";
+import { accountScopedName } from "@/lib/accountScope";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { ExternalLink, LayoutGrid, Maximize2, Minimize2, X } from "lucide-react";
 import { useChartStore } from "@/stores/useChartStore";
@@ -54,7 +55,7 @@ type Capm = NonNullable<ReturnType<typeof terminalCapm>> & {
 
 type StatusTone = "neutral" | "ok" | "error";
 
-const HISTORY_KEY = "affentrader-terminal-history";
+const HISTORY_KEY = accountScopedName("affentrader-terminal-history");
 const DEFAULT_HISTORY = ["OPPS", "QCOM FA", "OSINT", "HEATMAP", "MARKETS", "AAPL CAPM"];
 const ORDER_QUICK_TICKERS = ["AAPL", "NVDA", "TSLA", "MSFT", "AMD", "QCOM", "SPY"];
 const COMMAND_KEYWORDS_EXCLUDED_FROM_TICKER = new Set(["BUY", "SELL", "HELP", "CLEAR", "GRID", "FLOW"]);

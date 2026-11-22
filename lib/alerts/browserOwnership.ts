@@ -1,4 +1,5 @@
 "use client";
+import { accountScopedName } from "@/lib/accountScope";
 import { BrowserAlertLease, AlertWriteQueue, type BrowserLocks } from "./browserLease";
 import { alertSnapshotChanged, beginAlertPersistence } from "./browserPersistence";
 import { useAlertStore } from "@/stores/useAlertStore";
@@ -7,7 +8,7 @@ import { useServerStore } from "@/stores/useServerStore";
 
 function browserLocks(): BrowserLocks | undefined {
   if (typeof navigator === "undefined" || !navigator.locks) return;
-  return { request: async (name, options, callback) => await navigator.locks.request(name, options, callback) };
+  return { request: async (name, options, callback) => await navigator.locks.request(accountScopedName(name), options, callback) };
 }
 async function refreshAlerts() {
   if (!alertSnapshotChanged()) return;

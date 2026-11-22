@@ -1,9 +1,10 @@
 "use client";
+import { accountScopedName } from "@/lib/accountScope";
 import {create} from "zustand";
 import {nativeBrowserLocks} from "@/lib/browser/coordination";
 import {validPresetDefinition,type OrderPreset,type OrderPresetDefinition} from "@/lib/trading/orderPresets";
-export const ORDER_PRESETS_KEY="affentrader-order-presets-v1";
-const SELECTED_KEY="affentrader-chart-order-preset-v1";
+export const ORDER_PRESETS_KEY=accountScopedName("affentrader-order-presets-v1");
+const SELECTED_KEY=accountScopedName("affentrader-chart-order-preset-v1");
 export function readPresetLibrary():OrderPreset[]{
   if(typeof localStorage==="undefined")throw new Error("Browser storage is unavailable.");const raw=localStorage.getItem(ORDER_PRESETS_KEY);if(raw===null)return [];
   if(raw.length>100000)throw new Error("The order preset library is too large.");const value=JSON.parse(raw) as {version?:number;presets?:OrderPreset[]};
@@ -16,7 +17,7 @@ const selected=()=>{try{return typeof sessionStorage==="undefined"?null:sessionS
 const saveSelection=(id:string|null)=>{try{if(typeof sessionStorage!=="undefined"){if(id)sessionStorage.setItem(SELECTED_KEY,id);else sessionStorage.removeItem(SELECTED_KEY);}}catch{}};
 async function edit<T>(action:(presets:OrderPreset[])=>T):Promise<T>{
   const locks=nativeBrowserLocks();if(!locks)throw new Error("This browser cannot safely save shared order presets. Web Locks support is required.");
-  return locks.request("affentrader-order-presets-write-v1",{},async()=>{const presets=readPresetLibrary(),result=action(presets);localStorage.setItem(ORDER_PRESETS_KEY,JSON.stringify({version:1,presets}));const current=useOrderPresetStore.getState().selectedId,id=presets.some(p=>p.id===current)?current:null;saveSelection(id);useOrderPresetStore.setState({presets,selectedId:id,error:null});return structuredClone(result);});
+  return locks.request(accountScopedName("affentrader-order-presets-write-v1"),{},async()=>{const presets=readPresetLibrary(),result=action(presets);localStorage.setItem(ORDER_PRESETS_KEY,JSON.stringify({version:1,presets}));const current=useOrderPresetStore.getState().selectedId,id=presets.some(p=>p.id===current)?current:null;saveSelection(id);useOrderPresetStore.setState({presets,selectedId:id,error:null});return structuredClone(result);});
 }
 function named(name:string,presets:OrderPreset[],id?:string){name=name.trim();if(!name||name.length>64)throw new Error("Use a preset name of 1–64 characters.");if(presets.some(p=>p.id!==id&&p.name.toLowerCase()===name.toLowerCase()))throw new Error("A preset with this name already exists.");return name;}
 function existing(presets:OrderPreset[],id:string,revision:number){const p=presets.find(p=>p.id===id);if(!p||p.revision!==revision)throw new Error("This preset changed. Reopen its current version.");if(!Number.isSafeInteger(p.revision+1))throw new Error("This preset reached its revision limit.");return p;}

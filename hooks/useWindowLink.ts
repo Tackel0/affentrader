@@ -11,13 +11,14 @@ import { useServerStore } from "@/stores/useServerStore";
 import { useStrategyStore } from "@/stores/useStrategyStore";
 import { useWatchlistStore } from "@/stores/useWatchlistStore";
 import { useSetupJournal } from "@/stores/useSetupJournal";
+import { accountScopedName, readWorkspaceProfile, workspaceProfile } from "@/lib/accountScope";
 import { parseLinkMessage, type WorkspaceLinkAction } from "@/lib/windowLink";
 import { receiveLinkedCrosshair, subscribeLinkedCrosshair } from "@/lib/chart/crosshairLink";
 import type { CrosshairPoint } from "@/types/trading";
 import { buildMissingOrderflowIndicators } from "@/lib/orderflow/equityOrderflow";
 import { popoutId, pruneWindows, touchWindow } from "@/lib/windowScope";
 
-const CHANNEL = "affentrader-link";
+const CHANNEL = accountScopedName("affentrader-link");
 
 /** Broadcast an explicit workspace action (e.g. switch to Footprint + open Orderflow/Trading tab) to linked windows. */
 export function broadcastWorkspaceAction(action: WorkspaceLinkAction): void {
@@ -53,6 +54,15 @@ const SHARED: Record<string, { persist: { rehydrate: () => Promise<void> | void 
  */
 export function useWindowLink() {
   useEffect(() => {
+    const reloadProfile = () => { if (workspaceProfile() !== readWorkspaceProfile()) window.location.reload(); };
+    window.addEventListener("focus", reloadProfile);
+    window.addEventListener("pageshow", reloadProfile);
+    document.addEventListener("visibilitychange", reloadProfile);
+    const disposeProfile = () => {
+      window.removeEventListener("focus", reloadProfile);
+      window.removeEventListener("pageshow", reloadProfile);
+      document.removeEventListener("visibilitychange", reloadProfile);
+    };
     const me = popoutId() ?? "main";
     if (me === "main") pruneWindows();
     else {
@@ -61,13 +71,15 @@ export function useWindowLink() {
     const heartbeat = me === "main" ? null : setInterval(touchWindow, 60_000);
 
     const onStorage = (event: StorageEvent) => {
-      const store = event.key ? SHARED[event.key] : undefined;
+      const entry = event.key ? Object.keys(SHARED).find(key => accountScopedName(key) === event.key) : undefined;
+      const store = entry ? SHARED[entry] : undefined;
       if (store && event.newValue !== null) void store.persist.rehydrate();
     };
     window.addEventListener("storage", onStorage);
 
     if (typeof BroadcastChannel === "undefined")
       return () => {
+        disposeProfile();
         window.removeEventListener("storage", onStorage);
         if (heartbeat) clearInterval(heartbeat);
       };
@@ -141,6 +153,7 @@ export function useWindowLink() {
     };
 
     return () => {
+      disposeProfile();
       offChart();
       offCrosshair();
       offGroup();

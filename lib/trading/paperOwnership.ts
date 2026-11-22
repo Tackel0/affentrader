@@ -1,9 +1,10 @@
 "use client";
+import { accountScopedName } from "@/lib/accountScope";
 import {ExecutionLease,ExclusiveWriteQueue,nativeBrowserLocks} from "@/lib/browser/coordination";
 import {usePaperStore} from "@/stores/usePaperStore";
 import {paperSnapshotChanged,beginPaperPersistence} from "./paperPersistence";
-export const PAPER_EXECUTION_LOCK="affentrader-paper-execution-v1";
-export const PAPER_WRITE_LOCK="affentrader-paper-write-v1";
+export const PAPER_EXECUTION_LOCK=accountScopedName("affentrader-paper-execution-v1");
+export const PAPER_WRITE_LOCK=accountScopedName("affentrader-paper-write-v1");
 async function refreshPaper(){if(!paperSnapshotChanged())return;await usePaperStore.persist.rehydrate();if(paperSnapshotChanged())throw new Error("Saved paper account could not be read. Its existing storage was retained.");}
 let owner:ExecutionLease|undefined;
 export function paperExecutionOwner(){return owner??=new ExecutionLease(nativeBrowserLocks(),async()=>{await editLivePaper(()=>undefined);},PAPER_EXECUTION_LOCK,"This browser cannot coordinate paper execution between tabs. Web Locks support is required.");}

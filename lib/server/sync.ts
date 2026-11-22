@@ -37,10 +37,15 @@ export function documentId(key: string): string {
 
 const stores = new Map<string, JsonStore<SyncDocument | null>>();
 function storeFor(key: string) {
-  const id = documentId(key);
+  return workspaceStore(`sync-${documentId(key)}`);
+}
+
+function workspaceStore(name: string) {
+  const dir = dataDir();
+  const id = `${dir}:${name}`;
   let store = stores.get(id);
   if (!store) {
-    store = new JsonStore<SyncDocument | null>(`sync-${id}`, () => null);
+    store = new JsonStore<SyncDocument | null>(name, () => null, () => dir);
     stores.set(id, store);
     if (stores.size > 500) stores.delete(stores.keys().next().value!);
   }
@@ -59,6 +64,13 @@ async function documentCount(): Promise<number> {
 export async function pullSync(key: string): Promise<SyncDocument | null> {
   return storeFor(key).read();
 }
+
+function accountStore(profile: string) {
+  if (!/^[a-f0-9]{32}$/.test(profile)) throw new SyncError(401, "Invalid workspace account.");
+  return workspaceStore(`account-workspace-${profile}`);
+}
+
+export const pullAccountSync = (profile: string) => accountStore(profile).read();
 
 export function checkPayload(data: unknown): asserts data is string {
   if (typeof data !== "string" || !data) throw new SyncError(400, "Missing workspace data.");
@@ -82,14 +94,25 @@ export async function pushSync(
   key: string,
   input: { data: unknown; baseRevision: number; device: string },
 ): Promise<{ revision: number; updatedAt: number }> {
+  return writeWorkspace(storeFor(key), input, true);
+}
+
+export function pushAccountSync(profile: string, input: { data: unknown; baseRevision: number; device: string }) {
+  return writeWorkspace(accountStore(profile), input, false);
+}
+
+async function writeWorkspace(
+  store: JsonStore<SyncDocument | null>,
+  input: { data: unknown; baseRevision: number; device: string },
+  keyLimit: boolean,
+) {
   if (typeof input.baseRevision !== "number" || !Number.isInteger(input.baseRevision) || input.baseRevision < 0) {
     throw new SyncError(400, "Invalid baseRevision.");
   }
   checkPayload(input.data);
-  const store = storeFor(key);
   const current = await store.read();
   const currentRevision = current?.revision ?? 0;
-  if (!current && (await documentCount()) >= MAX_SYNC_DOCUMENTS)
+  if (keyLimit && !current && (await documentCount()) >= MAX_SYNC_DOCUMENTS)
     throw new SyncError(507, "This server holds the maximum number of synced workspaces.");
   if (input.baseRevision !== currentRevision)
     throw new SyncError(409, "Another device synced a newer version first.", current
@@ -116,7 +139,7 @@ export async function pushSync(
 
 export async function deleteSync(key: string): Promise<void> {
   const id = documentId(key);
-  stores.delete(id);
+  stores.delete(`${dataDir()}:sync-${id}`);
   if (usesNetlifyStorage()) {
     await cloudStore().delete(`documents/sync-${id}.json`);
     return;

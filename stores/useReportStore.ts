@@ -1,4 +1,5 @@
 "use client";
+import { accountScopedName } from "@/lib/accountScope";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { MAX_SAVED_REPORTS, type SavedReport } from "@/lib/strategy/analysis";
@@ -41,6 +42,6 @@ export const useReportStore = create<ReportState>()(
             : [...s.selected, id].slice(-MAX_COMPARED),
         })),
     }),
-    { name: "affentrader-strategy-reports-v1" },
+    { name: accountScopedName("affentrader-strategy-reports-v1") },
   ),
 );

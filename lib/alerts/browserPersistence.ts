@@ -1,5 +1,6 @@
+import { accountScopedName } from "@/lib/accountScope";
 import type { StateStorage } from "zustand/middleware";
-export const ALERT_STORAGE_KEY = "affentrader-alerts-v1";
+export const ALERT_STORAGE_KEY = accountScopedName("affentrader-alerts-v1");
 let observed: string | null | undefined;
 let buffering=false,suppressed=false,pending:string|undefined;
 const backing = () => typeof localStorage === "undefined" ? undefined : localStorage;

@@ -125,6 +125,7 @@ export function MainMenu({
             Dark{theme === "dark" ? <Check size={14} /> : null}
           </button>
           <hr />
+          <button onClick={() => window.location.assign("/konto")}>Konto</button>
           <button
             onClick={() => {
               useChartStore.getState().set({ syncOpen: true });

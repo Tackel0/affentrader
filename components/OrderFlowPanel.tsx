@@ -1,4 +1,5 @@
 "use client";
+import { accountScopedName } from "@/lib/accountScope";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, CircleHelp, SlidersHorizontal } from "lucide-react";
@@ -58,7 +59,7 @@ export function OrderFlowPanel() {
   const { tapeView, milliseconds, combine, pauseOnHover, sizeDisplay, highlightAt, highlightMode, highlightMultiplier, side, unit, minimum, maximumValue } = preferences;
   useEffect(() => {
     try {
-      const saved = localStorage.getItem("affentrader-tape-view-v1");
+      const saved = localStorage.getItem(accountScopedName("affentrader-tape-view-v1"));
       if (saved) setPreferences(readTapePreferences(JSON.parse(saved)));
     } catch { /* Defaults remain usable when storage is unavailable. */ }
   }, []);
@@ -68,7 +69,7 @@ export function OrderFlowPanel() {
     savePreferences(next);
   };
   const savePreferences = (next: typeof defaultTapePreferences) => {
-    try { localStorage.setItem("affentrader-tape-view-v1", JSON.stringify(readTapePreferences(next))); } catch { /* Keep the change in this view. */ }
+    try { localStorage.setItem(accountScopedName("affentrader-tape-view-v1"), JSON.stringify(readTapePreferences(next))); } catch { /* Keep the change in this view. */ }
   };
   const updateFilters = (patch: Partial<Pick<typeof defaultTapePreferences, "side" | "unit" | "minimum" | "maximumValue">>) => {
     const next = { ...preferences, ...patch };

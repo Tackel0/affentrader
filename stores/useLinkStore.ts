@@ -1,10 +1,11 @@
 "use client";
+import { accountScopedName } from "@/lib/accountScope";
 import { create } from "zustand";
 
 export const LINK_GROUPS = ["off", "red", "green", "blue", "yellow"] as const;
 export type LinkGroup = (typeof LINK_GROUPS)[number];
 
-const SESSION_KEY = "affentrader-link-group";
+const SESSION_KEY = accountScopedName("affentrader-link-group");
 
 export function isLinkGroup(value: unknown): value is LinkGroup {
   return typeof value === "string" && (LINK_GROUPS as readonly string[]).includes(value);

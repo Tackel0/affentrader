@@ -2,9 +2,10 @@
 import { useState } from "react";
 import { Cloud, Copy, RefreshCw } from "lucide-react";
 import { useChartStore } from "@/stores/useChartStore";
-import { defaultDevice, newSyncKey, useSyncStore } from "@/stores/useSyncStore";
+import { defaultDevice, newSyncKey, useAccountSyncStore, useSyncStore } from "@/stores/useSyncStore";
 import { checkRemote, deleteRemoteCopy, pullWorkspace, pushWorkspace } from "@/lib/sync";
-import { workspaceFingerprint } from "@/lib/workspaceBackup";
+import { hasLegacyWorkspace, importLegacyWorkspace, workspaceFingerprint } from "@/lib/workspaceBackup";
+import { workspaceProfile } from "@/lib/accountScope";
 import { Modal } from "./ui";
 
 const STATUS: Record<string, string> = {
@@ -18,16 +19,19 @@ const STATUS: Record<string, string> = {
 
 export function SyncDialog() {
   const open = useChartStore((s) => s.syncOpen);
-  const s = useSyncStore();
+  const keys = useSyncStore(), accountState = useAccountSyncStore();
+  const signedIn = Boolean(workspaceProfile());
+  const account = signedIn && !keys.key;
+  const s = account ? accountState : keys;
   const [entry, setEntry] = useState("");
   const [reveal, setReveal] = useState(false);
   const [message, setMessage] = useState("");
   if (!open) return null;
   const close = () => useChartStore.getState().set({ syncOpen: false });
-  const dirty = s.key && s.syncedFingerprint !== workspaceFingerprint();
+  const dirty = (account || s.key) && s.syncedFingerprint !== workspaceFingerprint();
   const behind = s.remote && s.remote.revision > s.revision;
   const connect = (key: string, fresh: boolean) => {
-    s.set({ key, revision: 0, syncedFingerprint: "", device: s.device || defaultDevice(), status: "idle", error: "", remote: null });
+    keys.set({ key, revision: 0, syncedFingerprint: "", device: keys.device || defaultDevice(), status: "idle", error: "", remote: null });
     setMessage(fresh ? "Sync key created. Push this workspace, then enter the key on your other devices." : "");
     void checkRemote();
   };
@@ -39,10 +43,30 @@ export function SyncDialog() {
   return (
     <Modal title="Sync across devices" onClose={close} className="small-modal">
       <div className="form-body">
+        {account && <>
+          <p className="form-help">Dein Konto speichert Watchlists, Chart-Layouts, Zeichnungen, Indikatorvorlagen, Pine-Entwürfe, Alerts und das Setup-Journal.</p>
+          <div className={`sync-status ${s.status}`} role="status">{s.status === "conflict" ? "Es gibt Änderungen auf diesem Gerät und im Konto." : s.status === "syncing" ? "Workspace wird synchronisiert…" :
+            behind ? "Im Konto liegt eine neuere Kopie." : dirty ? "Lokale Änderungen warten auf die Synchronisierung." : "Workspace im Konto gespeichert."}</div>
+          <label className="check-row"><input type="checkbox" checked={s.auto} onChange={event => s.set({ auto: event.target.checked })} /> Automatisch synchronisieren</label>
+          {s.lastSyncedAt > 0 && <p className="form-help">Zuletzt synchronisiert {new Date(s.lastSyncedAt).toLocaleString("de-DE")}</p>}
+          <div className="sync-actions">
+            <button type="button" className="button small" onClick={() => void run(() => checkRemote().then(Boolean), "Kontostand geprüft.")}>Prüfen</button>
+            <button type="button" className="button small" disabled={s.status === "syncing" || Boolean(behind)} onClick={() => void run(pushWorkspace, "Workspace im Konto gespeichert.")}>Jetzt speichern</button>
+            <button type="button" className="button small" disabled={s.status === "syncing" || !s.remote?.revision} onClick={() => {
+              if (window.confirm("Den Workspace dieses Browsers durch die Kopie im Konto ersetzen?")) void pullWorkspace();
+            }}>Kopie aus Konto laden</button>
+          </div>
+          {hasLegacyWorkspace() && <button type="button" className="button small" disabled={s.status === "syncing"} onClick={() => {
+            if (window.confirm("Den bisherigen Workspace dieses Browsers in dein Konto übernehmen? Der aktuell geöffnete Workspace wird dabei ersetzt.")) {
+              void importLegacyWorkspace().catch(error => setMessage(error instanceof Error ? error.message : "Der bisherige Workspace konnte nicht übernommen werden."));
+            }
+          }}>Bisherigen Browser-Workspace übernehmen</button>}
+        </>}
         {!s.key ? (
-          <>
+          <details open={account ? undefined : true}>
+            <summary>Mit einem Schlüssel synchronisieren</summary>
             <p className="form-help">
-              Sync copies your charts, drawings, watchlists, alerts and layouts through this server so another browser or device can pick them up. No account is needed: a secret key names your sync space, so keep it private.
+              Der Schlüssel öffnet einen eigenen Synchronisierungsbereich. Du kannst denselben Schlüssel auf deinen Geräten verwenden.
             </p>
             <button className="button primary" onClick={() => connect(newSyncKey(), true)}>
               <Cloud size={14} /> Create a sync key
@@ -51,6 +75,7 @@ export function SyncDialog() {
               Or enter a key from another device
               <input
                 aria-label="Sync key"
+                type="password"
                 autoComplete="off"
                 placeholder="48-character key"
                 value={entry}
@@ -60,7 +85,7 @@ export function SyncDialog() {
             <button className="button" disabled={!/^[a-f0-9]{32,64}$/.test(entry)} onClick={() => connect(entry, false)}>
               Use this key
             </button>
-          </>
+          </details>
         ) : (
           <>
             <div className={`sync-status ${s.status}`}>
@@ -133,7 +158,8 @@ export function SyncDialog() {
                 className="link-button"
                 onClick={() => {
                   if (window.confirm("Stop syncing on this device? Other devices keep their copies.")) {
-                    s.set({ key: "", revision: 0, syncedFingerprint: "", status: "off", remote: null });
+                    if (signedIn) accountState.set({ auto: false, status: "off", remote: null });
+                    keys.set({ key: "", revision: 0, syncedFingerprint: "", status: "off", remote: null });
                   }
                 }}
               >

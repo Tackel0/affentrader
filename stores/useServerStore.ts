@@ -1,4 +1,5 @@
 "use client";
+import { accountScopedName } from "@/lib/accountScope";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
@@ -36,7 +37,7 @@ export const useServerStore = create<ServerState>()(
       set,
     }),
     {
-      name: "affentrader-server-v1",
+      name: accountScopedName("affentrader-server-v1"),
       partialize: (s) => ({ key: s.key, cursor: s.cursor }),
     },
   ),

@@ -1,6 +1,7 @@
 "use client";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { accountScopedName } from "@/lib/accountScope";
 
 export interface RemoteInfo {
   revision: number;
@@ -34,7 +35,7 @@ export function defaultDevice(): string {
   return `${browser} on ${os}`;
 }
 
-export const useSyncStore = create<SyncState>()(
+const makeSyncStore = (name: string) => create<SyncState>()(
   persist(
     (set) => ({
       key: "",
@@ -50,7 +51,7 @@ export const useSyncStore = create<SyncState>()(
       set,
     }),
     {
-      name: "affentrader-sync-v1",
+      name: accountScopedName(name),
       partialize: (s) => ({
         key: s.key,
         revision: s.revision,
@@ -63,6 +64,9 @@ export const useSyncStore = create<SyncState>()(
     },
   ),
 );
+
+export const useSyncStore = makeSyncStore("affentrader-sync-v1");
+export const useAccountSyncStore = makeSyncStore("affentrader-account-sync-v1");
 
 export function newSyncKey(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(24));

@@ -4,7 +4,9 @@
  * suffixed with its id, seeded from the main window when it opens. Everything
  * else (watchlists, alerts, paper account, portfolio…) stays shared.
  */
-const WINDOWS_KEY = "affentrader-windows-v1";
+import { accountScopedName, workspaceProfile } from "@/lib/accountScope";
+
+const WINDOWS_KEY = accountScopedName("affentrader-windows-v1");
 const STALE_MS = 24 * 60 * 60 * 1000;
 
 let cached: { key: string; id: string | null } | undefined;
@@ -30,6 +32,7 @@ export const isPopout = () => popoutId() !== null;
 
 /** The storage key a per-window store should use; a new pop-out starts from the main window's copy. */
 export function scopedName(base: string): string {
+  base = accountScopedName(base);
   const id = popoutId();
   if (!id) return base;
   const name = `${base}@${id}`;
@@ -76,11 +79,13 @@ export function pruneWindows(now = Date.now()): string[] {
   const stale = Object.keys(registry).filter((id) => now - Number(registry[id]) > STALE_MS);
   if (!stale.length) return [];
   try {
+    const profile = workspaceProfile();
+    const prefix = profile ? `affentrader-profile-${profile}:` : "";
     for (const id of stale) {
       delete registry[id];
       for (let i = localStorage.length - 1; i >= 0; i--) {
         const key = localStorage.key(i);
-        if (key?.endsWith(`@${id}`)) localStorage.removeItem(key);
+        if (key?.endsWith(`@${id}`) && (prefix ? key.startsWith(prefix) : !key.startsWith("affentrader-profile-"))) localStorage.removeItem(key);
       }
     }
     localStorage.setItem(WINDOWS_KEY, JSON.stringify(registry));

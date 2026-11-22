@@ -18,6 +18,9 @@ import { isValidZone } from "@/lib/timezones";
 import { LAYOUTS } from "@/stores/useWorkspaceStore";
 import { parseStrategyDocument } from "@/lib/strategy/settings";
 import { parseDrawingPreferences } from "@/lib/drawings/preferences";
+import { COLUMN_LABELS } from "@/lib/watchlist";
+import { opportunityPlan } from "@/lib/screener/opportunities";
+import type { SetupRecord } from "@/lib/screener/setupJournal";
 type JsonRecord = Record<string, unknown>;
 const BOTTOM_TABS = [
   "overview",
@@ -43,6 +46,7 @@ export interface WorkspaceBackup {
     state: { document: ReturnType<typeof parseStrategyDocument> };
     version?: number;
   };
+  setups?: { state: { records: readonly SetupRecord[] }; version?: number };
 }
 const record = (value: unknown): value is JsonRecord =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -98,7 +102,7 @@ export function parseWorkspace(content: string): WorkspaceBackup {
         "bottomTab",
       ],
     ],
-    [watch, ["lists", "activeId"]],
+    [watch, ["lists", "activeId", "columns", "sort"]],
     [alerts, ["alerts", "logs", "rules", "events"]],
   ] as const) {
     if (
@@ -207,6 +211,13 @@ export function parseWorkspace(content: string): WorkspaceBackup {
   }
   if (!listIds.has(String(watch.activeId)))
     throw new Error("Active watchlist was not found.");
+  if (watch.columns !== undefined && (!Array.isArray(watch.columns) || !watch.columns.length ||
+    new Set(watch.columns).size !== watch.columns.length || watch.columns.some(column => typeof column !== "string" || !Object.hasOwn(COLUMN_LABELS, column)))) {
+    throw new Error("Invalid watchlist columns.");
+  }
+  if (watch.sort != null && (!record(watch.sort) || typeof watch.sort.column !== "string" ||
+    !(["symbol", "flag"].includes(watch.sort.column) || Object.hasOwn(COLUMN_LABELS, watch.sort.column)) ||
+    !["asc", "desc"].includes(String(watch.sort.direction)))) throw new Error("Invalid watchlist sorting.");
   if (
     !Array.isArray(alerts.alerts) ||
     alerts.alerts.length > 200 ||
@@ -322,6 +333,18 @@ export function parseWorkspace(content: string): WorkspaceBackup {
     )
       throw new Error("Invalid strategy workspace state.");
     parseStrategyDocument(backup.strategy.state.document);
+  }
+  if (backup.setups !== undefined) {
+    const rows = backup.setups?.state?.records;
+    const ids = new Set<string>();
+    if (!Array.isArray(rows) || rows.some(row => {
+      if (!row || !text(row.id, 300) || ids.has(row.id) || !symbol(row.symbol) || !text(row.ticker, 30) ||
+        !text(row.name) || !text(row.label) || !text(row.currency, 16) || !/^\d{4}-\d{2}-\d{2}$/.test(row.session) ||
+        !finite(row.observedAt) || row.observedAt < 0 || row.observedAt > 8.64e15 || !finite(row.score) ||
+        typeof row.tracked !== "boolean" || !opportunityPlan(row.levels)) return true;
+      ids.add(row.id);
+      return false;
+    })) throw new Error("Invalid saved setups.");
   }
   return backup;
 }
