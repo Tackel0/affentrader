@@ -18,7 +18,7 @@
     "d3-geo": "^3.1.2",
     "fast-xml-parser": "^5.12.1",
     "lucide-react": "^0.468.0",
-    "next": "16.4.3",
+    "next": "16.4.6",
     "pinets": "0.13.0",
     "quickjs-emscripten-core": "0.32.0",
     "react": "^19.2.0",

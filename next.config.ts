@@ -17,5 +17,8 @@ const config: NextConfig = {
   transpilePackages: ["@luxalgo/vela", "@luxalgo/vela-pinets"],
   serverExternalPackages: ["yahoo-finance2", "fast-xml-parser"],
   devIndicators: false,
+  experimental: {
+    agentUpgrade: "security",
+  },
 };
 export default config;
