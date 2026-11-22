@@ -12,6 +12,11 @@ This document is the single self-contained architectural, operational, and itera
 - `accounts.ts` and `googleAccount.ts` verify that a session is still active inside the write that links a Google identity. Account tests cover rejected cross-origin updates, session revocation, password rotation, and workspace retention. The 360px browser flow checks that a password change retains the active workspace and fits the viewport.
 - The local gate passed type generation, type checking, 2,840 Vitest tests, the production build, the desktop Chrome E2E and the mobile viewport audit.
 
+### Google OAuth deployment 2026-11-22
+
+- GitHub Actions uses the optional repository secrets `AFFENTRADER_GOOGLE_CLIENT_ID` and `AFFENTRADER_GOOGLE_CLIENT_SECRET` for the production Google Web client. `azure-google-oauth.sh` stores the credential under a versioned Azure secret reference and derives the callback from the live origin. Deployments without the pair retain existing Azure configuration. A managed rollout verifies the Google authorization redirect as well as both account forms. Single-revision rollback first copies the last ready revision to preserve its environment bindings.
+- The production Google sign-in requires the Web client and the exact live `/api/account/google/callback` redirect registered in Google Cloud. The workflow can be started manually after the repository secrets are set. Local workflow tests passed for missing, partial, valid, and Azure-rejected configuration. Live Google verification requires the production credential pair.
+
 ### Personal accounts cycle 2026-11-22
 
 - The private site password and existing key synchronization still work at their original entry points. Personal accounts can be invited using the site password. `accounts.ts` stores scrypt password hashes and hashes of revocable browser sessions in the existing durable data volume.

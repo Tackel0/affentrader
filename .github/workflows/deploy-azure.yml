@@ -229,6 +229,8 @@ jobs:
         env:
           SECRET_ACR_USER: ${{ secrets.ACR_USERNAME }}
           SECRET_ACR_PASS: ${{ secrets.ACR_PASSWORD }}
+          GOOGLE_DEPLOY_CLIENT_ID: ${{ secrets.AFFENTRADER_GOOGLE_CLIENT_ID }}
+          GOOGLE_DEPLOY_CLIENT_SECRET: ${{ secrets.AFFENTRADER_GOOGLE_CLIENT_SECRET }}
           CONTEXT_DIR: ${{ runner.temp }}/affentrader-aca-ctx
         run: |
           set -euo pipefail
@@ -275,31 +277,49 @@ jobs:
           TARGET_TAG="$TAG" \
           node scripts/push-acr-image.mjs
 
+          source scripts/azure-google-oauth.sh
+          configure_google_oauth
+
           az containerapp update \
             --name "$APP_NAME" \
             --resource-group "$RESOURCE_GROUP" \
             --image "${ACR_LOGIN_SERVER}/${APP_NAME}:${TAG}" \
             --revision-suffix "$SUFFIX" \
+            "${GOOGLE_ENV_ARGS[@]}" \
             --output none
 
           OK=0
           for attempt in $(seq 1 24); do
             HEALTH_CODE=$(curl -sS --max-time 15 -o /tmp/live-health.json -w "%{http_code}" "${LIVE_BASE}/api/health" || echo "000")
             LOGIN_CODE=$(curl -sS --max-time 15 -o /tmp/live-login.html -w "%{http_code}" "${LIVE_BASE}/login" || echo "000")
+            ACCOUNT_CODE=$(curl -sS --max-time 15 -o /tmp/live-account.html -w "%{http_code}" "${LIVE_BASE}/login?mode=account" || echo "000")
+            REGISTER_CODE=$(curl -sS --max-time 15 -o /tmp/live-register.html -w "%{http_code}" "${LIVE_BASE}/login?mode=register" || echo "000")
             MANIFEST_CODE=$(curl -sS --max-time 15 -o /dev/null -w "%{http_code}" "${LIVE_BASE}/manifest.webmanifest" || echo "000")
             ICON_CODE=$(curl -sS --max-time 15 -o /dev/null -w "%{http_code}" "${LIVE_BASE}/icons/icon-192.png" || echo "000")
             SW_CODE=$(curl -sS --max-time 15 -o /dev/null -w "%{http_code}" "${LIVE_BASE}/sw.js" || echo "000")
+            GOOGLE_OK=1
+            if [ "$GOOGLE_DEPLOY_MANAGED" -eq 1 ]; then
+              GOOGLE_OK=0
+              if [ "$ACCOUNT_CODE" = "200" ] && grep -Fq '/api/account/google/start' /tmp/live-account.html; then
+                GOOGLE_CODE=$(curl -sS --max-time 15 -o /dev/null -w "%{http_code}" "${LIVE_BASE}/api/account/google/start" || echo "000")
+                if [ "$GOOGLE_CODE" = "303" ]; then GOOGLE_OK=1; fi
+              fi
+            fi
             if [ "$HEALTH_CODE" = "200" ] && grep -q '"ok":true' /tmp/live-health.json \
+              && grep -Fq "\"revision\":\"${APP_NAME}--${SUFFIX}\"" /tmp/live-health.json \
               && [ "$LOGIN_CODE" = "200" ] && [ "$MANIFEST_CODE" = "200" ] && [ "$ICON_CODE" = "200" ] && [ "$SW_CODE" = "200" ] \
+              && [ "$ACCOUNT_CODE" = "200" ] && grep -Fq 'action="/api/account/login"' /tmp/live-account.html \
+              && [ "$REGISTER_CODE" = "200" ] && grep -Fq 'action="/api/account/register"' /tmp/live-register.html \
+              && [ "$GOOGLE_OK" -eq 1 ] \
               && grep -q "datetime=\"${EXPECTED_ISO}\"" /tmp/live-login.html \
               && grep -q "viewport-fit=cover" /tmp/live-login.html; then
               OK=1
               break
             fi
-            echo "Attempt ${attempt}/24: health=${HEALTH_CODE} login=${LOGIN_CODE} manifest=${MANIFEST_CODE} icon=${ICON_CODE} sw=${SW_CODE} (waiting for ${EXPECTED_ISO})"
+            echo "Attempt ${attempt}/24: health=${HEALTH_CODE} login=${LOGIN_CODE} account=${ACCOUNT_CODE} register=${REGISTER_CODE} manifest=${MANIFEST_CODE} icon=${ICON_CODE} sw=${SW_CODE} (waiting for ${EXPECTED_ISO})"
             sleep 5
           done
-          rm -f /tmp/live-login.html /tmp/live-health.json
+          rm -f /tmp/live-login.html /tmp/live-account.html /tmp/live-register.html /tmp/live-health.json
 
           if [ "$OK" -ne 1 ]; then
             echo "::error::Live verification failed to observe healthy revision ${SUFFIX} (${EXPECTED_ISO}) at ${LIVE_BASE}. Initiating automatic rollback."
@@ -319,13 +339,16 @@ jobs:
             elif [ -n "$PREV_IMAGE" ]; then
               RB_UTC=$(date -u +%Y%m%d%H%M%S)
               RB_SUFFIX="r${RB_UTC}-${SHORT_SHA8}"
-              az containerapp update \
-                --name "$APP_NAME" \
-                --resource-group "$RESOURCE_GROUP" \
-                --image "$PREV_IMAGE" \
-                --revision-suffix "$RB_SUFFIX" \
-                --output none || true
-              RB_STATUS="re-deployed previous image ${PREV_IMAGE} as ${RB_SUFFIX}"
+              if [ -n "$PREV_REVISION" ] && az containerapp revision copy \
+                --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" \
+                --from-revision "$PREV_REVISION" --revision-suffix "$RB_SUFFIX" --output none; then
+                RB_STATUS="copied previous revision ${PREV_REVISION} as ${RB_SUFFIX}"
+              else
+                az containerapp update \
+                  --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" \
+                  --image "$PREV_IMAGE" --revision-suffix "$RB_SUFFIX" --output none || true
+                RB_STATUS="re-deployed previous image ${PREV_IMAGE} as ${RB_SUFFIX}"
+              fi
             fi
 
             RB_RECOVERED=0
@@ -359,4 +382,6 @@ jobs:
             printf -- '- **Revision Suffix:** `%s`\n' "$SUFFIX"
             printf -- '- **Verified Timestamp:** `%s`\n' "$EXPECTED_ISO"
             printf -- '- **Checks:** `/api/health` (200 + `ok:true`), `/login` (200 + `viewport-fit=cover`), `/manifest.webmanifest` (200), `/icons/icon-192.png` (200), `/sw.js` (200)\n'
+            printf -- '- **Accounts:** sign-in and registration forms returned 200.\n'
+            if [ "$GOOGLE_DEPLOY_MANAGED" -eq 1 ]; then printf -- '- **Google OAuth:** authorization redirect returned 303.\n'; fi
           } >> "$GITHUB_STEP_SUMMARY"

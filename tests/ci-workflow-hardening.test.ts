@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 
 const ROOT = process.cwd();
@@ -57,6 +58,47 @@ describe("CI/CD workflow & container hardening", () => {
     expect(dockerfile).toContain("HEALTHCHECK");
     expect(dockerfile).toContain("/api/health");
     expect(dockerfile).not.toMatch(/\bcurl\b|\bwget\b/i);
+  });
+
+  it("binds optional Google configuration to a versioned Azure secret without exposing it", () => {
+    const id = "fixture-123.apps.googleusercontent.com", value = "fixture-google-credential";
+    const command = `
+      APP_NAME=fixture-app
+      RESOURCE_GROUP=fixture-group
+      LIVE_BASE=https://terminal.example
+      writes=0
+      az() {
+        writes=$((writes + 1))
+        [[ "$1 $2 $3" == "containerapp secret set" ]] || return 61
+        [[ "$*" == *"=$GOOGLE_DEPLOY_CLIENT_SECRET"* ]] || return 62
+        printf '%s' "$GOOGLE_DEPLOY_CLIENT_SECRET" >&2
+        return "\${TEST_AZ_FAILURE:-0}"
+      }
+      source scripts/azure-google-oauth.sh
+      configure_google_oauth
+      if [[ "$GOOGLE_DEPLOY_MANAGED" == 1 ]]; then
+        [[ "$writes" == 1 ]]
+        [[ "\${GOOGLE_ENV_ARGS[0]}" == --set-env-vars ]]
+        [[ "\${GOOGLE_ENV_ARGS[2]}" =~ ^AFFENTRADER_GOOGLE_CLIENT_SECRET=secretref:oidc-[a-f0-9]{12}$ ]]
+        [[ "\${GOOGLE_ENV_ARGS[3]}" == AFFENTRADER_GOOGLE_REDIRECT_URI=https://terminal.example/api/account/google/callback ]]
+      else
+        [[ "$writes" == 0 && "\${#GOOGLE_ENV_ARGS[@]}" == 0 ]]
+      fi
+      printf 'mode=%s' "$GOOGLE_DEPLOY_MANAGED"
+    `;
+    const run = (first: string, secret: string, failure = "0") => spawnSync("bash", ["-eu", "-o", "pipefail", "-c", command], {
+      cwd: ROOT, encoding: "utf8", env: { ...process.env, GOOGLE_DEPLOY_CLIENT_ID: first, GOOGLE_DEPLOY_CLIENT_SECRET: secret, TEST_AZ_FAILURE: failure },
+    });
+    for (const [first, secret, expected] of [["", "", "mode=0"], [id, "", "mode=0"], [id, value, "mode=1"]]) {
+      const result = run(first, secret);
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain(expected);
+      expect((result.stdout + result.stderr).includes(value)).toBe(false);
+    }
+    const failed = run(id, value, "1");
+    expect(failed.status).toBe(1);
+    expect(failed.stdout).toContain("Azure rejected");
+    expect((failed.stdout + failed.stderr).includes(value)).toBe(false);
   });
 
   it("covers all 4 viewports and 8 AffenTerminal modules in scripts/verify-mobile-viewports.mjs", () => {
