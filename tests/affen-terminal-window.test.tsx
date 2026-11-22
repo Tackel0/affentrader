@@ -51,14 +51,13 @@ describe("AffenTerminalWindow Shell & Telemetry", () => {
       request.mockRestore();
     });
 
-    it("renders terminal window header with brand title, view badge, and sync symbol", () => {
+    it("renders the terminal brand and linked symbol in the window header", () => {
       const { container } = render(<AffenTerminalWindow initialView="opps" initialTicker="QCOM" />);
       const brand = container.querySelector(".affen-brand-block")!;
       expect(brand.textContent).toContain("AffenTerminal");
-      expect(brand.textContent).toContain("INSTITUTIONAL GUI · OPPS");
 
       const sync = container.querySelector(".affen-sync-block")!;
-      expect(sync.textContent).toContain("Sync Symbol: QCOM");
+      expect(sync.querySelector('[aria-label="Verknüpftes Symbol QCOM"]')?.textContent).toBe("QCOM");
       expect(screen.getByRole("main").querySelector(".research-terminal")).not.toBeNull();
     });
 
@@ -87,7 +86,7 @@ describe("AffenTerminalWindow Shell & Telemetry", () => {
       const themeBtn = container.querySelector(".affen-header-actions button.button.small");
       expect(themeBtn).not.toBeNull();
       // When current theme is dark, button suggests switching to 'Light'
-      expect(themeBtn?.textContent).toBe("Light");
+      expect(themeBtn?.getAttribute("aria-label")).toBe("Light");
     });
   });
 
@@ -190,7 +189,7 @@ describe("AffenTerminalWindow Shell & Telemetry", () => {
       });
       expect(useWorkspaceStore.getState().theme).toBe("light");
       expect(document.documentElement.dataset.theme).toBe("light");
-      expect(themeBtn.textContent).toBe("Dark");
+      expect(themeBtn.getAttribute("aria-label")).toBe("Dark");
 
       // Click to toggle back to Dark
       await act(async () => {
@@ -198,7 +197,7 @@ describe("AffenTerminalWindow Shell & Telemetry", () => {
       });
       expect(useWorkspaceStore.getState().theme).toBe("dark");
       expect(document.documentElement.dataset.theme).toBe("dark");
-      expect(themeBtn.textContent).toBe("Light");
+      expect(themeBtn.getAttribute("aria-label")).toBe("Light");
     });
 
     it("updates document.title with terminal branding and active symbol label", async () => {

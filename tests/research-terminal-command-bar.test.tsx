@@ -32,7 +32,8 @@ describe("ResearchTerminal Command Bar", () => {
       const form = container.querySelector("form.terminal-command")!;
       const input = container.querySelector("#terminal-command") as HTMLInputElement;
       expect(input).toBeDefined();
-      expect(input.placeholder).toContain("<GO>");
+      expect(input.getAttribute("aria-label")).toBe("Ticker oder Terminal-Befehl");
+      expect(input.getAttribute("aria-keyshortcuts")).toBe("Alt+K");
 
       const goButton = within(form as HTMLElement).getByRole("button", { name: /<GO>/i });
       expect(goButton).toBeDefined();

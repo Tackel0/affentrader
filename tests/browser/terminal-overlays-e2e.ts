@@ -637,9 +637,7 @@ async function runTerminalRouteE2E(): Promise<TerminalRouteResult> {
   }
 
   // Verify clicking Trade-Möglichkeiten updates ResearchTerminal view cleanly
-  const oppsBtn = Array.from(termRoot.querySelectorAll("button")).find((b) =>
-    (b.textContent ?? "").includes("Trade-M"),
-  );
+  const oppsBtn = termRoot.querySelector<HTMLButtonElement>('[data-terminal-view="opps"]');
   if (!oppsBtn) throw new Error("Trade-Möglichkeiten tab button missing in AffenTerminalWindow");
   oppsBtn.click();
   const switchedViewTextLen = await waitFor(() => {
@@ -648,10 +646,10 @@ async function runTerminalRouteE2E(): Promise<TerminalRouteResult> {
   }, "AffenTerminalWindow Opportunities tab switch");
 
   // Switch into OSINT tab inside ResearchTerminal and confirm d3-geo paths mount inside the terminal pane
-  const osintBtn = Array.from(termRoot.querySelectorAll("button")).find((b) =>
-    (b.textContent ?? "").includes("OSINT"),
-  );
-  if (!osintBtn) throw new Error("OSINT tab button missing in AffenTerminalWindow");
+  const moduleLauncher = termRoot.querySelector<HTMLButtonElement>(".terminal-module-launch");
+  if (!moduleLauncher) throw new Error("Module launcher missing in AffenTerminalWindow");
+  moduleLauncher.click();
+  const osintBtn = await waitFor(() => document.querySelector<HTMLButtonElement>('[data-module-view="osint"]'), "OSINT in module picker");
   osintBtn.click();
   const osintTabSvgPaths = await waitFor(() => {
     const svg = termRoot.querySelector<SVGSVGElement>('svg[role="img"]');

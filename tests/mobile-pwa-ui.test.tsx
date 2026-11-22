@@ -480,7 +480,8 @@ describe("Mobile PWA & Touch UI regressions", () => {
     await waitFor(() => expect(win.container.textContent).toContain("62"));
     fireEvent.click(within(win.container).getByRole("button", { name: "Trade-Möglichkeiten" }));
     await waitFor(() => expect(win.container.textContent).toContain("0 von 0 Setups"));
-    fireEvent.click(within(win.container).getByRole("button", { name: "Commands" }));
+    fireEvent.click(within(win.container).getByRole("button", { name: "Module" }));
+    fireEvent.click(document.querySelector<HTMLButtonElement>('[data-module-view="help"]')!);
     fireEvent.click(within(win.container).getByRole("button", { name: "Trade-Möglichkeiten" }));
     expect(win.container.textContent).toContain("0 von 0 Setups");
     expect(vi.mocked(global.fetch).mock.calls.filter(([url]) => String(url).includes("/api/terminal-opportunities"))).toHaveLength(1);

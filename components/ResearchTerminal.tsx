@@ -1,6 +1,6 @@
 "use client";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { ExternalLink, Maximize2, Minimize2, X } from "lucide-react";
+import { ExternalLink, LayoutGrid, Maximize2, Minimize2, X } from "lucide-react";
 import { useChartStore } from "@/stores/useChartStore";
 import { useLinkStore } from "@/stores/useLinkStore";
 import { usePaperStore } from "@/stores/usePaperStore";
@@ -36,6 +36,7 @@ import { CalendarPanel } from "./CalendarPanel";
 import { TerminalMarkets } from "./TerminalMarkets";
 import { TerminalCompare } from "./TerminalCompare";
 import { ModuleErrorBoundary } from "./ModuleErrorBoundary";
+import { TerminalModulePicker, TerminalShortcuts } from "./TerminalNavigation";
 import { COMPACT_WORKSPACE_QUERY } from "@/lib/chart/bottomPanelResize";
 
 const HeatmapPanel = lazy(() => import("./HeatmapPanel").then(({ HeatmapPanel }) => ({ default: HeatmapPanel })));
@@ -368,6 +369,7 @@ export function ResearchTerminal({
   const [maximizedPane, setMaximizedPane] = useState<TerminalPaneId | null>(null);
 
   const [command, setCommand] = useState("");
+  const [modulePickerOpen, setModulePickerOpen] = useState(false);
   const [isAutocompleteOpen, setIsAutocompleteOpen] = useState(false);
   const [autocompleteIndex, setAutocompleteIndex] = useState(0);
   const [hasNavigatedSuggestion, setHasNavigatedSuggestion] = useState(false);
@@ -534,6 +536,13 @@ export function ResearchTerminal({
     setActivePane((prev) => resolveActivePaneForLayout(prev, nextMode));
   };
 
+  const openPrimaryView = (next: TerminalView) => {
+    setModulePickerOpen(false);
+    if (maximizedPane && maximizedPane !== "p1") setMaximizedPane(null);
+    setPaneView("p1", next);
+    setActivePane("p1");
+  };
+
   const closePane = (paneId: "p2" | "p3") => {
     userChangedLayoutRef.current = true;
     const next = computePaneCloseState(paneId, layoutMode, activePane, pane2View, pane3View);
@@ -545,6 +554,7 @@ export function ResearchTerminal({
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      if (modulePickerOpen) return;
       if (e.altKey && e.key.toLowerCase() === "k") {
         e.preventDefault();
         inputRef.current?.focus();
@@ -666,7 +676,7 @@ export function ResearchTerminal({
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [activePane, layoutMode, isAutocompleteOpen, command]);
+  }, [activePane, layoutMode, isAutocompleteOpen, command, modulePickerOpen]);
 
   const syncSymbol = (fullSymbol: string) => {
     if (onSelectSymbol) onSelectSymbol(fullSymbol);
@@ -878,6 +888,12 @@ export function ResearchTerminal({
     });
   };
 
+  const selectResearchTicker = (next: string) => {
+    setTicker(next);
+    setFaPreload(previous => previous?.ticker === next ? previous : { ticker: next, fundamentals: null });
+    if (tickerOf(useChartStore.getState().symbol) !== next) syncSymbol(resolveOrderTargetSymbol(next));
+  };
+
   const resolvedPane2View = resolveSecondaryPaneView(view, pane2View, pane3View, layoutMode);
 
   const renderPaneBody = (paneView: TerminalView, paneId: TerminalPaneId) => {
@@ -885,7 +901,9 @@ export function ResearchTerminal({
       case "opps":
         return (
           <OpportunitiesHub
-            onSelectOpportunity={handleOpportunitySelect}
+            onSelectOpportunity={(setup, fundamentals) => {
+              if (activePane === paneId && (paneId !== "p1" || view === "opps")) handleOpportunitySelect(setup, fundamentals);
+            }}
             onCompare={(sym, bench, session) => {
               reset();
               setComparison([sym, bench, session]);
@@ -898,9 +916,9 @@ export function ResearchTerminal({
       case "journal":
         return <SetupResearch externalWindow={externalWindow} />;
       case "insiders":
-        return <InsiderResearch initialTicker={ticker} />;
+        return <InsiderResearch initialTicker={ticker} onTickerSelect={selectResearchTicker} />;
       case "optionsflow":
-        return <OptionsFlowPanel initialTicker={ticker} />;
+        return <OptionsFlowPanel initialTicker={ticker} onTickerSelect={selectResearchTicker} />;
       case "scan":
         return (
           <StockBaseScanner
@@ -978,11 +996,12 @@ export function ResearchTerminal({
           execute();
         }}
       >
-        <label htmlFor="terminal-command">AffenTerminal</label>
         <div className="terminal-command-input-wrap">
           <input
             ref={inputRef}
             id="terminal-command"
+            aria-label="Ticker oder Terminal-Befehl"
+            aria-keyshortcuts="Alt+K"
             value={command}
             onChange={(e) => {
               const val = e.target.value;
@@ -1059,7 +1078,7 @@ export function ResearchTerminal({
                 }
               }
             }}
-            placeholder="TICKER <GO> · OPPS · FA · WEI · BUY/SELL · SPLIT 1/2/3 · F1-F12 (Alt+K)"
+            placeholder="Ticker oder Befehl"
             maxLength={56}
             autoComplete="off"
             spellCheck={false}
@@ -1117,10 +1136,16 @@ export function ResearchTerminal({
           &lt;GO&gt;
         </button>
 
+        <button className="button small terminal-module-launch" type="button" aria-haspopup="dialog"
+          aria-expanded={modulePickerOpen} onClick={() => { setIsAutocompleteOpen(false); setModulePickerOpen(true); }}>
+          <LayoutGrid size={16} aria-hidden="true" /> Module
+        </button>
+
         {!externalWindow && (
           <button
             type="button"
             className="button small affen-terminal-launch"
+            aria-label="Pop-out ↗"
             title="Open AffenTerminal in a separate synchronized window"
             onClick={() => {
               const linkState = useLinkStore.getState();
@@ -1132,7 +1157,7 @@ export function ResearchTerminal({
               }
             }}
           >
-            <ExternalLink size={13} /> Pop-out ↗
+            <ExternalLink size={15} aria-hidden="true" /><span>Pop-out</span>
           </button>
         )}
 
@@ -1164,21 +1189,9 @@ export function ResearchTerminal({
         </div>
       </form>
 
-      <div className="panel-tabs">
-        {TERMINAL_MODULES.map((item) => (
-          <button
-            type="button"
-            key={item.id}
-            className={view === item.id ? "active" : ""}
-            onClick={() => {
-              setPaneView("p1", item.id);
-              setActivePane("p1");
-            }}
-          >
-            {item.label}
-          </button>
-        ))}
-      </div>
+      <TerminalShortcuts view={view} onSelect={openPrimaryView} />
+      {modulePickerOpen && <TerminalModulePicker view={view} layout={layoutMode} onSelect={openPrimaryView}
+        onLayout={mode => { applyLayoutMode(mode); setModulePickerOpen(false); }} onClose={() => setModulePickerOpen(false)} />}
 
       {message && (
         <p

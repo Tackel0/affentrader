@@ -1,6 +1,5 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { IEX_TICKER } from "@/lib/symbolId";
 import { optionsFlowTicker } from "@/lib/market/optionsFlow";
 import { useWatchlistStore } from "@/stores/useWatchlistStore";
 import { formatPrice } from "@/lib/symbols";
@@ -15,30 +14,41 @@ interface Filings {
   filings: InsiderFilingSummary[];
 }
 
-export function InsiderResearch({ initialTicker }: { initialTicker: string }) {
+export function InsiderResearch({ initialTicker, onTickerSelect }: { initialTicker: string; onTickerSelect?: (ticker: string) => void }) {
   const [ticker, setTicker] = useState(initialTicker);
   const [result, setResult] = useState<Filings | null>(null);
   const [sort, setSort] = useState("date");
   const [minimum, setMinimum] = useState(0);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const pending = useRef<AbortController | null>(null);
+  const pending = useRef<{ controller: AbortController; ticker: string } | null>(null);
+  const selectedTicker = optionsFlowTicker(`YF:${ticker.trim()}`);
   const symbols = useWatchlistStore(state => state.lists.find(list => list.id === state.activeId)?.symbols);
   const watched = (symbols ?? []).flatMap(symbol => {
     const ticker = optionsFlowTicker(symbol);
     return ticker ? [ticker] : [];
   });
-  useEffect(() => () => pending.current?.abort(), []);
-  useEffect(() => setTicker(initialTicker), [initialTicker]);
+  useEffect(() => () => pending.current?.controller.abort(), []);
+  useEffect(() => {
+    setTicker(initialTicker);
+    if (pending.current?.ticker === initialTicker) return;
+    pending.current?.controller.abort();
+    setLoading(false);
+    setError("");
+    setResult(null);
+  }, [initialTicker]);
   const load = async () => {
-    pending.current?.abort();
+    if (!selectedTicker) return;
+    pending.current?.controller.abort();
     const controller = new AbortController();
-    pending.current = controller;
+    pending.current = { controller, ticker: selectedTicker };
+    setTicker(selectedTicker);
+    onTickerSelect?.(selectedTicker);
     setError("");
     setLoading(true);
     setResult(null);
     try {
-      const response = await fetch(`/api/terminal-insiders?${new URLSearchParams({ ticker })}`, { signal: controller.signal });
+      const response = await fetch(`/api/terminal-insiders?${new URLSearchParams({ ticker: selectedTicker })}`, { signal: controller.signal });
       const payload = await response.json() as Filings & { error?: string };
       if (!response.ok) throw new Error(payload.error ?? "Insider-Meldungen nicht verfügbar.");
       if (!controller.signal.aborted) setResult(payload);
@@ -55,7 +65,7 @@ export function InsiderResearch({ initialTicker }: { initialTicker: string }) {
         <option value="" disabled>Aktie auswählen</option>
         {[...new Set(watched)].map(value => <option key={value}>{value}</option>)}
       </select></label>}
-      <button type="submit" className="button primary" disabled={!IEX_TICKER.test(ticker) || loading}>Meldungen laden</button>
+      <button type="submit" className="button primary" disabled={!selectedTicker || loading}>Meldungen laden</button>
     </form>
     <div className="screener-toolbar">
       <label>Min. Volumen <select value={minimum} onChange={event => setMinimum(Number(event.target.value))}>

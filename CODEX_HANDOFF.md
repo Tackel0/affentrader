@@ -6,6 +6,13 @@ This document is the single self-contained architectural, operational, and itera
 
 ## 1. Completed Modules & Current Status
 
+### Terminal navigation cycle 2026-11-22
+
+- `TerminalShortcuts` brings the scanner, journal, Optionsflow and Insider together on one row on phones and tablets. The last slot shows Markets or the selected specialist view. `TerminalModulePicker` groups the full catalog and supports search by name or command. Pane layouts remain reachable from the picker on compact screens.
+- `ResearchTerminal` carries an explicitly confirmed ticker between Optionsflow and Insider, preserves the feed for an unchanged chart ticker, and prevents a hidden scanner response from replacing the active research context. `InsiderResearch` cancels an earlier request when a different ticker takes focus.
+- `AffenTerminalWindow` simplifies the header, preserves window linking and skips macro polling while the tab is hidden. Tests exercise module search, focus restoration, ticker handoff and the mobile access path to OSINT.
+- Chromium screenshots at mobile, tablet and desktop sizes exposed a third row in the 360 px header. Theme and chart actions now sit next to the brand, and the audit asserts two header rows and five visible shortcuts on phones. The full release gate passed 2,829 tests, production build and both Chrome checks with zero document overflow.
+
 ### Setup quality cycle 2026-11-22
 
 - Scanner scores previously ranked patterns without checking the price at which a trader could enter. `opportunityReadiness` and `rankOpportunities` now rank entries in range first, followed by pullbacks and unconfirmed breakouts. The detail view compares reward at the top of the zone with the limit midpoint, and paper drafts require at least 1.5 R to the first target at the planned limit.

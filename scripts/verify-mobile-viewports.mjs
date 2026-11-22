@@ -1730,7 +1730,7 @@ async function run() {
         compactDockSnapChecked = true;
       }
 
-      // 3d: /terminal across all 8 modules
+      // 3d: /terminal navigation and module views
       activeLabel = `${vp.name}:/terminal`;
       await cdp.send("Page.navigate", { url: `${baseUrl}/terminal?view=opps` });
       await waitForPagePredicate(
@@ -1739,27 +1739,53 @@ async function run() {
         `${vp.name} /terminal shell`,
       );
       await settleUi(cdp, 350);
+      if (vp.width <= 390) {
+        await waitForPagePredicate(cdp, `(() => {
+          const brand = document.querySelector(".affen-brand-block")?.getBoundingClientRect();
+          const actions = document.querySelector(".affen-header-actions")?.getBoundingClientRect();
+          const links = document.querySelector(".affen-sync-block")?.getBoundingClientRect();
+          const shortcuts = document.querySelector(".terminal-shortcuts");
+          return !!(brand && actions && links && shortcuts && actions.top < brand.bottom && links.top >= brand.bottom
+            && shortcuts.scrollWidth <= shortcuts.clientWidth && shortcuts.children.length === 5);
+        })()`, "the compact header uses two rows and keeps all five terminal shortcuts visible");
+      }
 
       for (const mod of TERMINAL_VIEW_TABS) {
         activeLabel = `${vp.name}:/terminal(${mod.key})`;
-        const clicked = await cdp.send("Runtime.evaluate", {
+        const open = await cdp.send("Runtime.evaluate", {
           expression: `(() => {
-            const buttons = [...document.querySelectorAll(".research-terminal .panel-tabs > button")];
-            const target = buttons.find((b) => b.textContent?.trim() === ${JSON.stringify(mod.label)});
-            if (!target) return false;
-            target.click();
-            return true;
+            const shortcuts = [...document.querySelectorAll(".terminal-shortcuts > button")];
+            const shortcut = shortcuts.find(button => button.getAttribute("aria-label") === ${JSON.stringify(mod.label)});
+            if (shortcut) { shortcut.click(); return "shortcut"; }
+            document.querySelector(".terminal-module-launch").click();
+            return "picker";
           })()`,
           returnByValue: true,
         });
-        if (clicked?.result?.value !== true) {
-          throw new Error(`[${vp.name}] Could not locate /terminal tab "${mod.label}" (${mod.key})`);
+        if (open?.result?.value === "picker") {
+          await waitForPagePredicate(cdp, `!!document.querySelector(".terminal-module-picker input")`, "terminal module picker opens");
+          if (mod.key === "OSINT") {
+            recordAudit(vp, "/terminal(module picker)", await inspectViewportDom(cdp, vp.mobile));
+            await cdp.send("Runtime.evaluate", { expression: 'document.querySelector(".terminal-module-picker input").focus()' });
+            await cdp.send("Input.insertText", { text: "OSINT" });
+            await waitForPagePredicate(cdp, `document.querySelectorAll(".terminal-module-picker [data-module-view]").length === 1`, "OSINT is the sole search result");
+          }
+          const clicked = await cdp.send("Runtime.evaluate", {
+            expression: `(() => {
+              const target = [...document.querySelectorAll(".terminal-module-picker [data-module-view]")]
+                .find(button => button.querySelector("span")?.textContent === ${JSON.stringify(mod.label)});
+              target?.click();
+              return Boolean(target);
+            })()`,
+            returnByValue: true,
+          });
+          if (clicked?.result?.value !== true) throw new Error(`[${vp.name}] Could not locate module "${mod.label}"`);
         }
         await waitForPagePredicate(
           cdp,
           `(() => {
             const buttons = [...document.querySelectorAll(".research-terminal .panel-tabs > button")];
-            const target = buttons.find((b) => b.textContent?.trim() === ${JSON.stringify(mod.label)});
+            const target = buttons.find((b) => b.getAttribute("aria-label") === ${JSON.stringify(mod.label)});
             return Boolean(target && target.classList.contains("active"));
           })()`,
           `${vp.name} /terminal tab ${mod.key} active`,

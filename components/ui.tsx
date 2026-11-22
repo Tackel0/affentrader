@@ -35,11 +35,13 @@ export function Modal({
   children,
   onClose,
   className = "",
+  initialFocusSelector,
 }: {
   title: string;
   children: ReactNode;
   onClose: () => void;
   className?: string;
+  initialFocusSelector?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null),
     id = useId();
@@ -50,9 +52,8 @@ export function Modal({
     modalStack.push(token);
     const prev = document.activeElement as HTMLElement | null;
     const el = ref.current;
-    const focus = () =>
-      el?.querySelector<HTMLElement>("input,textarea,select,button")?.focus();
-    focus();
+    const initialFocus = initialFocusSelector ? el?.querySelector<HTMLElement>(initialFocusSelector) : undefined;
+    (initialFocus ?? el?.querySelector<HTMLElement>("input,textarea,select,button"))?.focus();
     const handle = (e: KeyboardEvent) => {
       if (modalStack[modalStack.length - 1] !== token) return;
       if (e.key === "Escape") {
@@ -84,7 +85,7 @@ export function Modal({
       document.removeEventListener("keydown", handle, true);
       prev?.focus();
     };
-  }, []);
+  }, [initialFocusSelector]);
   return (
     <div
       className="modal-backdrop"

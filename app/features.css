@@ -1971,19 +1971,10 @@ button.dom-size:enabled:hover {
   border-radius: 1px;
   flex-shrink: 0;
 }
-.terminal-command label {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--accent, #ff9e00);
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
 .terminal-command-input-wrap {
   position: relative;
   flex: 1;
-  min-width: 140px;
+  min-width: 64px;
   display: flex;
   align-items: center;
 }
@@ -2103,9 +2094,6 @@ button.dom-size:enabled:hover {
   border-radius: 0;
   padding: 4px 8px;
 }
-.research-terminal.is-embedded .terminal-command > label {
-  display: none;
-}
 .research-terminal.is-single-pane .terminal-tile-header {
   display: none;
 }
@@ -2153,6 +2141,90 @@ button.dom-size:enabled:hover {
 .research-terminal .panel-tabs > button.active:after {
   bottom: 0;
 }
+.research-terminal .terminal-shortcuts > button {
+  justify-content: center;
+  gap: 6px;
+  padding-inline: 12px;
+  font-weight: 600;
+}
+.terminal-shortcuts > button > svg { flex: none; }
+.terminal-shortcuts > button > span {
+  color: inherit;
+  font-size: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.terminal-shortcuts > button[aria-current="page"] {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+}
+.terminal-module-launch { white-space: nowrap; }
+.terminal-module-picker.modal {
+  width: min(780px, 100%);
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--border);
+}
+.terminal-module-picker .modal-header { border-color: var(--border); }
+.terminal-module-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 14px 0;
+  padding-inline: 12px;
+  color: var(--muted);
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+.terminal-module-search:focus-within { outline: 2px solid var(--accent); }
+.terminal-module-search input {
+  min-width: 0;
+  width: 100%;
+  min-height: 42px;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  font-size: 16px;
+  color: var(--text);
+}
+.terminal-module-groups {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding: 14px;
+  min-height: 0;
+  overflow-y: auto;
+}
+.terminal-module-groups section { min-width: 0; }
+.terminal-module-groups h3 { padding: 4px 8px; font-size: 12px; color: var(--muted); }
+.terminal-module-groups section > button {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 40px;
+  text-align: left;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  color: var(--text);
+}
+.terminal-module-groups section > button:is(:hover, [aria-current="page"]) {
+  background: var(--surface2);
+  color: var(--accent);
+}
+.terminal-module-groups section > button > span { flex: 1; font-size: 12px; }
+.terminal-module-groups kbd { font-size: 9px; color: var(--muted); white-space: nowrap; }
+.terminal-module-groups > .form-help { grid-column: 1 / -1; }
+.terminal-picker-layout {
+  display: flex;
+  flex-shrink: 0;
+  gap: 6px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--border);
+}
+.terminal-picker-layout > button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
 .research-terminal .terminal-status {
   margin: 4px 0 0;
   padding: 3px 8px;
@@ -2235,8 +2307,7 @@ button.dom-size:enabled:hover {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  height: 32px;
-  max-height: 32px;
+  min-height: 42px;
   padding: 0 10px;
   border-bottom: 1px solid var(--border);
   background: var(--surface, #0d0f14);
@@ -2261,16 +2332,13 @@ button.dom-size:enabled:hover {
 .affen-clock {
   font-size: 11px;
 }
-.affen-badge {
-  font-size: 9px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  padding: 1px 5px;
-  border-radius: 1px;
-  background: #ff9e0018;
-  color: #ff9e00;
-  border: 1px solid #ff9e0050;
+.affen-brand-block { font-size: 14px; margin-inline-end: auto; }
+.affen-brand-block svg { color: var(--accent); }
+.affen-symbol {
+  margin-inline-end: 4px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: var(--surface2);
 }
 .affen-sync-block .link-groups {
   display: flex;
@@ -2480,10 +2548,9 @@ button.dom-size:enabled:hover {
   background: var(--border);
   border-radius: 1px;
 }
-@media (max-width: 920px) {
-  .terminal-command {
-    flex-wrap: wrap;
-  }
+@container terminal-shell (max-width: 570px) {
+  .terminal-command .segmented { display: none; }
+  .terminal-command .affen-terminal-launch > span { display: none; }
 }
 @media (max-width: 800px), (max-width: 1366px) and (pointer: coarse) {
   .affen-window-shell {
@@ -2586,10 +2653,12 @@ button.dom-size:enabled:hover {
     gap: 5px;
     padding: 5px 6px;
   }
-  .terminal-command-input-wrap {
-    flex: 1 1 100%;
-    min-width: 0;
-  }
+  .affen-window-header { justify-content: space-between; }
+  .affen-sync-block { flex: 1 1 100%; min-width: 0; }
+  .affen-symbol { overflow: hidden; text-overflow: ellipsis; }
+  .affen-clock { display: none; }
+  .affen-header-actions .button > span { display: none; }
+  .terminal-module-groups { grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .screener-toolbar {
     gap: 6px;
     padding: 6px 8px;
@@ -2605,29 +2674,40 @@ button.dom-size:enabled:hover {
   }
 }
 @media (max-width: 768px), (pointer: coarse) {
-  .research-terminal .panel-tabs > button {
-    min-height: 36px;
-    height: 36px;
-    padding: 0 10px;
+  .research-terminal .terminal-shortcuts {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    padding-inline: 2px;
+    overflow: hidden;
   }
+  .research-terminal .terminal-shortcuts > button {
+    min-height: 46px;
+    height: 46px;
+    padding: 3px 1px;
+    flex-direction: column;
+    gap: 3px;
+    font-size: 10px;
+  }
+  .terminal-shortcuts > button > span { max-width: 100%; }
+  .terminal-module-picker .modal-header > .icon-button,
+  .terminal-picker-layout > button,
+  .terminal-module-groups section > button { min-height: 44px; min-width: 44px; }
+  .affen-sync-block .link-chip { min-height: 36px; min-width: 36px; }
+  .affen-sync-block .link-chip.off { min-width: 36px; }
+  .affen-header-actions .button { min-height: 36px; min-width: 36px; }
+  .terminal-command .segmented { display: none; }
+  .terminal-module-launch { min-height: 44px; padding-inline: 8px; }
+  .terminal-module-launch svg { width: 14px; }
   .terminal-command input {
-    min-height: 36px;
-    height: 36px;
-    font-size: 13px;
+    min-height: 44px;
+    height: 44px;
+    font-size: 16px;
   }
   .terminal-command button[type="submit"],
   .terminal-command .affen-terminal-launch {
-    min-height: 36px;
-    height: 36px;
-  }
-  .terminal-command .segmented {
-    min-height: 38px;
-    height: auto;
-  }
-  .terminal-command .segmented button {
-    min-height: 36px;
-    height: 36px;
-    padding: 0 8px;
+    min-height: 44px;
+    min-width: 44px;
+    height: 44px;
   }
   .autocomplete-item {
     min-height: 40px;

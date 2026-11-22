@@ -2,6 +2,7 @@ import type { TerminalView } from "./commands";
 
 export type TerminalLayoutMode = "single" | "split-2" | "split-3";
 export type TerminalPaneId = "p1" | "p2" | "p3";
+export const TERMINAL_MODULE_GROUPS = ["Aktien-Research", "Märkte", "Werkzeuge"] as const;
 
 export interface TerminalModuleMeta {
   id: TerminalView;
@@ -9,23 +10,24 @@ export interface TerminalModuleMeta {
   selectLabel: string;
   command: string;
   paneTitle: string;
+  group: (typeof TERMINAL_MODULE_GROUPS)[number];
 }
 
 export const TERMINAL_MODULES: readonly TerminalModuleMeta[] = [
-  { id: "opps", label: "Trade-Möglichkeiten", selectLabel: "OPPS · Setups", command: "OPPS", paneTitle: "TRADE SETUPS" },
-  { id: "fa", label: "Fundamentals (FA)", selectLabel: "FA · Value", command: "FA", paneTitle: "FUNDAMENTALS" },
-  { id: "scan", label: "Stock bases", selectLabel: "SCAN · Bases", command: "SCAN", paneTitle: "STOCK BASES" },
-  { id: "markets", label: "Markets", selectLabel: "MARKETS · Global", command: "MARKETS", paneTitle: "GLOBAL MARKETS" },
-  { id: "compare", label: "Compare", selectLabel: "COMPARE · Perf", command: "COMPARE", paneTitle: "COMPARE" },
-  { id: "capm", label: "CAPM", selectLabel: "CAPM · Beta", command: "AAPL CAPM", paneTitle: "CAPM BETA" },
-  { id: "macro", label: "Macro", selectLabel: "MACRO · Cal", command: "MACRO", paneTitle: "MACRO CALENDAR" },
-  { id: "news", label: "News", selectLabel: "NEWS · Feed", command: "NEWS", paneTitle: "NEWS FEED" },
-  { id: "heatmap", label: "Heatmap", selectLabel: "HEATMAP · Sectors", command: "HEATMAP", paneTitle: "HEATMAP" },
-  { id: "osint", label: "Tanker & Flights (OSINT)", selectLabel: "OSINT · Radar", command: "OSINT", paneTitle: "OSINT RADAR" },
-  { id: "help", label: "Commands", selectLabel: "HELP · Keys", command: "HELP", paneTitle: "COMMANDS CHEAT SHEET" },
-  { id: "journal", label: "Setup-Journal", selectLabel: "JOURNAL · Setups", command: "JOURNAL", paneTitle: "SETUP JOURNAL" },
-  { id: "insiders", label: "Insider", selectLabel: "INSIDER · SEC", command: "INSIDER", paneTitle: "INSIDER-MELDUNGEN" },
-  { id: "optionsflow", label: "Optionsflow", selectLabel: "OPTIONSFLOW · OPRA", command: "OPTIONSFLOW", paneTitle: "OPTIONSFLOW" },
+  { id: "opps", label: "Trade-Möglichkeiten", selectLabel: "OPPS · Setups", command: "OPPS", paneTitle: "TRADE SETUPS", group: "Aktien-Research" },
+  { id: "fa", label: "Fundamentals (FA)", selectLabel: "FA · Value", command: "FA", paneTitle: "FUNDAMENTALS", group: "Aktien-Research" },
+  { id: "scan", label: "Stock bases", selectLabel: "SCAN · Bases", command: "SCAN", paneTitle: "STOCK BASES", group: "Aktien-Research" },
+  { id: "markets", label: "Markets", selectLabel: "MARKETS · Global", command: "MARKETS", paneTitle: "GLOBAL MARKETS", group: "Märkte" },
+  { id: "compare", label: "Compare", selectLabel: "COMPARE · Perf", command: "COMPARE", paneTitle: "COMPARE", group: "Werkzeuge" },
+  { id: "capm", label: "CAPM", selectLabel: "CAPM · Beta", command: "AAPL CAPM", paneTitle: "CAPM BETA", group: "Werkzeuge" },
+  { id: "macro", label: "Macro", selectLabel: "MACRO · Cal", command: "MACRO", paneTitle: "MACRO CALENDAR", group: "Märkte" },
+  { id: "news", label: "News", selectLabel: "NEWS · Feed", command: "NEWS", paneTitle: "NEWS FEED", group: "Märkte" },
+  { id: "heatmap", label: "Heatmap", selectLabel: "HEATMAP · Sectors", command: "HEATMAP", paneTitle: "HEATMAP", group: "Märkte" },
+  { id: "osint", label: "Tanker & Flights (OSINT)", selectLabel: "OSINT · Radar", command: "OSINT", paneTitle: "OSINT RADAR", group: "Märkte" },
+  { id: "help", label: "Commands", selectLabel: "HELP · Keys", command: "HELP", paneTitle: "COMMANDS CHEAT SHEET", group: "Werkzeuge" },
+  { id: "journal", label: "Setup-Journal", selectLabel: "JOURNAL · Setups", command: "JOURNAL", paneTitle: "SETUP JOURNAL", group: "Aktien-Research" },
+  { id: "insiders", label: "Insider", selectLabel: "INSIDER · SEC", command: "INSIDER", paneTitle: "INSIDER-MELDUNGEN", group: "Aktien-Research" },
+  { id: "optionsflow", label: "Optionsflow", selectLabel: "OPTIONSFLOW · OPRA", command: "OPTIONSFLOW", paneTitle: "OPTIONSFLOW", group: "Aktien-Research" },
 ];
 
 export interface AutocompleteItem {

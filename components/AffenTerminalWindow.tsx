@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { Terminal, Radio, ExternalLink, Activity } from "lucide-react";
+import { Terminal, ExternalLink, Activity, Moon, Sun } from "lucide-react";
 import { useChartStore } from "@/stores/useChartStore";
 import { LINK_GROUPS, useLinkStore } from "@/stores/useLinkStore";
 import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
@@ -38,7 +38,6 @@ export function AffenTerminalWindow({
   deployment?: ReactNode;
 }) {
   useWindowLink();
-  const [activeView, setActiveView] = useState<TerminalView>(initialView);
   const symbol = useChartStore((s) => s.symbol);
   const linkGroup = useLinkStore((s) => s.group);
   const setLinkGroup = useLinkStore((s) => s.setGroup);
@@ -100,22 +99,28 @@ export function AffenTerminalWindow({
   }, []);
 
   useEffect(() => {
-    let alive = true;
+    const controller = new AbortController();
+    let pending = false, lastRequest = 0;
     const loadMacro = async () => {
+      if (document.hidden || pending || Date.now() - lastRequest < 120_000) return;
+      pending = true;
+      lastRequest = Date.now();
       try {
-        const res = await fetch("/api/feeds?kind=macro");
+        const res = await fetch("/api/feeds?kind=macro", { signal: controller.signal });
         if (!res.ok) return;
         const json = (await res.json()) as GlobalMacroPulse;
-        if (alive) setMacro(json);
+        if (!controller.signal.aborted) setMacro(json);
       } catch {
         /* keep header silent when offline */
-      }
+      } finally { pending = false; }
     };
     void loadMacro();
     const timer = setInterval(() => void loadMacro(), 120_000);
+    document.addEventListener("visibilitychange", loadMacro);
     return () => {
-      alive = false;
+      controller.abort();
       clearInterval(timer);
+      document.removeEventListener("visibilitychange", loadMacro);
     };
   }, []);
 
@@ -124,16 +129,42 @@ export function AffenTerminalWindow({
       {deployment}
       <header className="affen-window-header">
         <div className="affen-brand-block">
-          <Terminal size={17} />
+          <Terminal size={18} aria-hidden="true" />
           <strong>AffenTerminal</strong>
-          <span className="affen-badge">INSTITUTIONAL GUI · {activeView.toUpperCase()}</span>
+        </div>
+
+        <div className="affen-header-actions">
+          <AffenUtcClock />
+          <button
+            type="button"
+            className="button small"
+            aria-label={theme === "dark" ? "Light" : "Dark"}
+            onClick={() => {
+              useWorkspaceStore.getState().setTheme(theme === "dark" ? "light" : "dark");
+            }}
+          >
+            {theme === "dark" ? <Sun size={16} aria-hidden="true" /> : <Moon size={16} aria-hidden="true" />}
+          </button>
+          <button
+            type="button"
+            className="button small"
+            aria-label="Chart Workspace"
+            onClick={() => {
+              if (window.opener && !window.opener.closed) {
+                window.opener.focus();
+              } else {
+                window.open("/", "affenterminal-chart");
+              }
+            }}
+            title="Focus or open main chart workspace"
+          >
+            <ExternalLink size={14} aria-hidden="true" /><span>Chart</span>
+          </button>
         </div>
 
         <div className="affen-sync-block">
-          <Radio size={13} className="positive" />
-          <span className="mono">
-            Sync Symbol: <strong>{symbolLabel(symbol)}</strong>
-          </span>
+          <strong className="mono affen-symbol" aria-label={`Verknüpftes Symbol ${symbolLabel(symbol)}`}
+            title="Verknüpftes Chart-Symbol">{symbolLabel(symbol)}</strong>
           <div className="link-groups" role="radiogroup" aria-label="Window link color">
             {LINK_GROUPS.map((g) => (
               <button
@@ -149,33 +180,6 @@ export function AffenTerminalWindow({
               </button>
             ))}
           </div>
-        </div>
-
-        <div className="affen-header-actions">
-          <AffenUtcClock />
-          <button
-            type="button"
-            className="button small"
-            onClick={() => {
-              useWorkspaceStore.getState().setTheme(theme === "dark" ? "light" : "dark");
-            }}
-          >
-            {theme === "dark" ? "Light" : "Dark"}
-          </button>
-          <button
-            type="button"
-            className="button small"
-            onClick={() => {
-              if (window.opener && !window.opener.closed) {
-                window.opener.focus();
-              } else {
-                window.open("/", "affenterminal-chart");
-              }
-            }}
-            title="Focus or open main chart workspace"
-          >
-            <ExternalLink size={12} /> Chart Workspace
-          </button>
         </div>
       </header>
 
@@ -218,7 +222,6 @@ export function AffenTerminalWindow({
             externalWindow
             initialView={initialView}
             initialTicker={initialTicker}
-            onViewChange={setActiveView}
             onSelectSymbol={(nextSymbol) => {
               useChartStore.getState().set({ symbol: nextSymbol });
             }}

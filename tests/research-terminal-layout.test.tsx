@@ -1,10 +1,15 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import React from "react";
-import { render, fireEvent, act, within, cleanup } from "@testing-library/react";
+import { render, fireEvent, act, within, cleanup, screen } from "@testing-library/react";
 import { ResearchTerminal } from "@/components/ResearchTerminal";
 import { useChartStore } from "@/stores/useChartStore";
 import { useLinkStore } from "@/stores/useLinkStore";
+
+function selectModule(container: HTMLElement, view: string) {
+  fireEvent.click(within(container).getByRole("button", { name: "Module" }));
+  fireEvent.click(screen.getByRole("dialog").querySelector<HTMLButtonElement>(`[data-module-view="${view}"]`)!);
+}
 
 describe("ResearchTerminal Layout & Pane Management", () => {
   beforeEach(() => {
@@ -77,21 +82,46 @@ describe("ResearchTerminal Layout & Pane Management", () => {
       );
       const tabs = container.querySelector(".panel-tabs")!;
 
-      // Switch to Stock bases
-      const scanTab = within(tabs as HTMLElement).getByRole("button", { name: /Stock bases/i });
-      await act(async () => {
-        fireEvent.click(scanTab);
-      });
-      expect(scanTab.className).toContain("active");
+      // Switch to Stock bases through the module picker.
+      selectModule(container, "scan");
+      expect(within(tabs as HTMLElement).getByRole("button", { name: /Stock bases/i }).getAttribute("aria-current")).toBe("page");
       expect(onViewChange).toHaveBeenCalledWith("scan");
 
       // Switch to Markets
-      const marketsTab = within(tabs as HTMLElement).getByRole("button", { name: /Markets/i });
-      await act(async () => {
-        fireEvent.click(marketsTab);
-      });
-      expect(marketsTab.className).toContain("active");
+      selectModule(container, "markets");
+      expect(within(tabs as HTMLElement).getByRole("button", { name: /Markets/i }).getAttribute("aria-current")).toBe("page");
       expect(onViewChange).toHaveBeenCalledWith("markets");
+    });
+
+    it("searches grouped modules and restores keyboard focus on close", () => {
+      const { container } = render(<ResearchTerminal initialView="optionsflow" />);
+      const launcher = within(container).getByRole("button", { name: "Module" });
+      launcher.focus();
+      fireEvent.click(launcher);
+      const picker = screen.getByRole("dialog");
+      const search = within(picker).getByRole("searchbox", { name: "Module suchen" });
+      expect(document.activeElement).toBe(search);
+      expect(within(picker).getByRole("region", { name: "Aktien-Research" })).toBeTruthy();
+      fireEvent.change(search, { target: { value: "OSINT" } });
+      expect(picker.querySelectorAll("[data-module-view]")).toHaveLength(1);
+      expect(picker.querySelector("[data-module-view=osint]")).toBeTruthy();
+      fireEvent.keyDown(search, { key: "k", altKey: true });
+      expect(document.activeElement).toBe(search);
+      fireEvent.keyDown(search, { key: "Escape" });
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(document.activeElement).toBe(launcher);
+    });
+
+    it("carries an explicitly selected Optionsflow ticker into Insider research", () => {
+      const { container } = render(<ResearchTerminal initialView="optionsflow" initialTicker="AAPL" />);
+      const flow = within(container).getByRole("region", { name: "Optionsflow" });
+      fireEvent.change(within(flow).getByRole("textbox", { name: "US-Ticker" }), { target: { value: "MSFT" } });
+      fireEvent.click(within(flow).getByRole("button", { name: "Optionsflow anzeigen" }));
+      const shortcuts = within(container.querySelector(".terminal-shortcuts") as HTMLElement);
+      fireEvent.click(shortcuts.getByRole("button", { name: "Insider" }));
+      const insiders = within(container).getByRole("region", { name: "Insider-Recherche" });
+      expect((within(insiders).getByRole("textbox", { name: "US-Aktie" }) as HTMLInputElement).value).toBe("MSFT");
+      expect(useChartStore.getState().symbol).toBe("YF:MSFT");
     });
   });
 
@@ -160,13 +190,8 @@ describe("ResearchTerminal Layout & Pane Management", () => {
       expect(p2).not.toBeNull();
       expect(p2.textContent).toContain("P2: FUNDAMENTALS");
 
-      const tabs = container.querySelector(".panel-tabs")!;
-      const faTab = within(tabs as HTMLElement).getByRole("button", { name: /Fundamentals \(FA\)/i });
-
       // Switch P1 to FA view: P2 remains mounted and avoids duplicating FA by switching to GLOBAL MARKETS
-      await act(async () => {
-        fireEvent.click(faTab);
-      });
+      selectModule(container, "fa");
       const grid = container.querySelector(".terminal-workspace-grid")!;
       expect(grid.className).toContain("layout-split-2");
       const p2After = container.querySelector(".terminal-secondary-pane") as HTMLElement;
@@ -182,10 +207,7 @@ describe("ResearchTerminal Layout & Pane Management", () => {
       expect(p2InSplit3.textContent).toContain("P2: MACRO CALENDAR");
 
       // Switch P1 back to Scan view: P2 returns to FUNDAMENTALS
-      const scanTab = within(tabs as HTMLElement).getByRole("button", { name: /Stock bases/i });
-      await act(async () => {
-        fireEvent.click(scanTab);
-      });
+      selectModule(container, "scan");
       expect(container.querySelector(".terminal-secondary-pane")?.textContent).toContain("P2: FUNDAMENTALS");
     });
 
@@ -233,11 +255,8 @@ describe("ResearchTerminal Layout & Pane Management", () => {
 
       // Step 1: Cycle through analytical modules in primary pane
       const tabs = container.querySelector(".panel-tabs")!;
-      const newsTab = within(tabs as HTMLElement).getByRole("button", { name: /^News$/i });
-      await act(async () => {
-        fireEvent.click(newsTab);
-      });
-      expect(newsTab.className).toContain("active");
+      selectModule(container, "news");
+      expect(within(tabs as HTMLElement).getByRole("button", { name: /^News$/i }).getAttribute("aria-current")).toBe("page");
 
       // Step 2: Switch to 2-Pane for wider primary + secondary view
       const segmented = container.querySelector(".segmented")!;
