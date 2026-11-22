@@ -1102,6 +1102,22 @@
 .search-priority-actions button:hover:not(:disabled) { background: var(--tv-hover); }
 .search-priority-actions button:disabled { opacity: 0.3; cursor: default; }
 
+.heatmap-mode-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding-inline: 4px;
+  border-left: 1px solid var(--border);
+}
+.detail-us-close {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  font-size: 11px;
+}
+.detail-us-close small { color: var(--muted); }
+
 @media (max-width: 480px) {
   .tv-toolbar > .compare-toolbar-button,
   .tv-toolbar > [aria-label="Alert"],

@@ -631,6 +631,14 @@ function buildMockApiPayload(urlStr) {
   if (url.pathname === "/api/alerts/events") return { events: [] };
   if (url.pathname === "/api/push") return { publicKey: null, configured: false };
   if (url.pathname === "/api/sync") return { revision: 0, updatedAt: 0, device: "", data: null };
+  if (url.pathname === "/api/us-close") {
+    const symbols = (url.searchParams.get("symbols") ?? "").split(",").map(s => s.trim()).filter(Boolean);
+    const prices = {};
+    for (const sym of symbols) {
+      prices[sym] = sym.includes("BTC") ? 90500 : sym.includes("ETH") ? 3450 : 145;
+    }
+    return { closeMs: Date.UTC(2026, 10, 20, 21, 0, 0), prices };
+  }
   return {};
 }
 
@@ -647,6 +655,7 @@ const MOCKED_API_PREFIXES = new Set([
   "/api/stock-base",
   "/api/market",
   "/api/hyperliquid",
+  "/api/us-close",
   "/api/bybit",
   "/api/yahoo",
   "/api/alerts",

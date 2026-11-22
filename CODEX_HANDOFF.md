@@ -6,6 +6,14 @@ This document is the single self-contained architectural, operational, and itera
 
 ## 1. Completed Modules & Current Status
 
+### Change since US market close (Heatmap & Watchlist) 2026-11-22
+
+- **Timezone/DST-safe US Close anchor (`lib/market/usMarketClose.ts`):** `lastUsMarketCloseMs` resolves the latest completed US regular equity close (`16:00 America/New_York`, Mon–Fri) across EST/EDT transitions and weekends, paired with `usMarketPhase`, `changeSinceUsClose`, and `formatUsCloseAnchor`.
+- **Cached batch reference API (`lib/server/usMarketClose.ts`, `app/api/us-close/route.ts`, `hooks/useUsCloseReference.ts`):** `GET /api/us-close?symbols=...` (max 60 validated `isSymbolId` entries, bounded LRU cache keyed by `symbol@closeMs` for 12h) fetches the immutable 16:00 ET close across Binance (`1h` kline), Hyperliquid (`candleSnapshot` with 72h lookback for builder DEXes), Bybit (`60m` kline), Kraken (`OHLC`), and Yahoo/Alpaca (`yahooSpark`). Client hook `useUsCloseReference` caches by `closeMs` so live ticks compute moves in memory with zero extra fetches.
+- **Heatmap (`lib/server/stockHeatmap.ts`, `components/HeatmapPanel.tsx`):** Added `premarket_change`/`postmarket_change`/`premarket_close`/`postmarket_close` to the TradingView GICS scanner query to compute `changeSinceUsClosePct` on US sectors, plus a `24h / Tag` vs `Seit US-Close` toggle across all six heatmap tabs (`Binance Spot`, `HL Perps`, `HL TradFi`, `US Sectors`, `DE Xetra`, `UK LSE`).
+- **Watchlist (`lib/watchlist.ts`, `components/Watchlist.tsx`):** Added sortable `usClosePercent` (`US Close %`) column to the Watchlist column picker and a live `seit US-Close ...` readout inside `SymbolDetail`.
+- **Verification:** Added `tests/us-market-close.test.ts` (6 tests covering DST/weekend boundaries, phase classification, Watchlist sorting, Binance/HL batch caching, `/api/us-close` validation, and `stockHeatmap` pre/post-market change). Full release gate passed 2,850 Vitest tests across 287 files, typegen/typecheck, production build, Headless Chrome E2E, and mobile/tablet viewport audit.
+
 ### iPhone declutter, TradingView-style iPad layout, Konto erstellen, watchlist venue routing & search priority 2026-11-22
 
 - **iPhone PWA declutter (`TradingWorkspace.tsx`, `WorkspaceToolbar.tsx`, `ChartToolbarOverflow.tsx`, `app/workspace-chrome.css`, `useChartStore.ts`):** Phone startup collapses the default chart indicator legend (`legendCollapsed: true`, auto-expanding on `addIndicator`), hides redundant floating zoom pills over candles, integrates the live status indicator directly into the top symbol pill (`46px` header), and condenses the bottom navigation bar to five roomy iOS-style tabs (`Chart`, `Watchlist`, `Alerts`, `Flow`, `Terminal`) with a top active accent bar; `Objektbaum` (`Object tree`) remains one tap away inside `More chart controls`.

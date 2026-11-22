@@ -55,6 +55,8 @@ import { useDismiss } from "./WorkspaceMenus";
 import { baseVolume, notionalVolume, periodLabel, quoteRange, rangeDescription } from "@/lib/market/quoteMetrics";
 import { useQuoteRanges } from "@/hooks/useQuoteRanges";
 import { useOptionsFlow } from "@/hooks/useOptionsFlow";
+import { useUsCloseReference } from "@/hooks/useUsCloseReference";
+import { changeSinceUsClose, formatUsCloseAnchor } from "@/lib/market/usMarketClose";
 import { optionsBiasLabels, optionsFlowTicker, type OptionsFlowSummary } from "@/lib/market/optionsFlow";
 
 const DESKTOP_ROW = 30;
@@ -71,6 +73,7 @@ const COLUMN_WIDTH: Record<WatchColumn, number> = {
   last: 74,
   change: 58,
   changePercent: 58,
+  usClosePercent: 68,
   high: 78,
   low: 78,
   volume: 70,
@@ -79,7 +82,17 @@ const COLUMN_WIDTH: Record<WatchColumn, number> = {
   trend: 54,
 };
 
-function Cell({ column, quote }: { column: WatchColumn; quote?: Quote }) {
+function Cell({
+  column,
+  quote,
+  usClosePrice,
+  usCloseAnchor,
+}: {
+  column: WatchColumn;
+  quote?: Quote;
+  usClosePrice?: number;
+  usCloseAnchor?: string;
+}) {
   if (!quote) return <span className="watch-cell muted">—</span>;
   const range = quoteRange(quote), volume = baseVolume(quote), notional = notionalVolume(quote);
   switch (column) {
@@ -109,6 +122,19 @@ function Cell({ column, quote }: { column: WatchColumn; quote?: Quote }) {
           {quote.changePercent.toFixed(2)}%
         </span>
       );
+    case "usClosePercent": {
+      const moved = changeSinceUsClose(quote.price, usClosePrice);
+      if (!moved) return <span className="watch-cell muted" title={usCloseAnchor ? `Warte auf ${usCloseAnchor}` : undefined}>—</span>;
+      return (
+        <span
+          className={`watch-cell mono ${moved.changePercent >= 0 ? "positive" : "negative"}`}
+          title={`${usCloseAnchor ?? "US-Close"}: ${formatPrice(usClosePrice!)}`}
+        >
+          {moved.changePercent >= 0 ? "+" : ""}
+          {moved.changePercent.toFixed(2)}%
+        </span>
+      );
+    }
     case "high":
       return <span className="watch-cell mono" title={rangeDescription(quote)}>{range.high === null ? "—" : formatPrice(range.high)}</span>;
     case "low":
@@ -139,6 +165,8 @@ interface RowProps {
   symbol: string;
   optionsFlow?: OptionsFlowSummary;
   optionsStatus?: string;
+  usClosePrice?: number;
+  usCloseAnchor?: string;
   columns: WatchColumn[];
   rowHeight: number;
   flag?: WatchFlag;
@@ -158,6 +186,8 @@ const SymbolRow = memo(function SymbolRow({
   symbol,
   optionsFlow,
   optionsStatus,
+  usClosePrice,
+  usCloseAnchor,
   columns,
   rowHeight,
   flag,
@@ -218,7 +248,7 @@ const SymbolRow = memo(function SymbolRow({
       </div>
       {columns.map((c) => (
         <button key={c} className="watch-cell-button" tabIndex={-1} title={c === "last" && quote ? `${quotePriceLabel(quote)} · ${new Date(quote.time).toISOString()}` : undefined} onClick={(event) => editMode ? onSelect(symbol, event) : onOpen(symbol)}>
-          <Cell column={c} quote={quote} />
+          <Cell column={c} quote={quote} usClosePrice={usClosePrice} usCloseAnchor={usCloseAnchor} />
         </button>
       ))}
       {showActions && <button className="row-remove" aria-label={`Remove ${asset.base}`} title="Remove symbol" onClick={() => onRemove(symbol)}>
@@ -420,6 +450,10 @@ function ImportDialog({ onClose }: { onClose: () => void }) {
 
 const SymbolDetail = memo(function SymbolDetail({ symbol }: { symbol: string }) {
   const quote = useChartStore((s) => s.quotes[symbol]);
+  const usClose = useUsCloseReference([symbol], true);
+  const usClosePrice = usClose.prices[symbol];
+  const usCloseMove = changeSinceUsClose(quote?.price, usClosePrice);
+  const usCloseLabel = formatUsCloseAnchor(usClose.closeMs);
   const asset = getSymbol(symbol), about = describeSymbol(symbol);
   const up = (quote?.changePercent ?? 0) >= 0;
   const range = quoteRange(quote), volume = baseVolume(quote), notional = notionalVolume(quote);
@@ -451,6 +485,19 @@ const SymbolDetail = memo(function SymbolDetail({ symbol }: { symbol: string }) 
         </span>
         <small>{volumePeriod}</small>
       </div>
+      {usCloseMove ? (
+        <div
+          className={`detail-us-close ${usCloseMove.changePercent >= 0 ? "positive" : "negative"}`}
+          title={`${usCloseLabel}: ${formatPrice(usClosePrice)}`}
+        >
+          <span className="mono">
+            {usCloseMove.change >= 0 ? "+" : ""}
+            {formatPrice(usCloseMove.change)} ({usCloseMove.changePercent >= 0 ? "+" : ""}
+            {usCloseMove.changePercent.toFixed(2)}%)
+          </span>
+          <small>seit {usCloseLabel}</small>
+        </div>
+      ) : null}
       <div className="detail-chart">
         <Sparkline values={quote?.history ?? []} positive={up} width={266} height={64} />
       </div>
@@ -596,9 +643,16 @@ export function Watchlist({ phone = false, onOpenChart, onClose }: { phone?: boo
     });
   }, [active.symbols, flags, filter, flagFilter]);
   const sort = store.sort;
+  const needsUsClose = columns.includes("usClosePercent") || sort?.column === "usClosePercent";
+  const usCloseTargets = useMemo(
+    () => (needsUsClose ? matched.filter((entry) => !isSection(entry)).slice(0, 120) : []),
+    [needsUsClose, matched],
+  );
+  const usClose = useUsCloseReference(usCloseTargets, needsUsClose);
+  const usCloseAnchor = formatUsCloseAnchor(usClose.closeMs);
   const selectEntries = useMemo(() => {
     if (!sort || sort.column === "symbol" || sort.column === "flag") {
-      const entries = sortEntries(matched, EMPTY_QUOTES, sort, flags);
+      const entries = sortEntries(matched, EMPTY_QUOTES, sort, flags, usClose.prices);
       return () => entries;
     }
     let previousQuotes: Record<string, Quote> | undefined;
@@ -606,12 +660,12 @@ export function Watchlist({ phone = false, onOpenChart, onClose }: { phone?: boo
     return ({ quotes }: { quotes: Record<string, Quote> }) => {
       if (quotes === previousQuotes) return entries;
       if (!previousQuotes || matched.some((entry) => quotes[entry] !== previousQuotes?.[entry])) {
-        entries = sortEntries(matched, quotes, sort, flags);
+        entries = sortEntries(matched, quotes, sort, flags, usClose.prices);
       }
       previousQuotes = quotes;
       return entries;
     };
-  }, [matched, sort, flags]);
+  }, [matched, sort, flags, usClose.prices]);
   const entries = useChartStore(useShallow(selectEntries));
   const count = active.symbols.filter((e) => !isSection(e)).length;
   const flowEligible = useMemo(() => active.symbols.some(entry => optionsFlowTicker(entry)), [active.symbols]);
@@ -858,6 +912,8 @@ export function Watchlist({ phone = false, onOpenChart, onClose }: { phone?: boo
                   optionsFlow={flow.sample?.result[optionsFlowTicker(entry) ?? ""]}
                   optionsStatus={optionsFlowTicker(entry) && (flow.enabled || !liquidMarketListing(entry)) ? flow.sample?.unavailable[optionsFlowTicker(entry)!] ??
                     (flow.enabled ? "OPRA-Stichprobe · Fensterausschnitt" : "Alpaca-OPRA-Zugang für Optionsflow verbinden") : undefined}
+                  usClosePrice={usClose.prices[entry]}
+                  usCloseAnchor={usCloseAnchor}
                   columns={columns}
                   rowHeight={rowHeight}
                   flag={flags[entry]}

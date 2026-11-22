@@ -99,6 +99,7 @@ export type WatchColumn =
   | "last"
   | "change"
   | "changePercent"
+  | "usClosePercent"
   | "high"
   | "low"
   | "volume"
@@ -110,6 +111,7 @@ export const COLUMN_LABELS: Record<WatchColumn, string> = {
   last: "Last",
   change: "Chg",
   changePercent: "Chg %",
+  usClosePercent: "US Close %",
   high: "High",
   low: "Low",
   volume: "Volume",
@@ -120,7 +122,11 @@ export const COLUMN_LABELS: Record<WatchColumn, string> = {
 export const DEFAULT_COLUMNS: WatchColumn[] = ["last", "change", "changePercent"];
 
 /** Numeric value a column sorts by; null sorts last. */
-export function columnValue(column: WatchColumn | "symbol", quote: Quote | undefined): number | null {
+export function columnValue(
+  column: WatchColumn | "symbol",
+  quote: Quote | undefined,
+  usClosePrice?: number,
+): number | null {
   if (!quote) return null;
   switch (column) {
     case "last":
@@ -129,6 +135,10 @@ export function columnValue(column: WatchColumn | "symbol", quote: Quote | undef
       return Number.isFinite(quote.change) ? quote.change : null;
     case "changePercent":
       return Number.isFinite(quote.changePercent) ? quote.changePercent : null;
+    case "usClosePercent":
+      return typeof usClosePrice === "number" && Number.isFinite(usClosePrice) && usClosePrice > 0 && Number.isFinite(quote.price)
+        ? ((quote.price - usClosePrice) / usClosePrice) * 100
+        : null;
     case "high":
       return quoteRange(quote).high;
     case "low":
@@ -162,6 +172,7 @@ export function sortEntries(
   quotes: Record<string, Quote>,
   sort: SortSpec | null,
   flags: Record<string, WatchFlag> = {},
+  usClosePrices: Record<string, number> = {},
 ): string[] {
   if (!sort) return [...entries];
   const symbols = entries.filter((e) => !isSection(e));
@@ -170,8 +181,8 @@ export function sortEntries(
   return symbols.sort((a, b) => {
     if (sort.column === "symbol") return sign * a.localeCompare(b);
     if (sort.column === "flag") return sign * (flagRank(a) - flagRank(b)) || a.localeCompare(b);
-    const va = columnValue(sort.column, quotes[a]);
-    const vb = columnValue(sort.column, quotes[b]);
+    const va = columnValue(sort.column, quotes[a], usClosePrices[a]);
+    const vb = columnValue(sort.column, quotes[b], usClosePrices[b]);
     if (va === null && vb === null) return 0;
     if (va === null) return 1;
     if (vb === null) return -1;

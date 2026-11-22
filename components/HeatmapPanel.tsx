@@ -3,15 +3,20 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { useChartStore } from "@/stores/useChartStore";
 import { hyperliquidCatalog } from "@/hooks/useHyperliquidCatalog";
+import { useUsCloseReference } from "@/hooks/useUsCloseReference";
 import { heatColor, squarify, type HeatItem, type HeatRect } from "@/lib/heatmap";
 import { formatVolume } from "@/lib/symbols";
 import { isSymbolId, symbolLabel } from "@/lib/symbolId";
 import { wireObject } from "@/lib/market/marketWire";
+import { changeSinceUsClose, formatUsCloseAnchor } from "@/lib/market/usMarketClose";
 
 type Source = "binance" | "hl-crypto" | "hl-markets" | "us-sectors" | "de-sectors" | "uk-sectors";
+type ChangeMode = "default" | "us-close";
 
 type SectorHeatItem = HeatItem & {
   sector?: string;
+  price?: number;
+  usCloseChange?: number;
 };
 
 interface HeatmapSnapshot {
@@ -49,8 +54,18 @@ async function load(source: Source, signal: AbortSignal): Promise<SectorHeatItem
       const row = wireObject(raw);
       if (!row || !isSymbolId(row.symbol) || typeof row.ticker !== "string" || !row.ticker) return [];
       const size = numeric(row.marketCapBn), change = numeric(row.changePct);
+      const price = numeric(row.price);
+      const usCloseRaw = numeric(row.changeSinceUsClosePct);
       if (!Number.isFinite(size) || size <= 0 || !Number.isFinite(change)) return [];
-      return [{ symbol: row.symbol, label: row.ticker, size, change, sector: typeof row.sector === "string" ? row.sector : undefined }];
+      return [{
+        symbol: row.symbol,
+        label: row.ticker,
+        size,
+        change,
+        price: Number.isFinite(price) && price > 0 ? price : undefined,
+        usCloseChange: Number.isFinite(usCloseRaw) ? usCloseRaw : change,
+        sector: typeof row.sector === "string" ? row.sector : undefined,
+      }];
     });
   }
   if (source === "binance") {
@@ -63,9 +78,9 @@ async function load(source: Source, signal: AbortSignal): Promise<SectorHeatItem
       const symbol = row?.symbol;
       if (!row || !isSymbolId(symbol) || !symbol.endsWith("USDT") || /(UP|DOWN|BULL|BEAR)USDT$/.test(symbol)) return [];
       const label = symbol.slice(0, -4);
-      const size = numeric(row.quoteVolume), change = numeric(row.priceChangePercent);
+      const size = numeric(row.quoteVolume), change = numeric(row.priceChangePercent), price = numeric(row.lastPrice);
       if (!label || STABLES.has(label) || !Number.isFinite(size) || size <= 0 || !Number.isFinite(change)) return [];
-      return [{ symbol, label, size, change }];
+      return [{ symbol, label, size, change, price: Number.isFinite(price) && price > 0 ? price : undefined }];
     })
       .sort((a, b) => b.size - a.size)
       .slice(0, 60);
@@ -79,6 +94,7 @@ async function load(source: Source, signal: AbortSignal): Promise<SectorHeatItem
       symbol: a.symbol,
       label: a.name,
       size: a.volume,
+      price: a.mark > 0 ? a.mark : undefined,
       change: a.previousDay > 0 ? ((a.mark - a.previousDay) / a.previousDay) * 100 : 0,
     }))
     .filter((a) => Number.isFinite(a.size) && a.size > 0 && Number.isFinite(a.change))
@@ -86,9 +102,10 @@ async function load(source: Source, signal: AbortSignal): Promise<SectorHeatItem
     .slice(0, 60);
 }
 
-/** Treemap of the busiest markets: area is 24h volume or market cap, colour is 24h change. */
+/** Treemap of the busiest markets: area is 24h volume or market cap, colour is 24h or since-US-close change. */
 export function HeatmapPanel({ onSelectSymbol }: { onSelectSymbol?: (symbol: string) => void } = {}) {
   const [source, setSource] = useState<Source>("binance");
+  const [changeMode, setChangeMode] = useState<ChangeMode>("default");
   const [sectorFilter, setSectorFilter] = useState<string>("all");
   const [snapshot, setSnapshot] = useState<HeatmapSnapshot>({ source, items: EMPTY_ITEMS, error: "", busy: true });
   const [hoverSymbol, setHover] = useState<string | null>(null);
@@ -159,15 +176,35 @@ export function HeatmapPanel({ onSelectSymbol }: { onSelectSymbol?: (symbol: str
   }, []);
 
   const { items, error, busy } = snapshot.source === source ? snapshot : { items: EMPTY_ITEMS, error: "", busy: true };
+  const isStockSectors = source === "us-sectors" || source === "de-sectors" || source === "uk-sectors";
+  const needsUsCloseBatch = changeMode === "us-close" && !isStockSectors;
+  const batchSymbols = useMemo(
+    () => (needsUsCloseBatch ? items.map((item) => item.symbol) : []),
+    [needsUsCloseBatch, items],
+  );
+  const usClose = useUsCloseReference(batchSymbols, needsUsCloseBatch);
+
+  const displayItems = useMemo<SectorHeatItem[]>(() => {
+    if (changeMode !== "us-close") return items;
+    return items.map((item) => {
+      if (isStockSectors && typeof item.usCloseChange === "number" && Number.isFinite(item.usCloseChange)) {
+        return { ...item, change: item.usCloseChange };
+      }
+      const refPrice = usClose.prices[item.symbol];
+      const moved = changeSinceUsClose(item.price, refPrice);
+      if (moved) return { ...item, change: moved.changePercent };
+      return { ...item, change: NaN };
+    });
+  }, [changeMode, items, isStockSectors, usClose.prices]);
 
   const sectors = useMemo(
-    () => [...new Set(items.map((item) => item.sector).filter((s): s is string => Boolean(s)))].sort(),
-    [items],
+    () => [...new Set(displayItems.map((item) => item.sector).filter((s): s is string => Boolean(s)))].sort(),
+    [displayItems],
   );
   const selectedSector = sectors.includes(sectorFilter) ? sectorFilter : "all";
   const visibleItems = useMemo(
-    () => (selectedSector === "all" ? items : items.filter((item) => item.sector === selectedSector)),
-    [items, selectedSector],
+    () => (selectedSector === "all" ? displayItems : displayItems.filter((item) => item.sector === selectedSector)),
+    [displayItems, selectedSector],
   );
   const rects = useMemo(() => squarify(visibleItems, size.width, size.height), [visibleItems, size]);
   const hover = visibleItems.find(item => item.symbol === hoverSymbol);
@@ -176,7 +213,13 @@ export function HeatmapPanel({ onSelectSymbol }: { onSelectSymbol?: (symbol: str
     else useChartStore.getState().set({ symbol });
   }, [onSelectSymbol]);
   const note = SOURCES.find((s) => s.id === source)!.note;
-  const isStockSectors = source === "us-sectors" || source === "de-sectors" || source === "uk-sectors";
+  const usCloseLabel = formatUsCloseAnchor(usClose.closeMs);
+  const statusChip = busy || (needsUsCloseBatch && usClose.loading)
+    ? "SYNCING HEATMAP"
+    : changeMode === "us-close"
+      ? `Seit ${usCloseLabel}`
+      : note;
+  const formatHeatPct = (value: number) => (Number.isFinite(value) ? `${value >= 0 ? "+" : ""}${value.toFixed(2)}%` : "—");
   return (
     <div className="heatmap-panel">
       <div className="heatmap-bar" style={{ flexWrap: "wrap" }}>
@@ -185,6 +228,25 @@ export function HeatmapPanel({ onSelectSymbol }: { onSelectSymbol?: (symbol: str
             {s.label}
           </button>
         ))}
+        <span className="heatmap-mode-group" role="group" aria-label="Change reference">
+          <button
+            type="button"
+            className={changeMode === "default" ? "active" : ""}
+            aria-pressed={changeMode === "default"}
+            onClick={() => setChangeMode("default")}
+          >
+            24h / Tag
+          </button>
+          <button
+            type="button"
+            className={changeMode === "us-close" ? "active" : ""}
+            aria-pressed={changeMode === "us-close"}
+            title={`Veränderung seit ${usCloseLabel}`}
+            onClick={() => setChangeMode("us-close")}
+          >
+            Seit US-Close
+          </button>
+        </span>
         {sectors.length > 0 && (
           <select
             aria-label="Filter GICS sector"
@@ -201,20 +263,20 @@ export function HeatmapPanel({ onSelectSymbol }: { onSelectSymbol?: (symbol: str
           </select>
         )}
         <span className="flex-1" />
-        <span className="terminal-telemetry-chip mono">{busy ? "SYNCING HEATMAP" : note}</span>
+        <span className="terminal-telemetry-chip mono">{statusChip}</span>
         <button className="icon-button" aria-label="Refresh heatmap" onClick={() => refresh.current?.()} disabled={busy}>
           <RefreshCw size={13} className={busy ? "spin" : ""} />
         </button>
       </div>
       {error && items.length > 0 ? <p className="heatmap-status" role="status">{error} Showing the last available data.</p> : null}
       <div className="heatmap-body" ref={host}>
-        <HeatmapTiles rects={rects} isStockSectors={isStockSectors} onHover={setHover} onSelect={choose} />
+        <HeatmapTiles rects={rects} isStockSectors={isStockSectors} changeSuffix={changeMode === "us-close" ? ` (${usCloseLabel})` : ""} onHover={setHover} onSelect={choose} />
         {!rects.length ? <p className="heat-empty" role="status">{(items.length === 0 && error) || (busy ? "Loading markets…" : "No data.")}</p> : null}
         {hover ? (
           <div className="heat-hover mono">
             {symbolLabel(hover.symbol)}
-            {hover.sector ? ` (${hover.sector})` : ""} · {hover.change >= 0 ? "+" : ""}
-            {hover.change.toFixed(2)}% · {isStockSectors ? `MCap ${hover.size.toFixed(1)}B` : `vol ${formatVolume(hover.size)}`}
+            {hover.sector ? ` (${hover.sector})` : ""} · {formatHeatPct(hover.change)}
+            {changeMode === "us-close" ? ` (${usCloseLabel})` : ""} · {isStockSectors ? `MCap ${hover.size.toFixed(1)}B` : `vol ${formatVolume(hover.size)}`}
           </div>
         ) : null}
       </div>
@@ -222,30 +284,34 @@ export function HeatmapPanel({ onSelectSymbol }: { onSelectSymbol?: (symbol: str
   );
 }
 
-const HeatmapTiles = memo(function HeatmapTiles({ rects, isStockSectors, onHover, onSelect }: {
+const HeatmapTiles = memo(function HeatmapTiles({ rects, isStockSectors, changeSuffix, onHover, onSelect }: {
   rects: HeatRect<SectorHeatItem>[];
   isStockSectors: boolean;
+  changeSuffix: string;
   onHover: (symbol: string | null) => void;
   onSelect: (symbol: string) => void;
 }) {
-  return rects.map(({ item, x, y, width, height }) => (
-    <button
-      key={item.symbol}
-      className="heat-tile"
-      style={{ left: x, top: y, width: Math.max(0, width - 1), height: Math.max(0, height - 1), background: heatColor(item.change) }}
-      title={`${symbolLabel(item.symbol)}${item.sector ? ` · ${item.sector}` : ""} · ${item.change >= 0 ? "+" : ""}${item.change.toFixed(2)}% · ${isStockSectors ? `MCap $${item.size.toFixed(1)}B` : `volume ${formatVolume(item.size)}`}`}
-      onMouseEnter={() => onHover(item.symbol)}
-      onMouseLeave={() => onHover(null)}
-      onFocus={() => onHover(item.symbol)}
-      onBlur={() => onHover(null)}
-      onClick={() => onSelect(item.symbol)}
-    >
-      {width > 34 && height > 22 ? (
-        <>
-          <strong>{item.label}</strong>
-          {height > 38 ? <span className="mono">{`${item.change >= 0 ? "+" : ""}${item.change.toFixed(2)}%`}</span> : null}
-        </>
-      ) : null}
-    </button>
-  ));
+  return rects.map(({ item, x, y, width, height }) => {
+    const pct = Number.isFinite(item.change) ? `${item.change >= 0 ? "+" : ""}${item.change.toFixed(2)}%` : "—";
+    return (
+      <button
+        key={item.symbol}
+        className="heat-tile"
+        style={{ left: x, top: y, width: Math.max(0, width - 1), height: Math.max(0, height - 1), background: heatColor(item.change) }}
+        title={`${symbolLabel(item.symbol)}${item.sector ? ` · ${item.sector}` : ""} · ${pct}${changeSuffix} · ${isStockSectors ? `MCap $${item.size.toFixed(1)}B` : `volume ${formatVolume(item.size)}`}`}
+        onMouseEnter={() => onHover(item.symbol)}
+        onMouseLeave={() => onHover(null)}
+        onFocus={() => onHover(item.symbol)}
+        onBlur={() => onHover(null)}
+        onClick={() => onSelect(item.symbol)}
+      >
+        {width > 34 && height > 22 ? (
+          <>
+            <strong>{item.label}</strong>
+            {height > 38 ? <span className="mono">{pct}</span> : null}
+          </>
+        ) : null}
+      </button>
+    );
+  });
 });

@@ -1,3 +1,5 @@
+import { lastUsMarketCloseMs, usMarketPhase } from "@/lib/market/usMarketClose";
+
 export interface StockHeatmapCell {
   ticker: string;
   symbol: string;
@@ -5,6 +7,8 @@ export interface StockHeatmapCell {
   sector: string;
   price: number;
   changePct: number;
+  /** Change in percent since the latest completed US regular close (16:00 ET). */
+  changeSinceUsClosePct: number;
   marketCapBn: number;
   valueTradedMn: number;
 }
@@ -14,6 +18,7 @@ export interface StockHeatmapResponse {
   sectors: string[];
   rows: StockHeatmapCell[];
   generatedAt: number;
+  usCloseMs: number;
   source: string;
 }
 
@@ -27,6 +32,30 @@ const heatmapCache = new Map<string, { at: number; data: StockHeatmapResponse }>
 
 export function clearStockHeatmapCache(): void {
   heatmapCache.clear();
+}
+
+const optNum = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+
+function computeUsCloseChangePct(
+  market: string,
+  phase: ReturnType<typeof usMarketPhase>,
+  price: number,
+  regularChangePct: number,
+  premarketChange: number | null,
+  postmarketChange: number | null,
+  premarketClose: number | null,
+  postmarketClose: number | null,
+  hasExtendedColumns: boolean,
+): number {
+  if (market !== "us" || phase === "regular" || !hasExtendedColumns) {
+    return regularChangePct;
+  }
+  const derivedPre = premarketChange ?? (premarketClose && price > 0 ? ((premarketClose - price) / price) * 100 : null);
+  const derivedPost = postmarketChange ?? (postmarketClose && price > 0 ? ((postmarketClose - price) / price) * 100 : null);
+  if (phase === "premarket") {
+    return derivedPre ?? derivedPost ?? 0;
+  }
+  return derivedPost ?? derivedPre ?? 0;
 }
 
 export async function fetchStockSectorHeatmap(
@@ -56,6 +85,10 @@ export async function fetchStockSectorHeatmap(
       "market_cap_basic",
       "sector",
       "Value.Traded",
+      "premarket_change",
+      "postmarket_change",
+      "premarket_close",
+      "postmarket_close",
     ],
     sort: { sortBy: "market_cap_basic", sortOrder: "desc" },
     range: [0, 84],
@@ -77,6 +110,8 @@ export async function fetchStockSectorHeatmap(
   const rows: StockHeatmapCell[] = [];
   const sectorSet = new Set<string>();
   const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+  const phase = usMarketPhase(now);
+  const usCloseMs = lastUsMarketCloseMs(now);
 
   for (const item of json.data ?? []) {
     const d = item.d;
@@ -91,6 +126,18 @@ export async function fetchStockSectorHeatmap(
     const sector = typeof d[6] === "string" && d[6].trim() ? d[6].trim() : "Other";
     const valueTraded = num(d[7]);
     if (!(price > 0) || !(mcap > 0)) continue;
+    const hasExtended = d.length > 8;
+    const changeSinceUsClose = computeUsCloseChangePct(
+      cleanMarket,
+      phase,
+      price,
+      changePct,
+      optNum(d[8]),
+      optNum(d[9]),
+      optNum(d[10]),
+      optNum(d[11]),
+      hasExtended,
+    );
     sectorSet.add(sector);
     rows.push({
       ticker,
@@ -99,6 +146,7 @@ export async function fetchStockSectorHeatmap(
       sector,
       price,
       changePct: Math.round(changePct * 100) / 100,
+      changeSinceUsClosePct: Math.round(changeSinceUsClose * 100) / 100,
       marketCapBn: Math.round((mcap / 1e9) * 100) / 100,
       valueTradedMn: Math.round(((valueTraded || price * num(d[4])) / 1e6) * 10) / 10,
     });
@@ -109,6 +157,7 @@ export async function fetchStockSectorHeatmap(
     sectors: [...sectorSet].sort(),
     rows,
     generatedAt: now,
+    usCloseMs,
     source: "TradingView Public GICS Scanner",
   };
   heatmapCache.set(cleanMarket, { at: now, data: out });
