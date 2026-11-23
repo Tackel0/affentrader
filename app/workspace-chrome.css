@@ -594,16 +594,17 @@ html[data-theme="light"] body:has(.trading-app.phone-workspace) {
   left: 0;
   right: 0;
   width: 100%;
-  height: 2px;
   background-color: #000000;
   pointer-events: none;
   z-index: 9999;
 }
 .ios-edge-anchor-top {
   top: 0;
+  height: env(safe-area-inset-top);
 }
 .ios-edge-anchor-bottom {
   bottom: 0;
+  height: min(12px, env(safe-area-inset-bottom));
 }
 [data-theme="light"] .ios-edge-anchor {
   background-color: #ffffff;
