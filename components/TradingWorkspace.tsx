@@ -310,8 +310,14 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
           e.target.value = "";
         }}
       />
-      <div className={`workspace-main${phoneChart ? " phone-chart" : ""}${isTablet ? " tablet-chart" : ""}`}>
-        {(!phoneChart || drawingToolsOpen) && <DrawingRail id="workspace-drawing-tools" />}
+      <div className={`workspace-main${phoneChart ? " phone-chart" : ""}${phoneChart && drawingToolsOpen ? " drawing-rail-open" : ""}${isTablet ? " tablet-chart" : ""}`}>
+        {(!phoneChart || drawingToolsOpen) && (
+          <DrawingRail
+            id="workspace-drawing-tools"
+            phone={phoneChart}
+            onRequestClose={phoneChart ? () => setDrawingToolsOpen(false) : undefined}
+          />
+        )}
         <div className="center-workspace">
           <ModuleErrorBoundary moduleName="Chart Grid">
             <ChartGrid tradingControls={!phoneChart || phoneTradingOpen} compactLayout={compactLayout ? {

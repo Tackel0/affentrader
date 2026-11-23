@@ -633,7 +633,7 @@ function NameForm({
     </Modal>
   );
 }
-export function DrawingToolsMenu() {
+export function DrawingToolsMenu({ onSelect }: { onSelect?: () => void } = {}) {
   const [open, setOpen] = useState(false),
     [query, setQuery] = useState(""),
     [tools, setTools] = useState<
@@ -677,6 +677,7 @@ export function DrawingToolsMenu() {
                   onClick={() => {
                     useChartStore.getState().set({ drawing: t.type });
                     setOpen(false);
+                    onSelect?.();
                   }}
                 >
                   <PenLine size={14} />

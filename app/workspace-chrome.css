@@ -1045,9 +1045,12 @@ html[data-theme="light"] body:has(.trading-app.phone-workspace) {
 .compact-chart-switcher :is(select, button) { min-height: 44px; }
 .workspace-main.phone-chart > .native-drawing-rail {
   position: absolute;
-  inset: 0 auto 0 0;
-  z-index: 32;
-  box-shadow: 4px 0 16px #0004;
+  left: max(8px, env(safe-area-inset-left));
+  right: auto;
+  top: calc(env(safe-area-inset-top) + 64px);
+  bottom: calc(64px + env(safe-area-inset-bottom));
+  z-index: 36;
+  box-shadow: none;
 }
 
 /* Dedicated TradingView-inspired touch layout for iPads and tablets. */
@@ -1891,16 +1894,194 @@ body {
   display: none;
 }
 .phone-workspace .native-drawing-rail {
-  background: color-mix(in srgb, var(--surface) 95%, transparent);
+  position: absolute;
+  left: max(8px, env(safe-area-inset-left));
+  right: auto;
+  top: calc(env(safe-area-inset-top) + 64px);
+  bottom: calc(64px + env(safe-area-inset-bottom));
+  width: 48px;
+  z-index: 36;
+  background: transparent;
+  border: 0;
+  border-radius: 22px;
+  box-shadow: none;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
-  border-radius: 0 12px 12px 0;
-  box-shadow: 4px 0 22px rgba(0, 0, 0, 0.24);
-  overflow: hidden;
+  overflow: visible !important;
+  pointer-events: auto;
+}
+.phone-workspace .native-drawing-rail::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 22px;
+  background: rgba(20, 23, 30, 0.72);
+  -webkit-backdrop-filter: blur(12px) saturate(145%);
+  backdrop-filter: blur(12px) saturate(145%);
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.44), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  pointer-events: none;
+  z-index: 0;
+}
+[data-theme="light"] .phone-workspace .native-drawing-rail::before {
+  background: rgba(244, 246, 250, 0.8);
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+.phone-workspace .native-drawing-rail .native-drawing-host {
+  position: relative;
+  z-index: 1;
+  width: 48px;
+  overflow: visible;
+}
+.phone-workspace .native-drawing-rail .vela-dtb {
+  width: 48px !important;
+  background: transparent !important;
+  border-right: 0 !important;
+  border-radius: 22px 22px 0 0;
+  padding: 8px 0 4px !important;
+  gap: 2px !important;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+.phone-workspace .native-drawing-rail .vela-dtb-collapse {
+  display: none !important;
+}
+.phone-workspace .native-drawing-rail .vela-dtb-cell,
+.phone-workspace .native-drawing-rail .vela-dtb-btn {
+  height: 38px;
+  touch-action: manipulation;
+}
+.phone-workspace .native-drawing-rail .vela-dtb-icon {
+  width: 100%;
+  min-width: 36px;
+  height: 38px;
+  touch-action: manipulation;
+}
+.phone-workspace .native-drawing-rail .vela-dtb-arrow {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+.phone-workspace .native-drawing-rail .vela-dtb-cell:has(.vela-dtb-arrow)::after,
+.native-drawing-rail .vela-dtb-cell.has-submenu::after {
+  content: "";
+  position: absolute;
+  right: 5px;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: translateY(-50%) rotate(-45deg);
+  opacity: 0.48;
+  pointer-events: none;
+}
+.phone-workspace .native-drawing-rail .vela-dtb-cell.vela-open:has(.vela-dtb-arrow)::after {
+  opacity: 0.95;
+  color: var(--accent);
+}
+.phone-workspace .native-drawing-rail .vela-dtb-flyout {
+  z-index: 44 !important;
+  border-radius: 16px !important;
+  padding: 6px !important;
+  gap: 3px !important;
+  background: rgba(20, 23, 30, 0.84) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+  backdrop-filter: blur(14px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.14) !important;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.48), inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
+  max-width: calc(100vw - 74px - env(safe-area-inset-left) - env(safe-area-inset-right)) !important;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+[data-theme="light"] .phone-workspace .native-drawing-rail .vela-dtb-flyout {
+  background: rgba(248, 250, 252, 0.88) !important;
+  border: 1px solid rgba(15, 23, 42, 0.12) !important;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+}
+.phone-workspace .native-drawing-rail .vela-dtb-item {
+  min-height: 40px !important;
+  padding: 6px 10px 6px 8px !important;
+  border-radius: 10px !important;
+  touch-action: manipulation;
+}
+.phone-workspace .native-drawing-rail .vela-dtb-star {
+  opacity: 0.72 !important;
+  width: 36px !important;
+  height: 36px !important;
+  margin: -2px -4px -2px 0 !important;
+  touch-action: manipulation;
+}
+.phone-workspace .native-drawing-rail .vela-dtb-star.vela-fav {
+  opacity: 1 !important;
 }
 .phone-workspace .native-drawing-rail .drawing-rail-actions {
+  position: relative;
+  z-index: 1;
+  width: 48px !important;
   background: transparent;
+  border-right: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 6px 0 8px;
+  gap: 2px;
+  border-radius: 0 0 22px 22px;
   flex: none;
+}
+[data-theme="light"] .phone-workspace .native-drawing-rail .drawing-rail-actions {
+  border-top-color: rgba(15, 23, 42, 0.09);
+}
+.phone-workspace .native-drawing-rail .drawing-rail-actions .icon-button {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  touch-action: manipulation;
+}
+.phone-workspace .native-drawing-rail .drawing-rail-actions .drawing-catalog {
+  left: calc(max(8px, env(safe-area-inset-left)) + 56px);
+  top: calc(env(safe-area-inset-top) + 64px);
+  bottom: calc(64px + env(safe-area-inset-bottom));
+  width: min(280px, calc(100vw - 72px - env(safe-area-inset-left) - env(safe-area-inset-right)));
+  z-index: 45;
+  border-radius: 18px;
+  background: rgba(20, 23, 30, 0.86);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+  backdrop-filter: blur(14px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.48), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+[data-theme="light"] .phone-workspace .native-drawing-rail .drawing-rail-actions .drawing-catalog {
+  background: rgba(248, 250, 252, 0.9);
+  border-color: rgba(15, 23, 42, 0.12);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+.phone-workspace .workspace-main.drawing-rail-open .chart-heading {
+  left: calc(max(8px, env(safe-area-inset-left)) + 56px);
+  max-width: calc(100% - 126px);
+}
+@media (pointer: coarse) {
+  .native-drawing-rail .vela-dtb-arrow {
+    opacity: 0 !important;
+    pointer-events: none !important;
+  }
+  .native-drawing-rail .vela-dtb-cell:has(.vela-dtb-arrow)::after {
+    content: "";
+    position: absolute;
+    right: 5px;
+    top: 50%;
+    width: 5px;
+    height: 5px;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    transform: translateY(-50%) rotate(-45deg);
+    opacity: 0.48;
+    pointer-events: none;
+  }
+  .native-drawing-rail .vela-dtb-star {
+    opacity: 0.72;
+    min-width: 36px;
+    min-height: 36px;
+  }
 }
 
 /* Compact iPhone landscape ergonomics + Dynamic Island / Notch horizontal safe-area clearance */
@@ -2077,8 +2258,19 @@ body {
 .phone-workspace .legend-fold {
   margin-top: -5px;
 }
-.phone-workspace .native-drawing-rail {
-  top: env(safe-area-inset-top);
+@supports (-webkit-touch-callout: none) {
+  .workspace-main.phone-chart > .native-drawing-rail {
+    top: calc(env(safe-area-inset-top) + 78px);
+  }
+  .phone-workspace .native-drawing-rail .drawing-rail-actions .drawing-catalog {
+    top: calc(env(safe-area-inset-top) + 78px);
+  }
+}
+@media (max-height: 450px) and (pointer: coarse) {
+  .workspace-main.phone-chart > .native-drawing-rail {
+    top: 40px;
+    bottom: calc(54px + env(safe-area-inset-bottom));
+  }
 }
 .phone-workspace .alert-empty {
   padding: 14px 16px;

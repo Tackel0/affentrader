@@ -1845,6 +1845,24 @@ async function run() {
         await tapWorkspaceTarget(cdp, '.drawing-favorites-modal [aria-label="Close dialog"]', 36);
         await waitForPagePredicate(cdp, '!document.querySelector(".drawing-favorites-modal")', "drawing favorites picker closes");
         recordAudit(vp, "/ floating translucent favorites bar", await inspectViewportDom(cdp, true));
+        await waitForPagePredicate(cdp, `(() => {
+          const rail = document.querySelector("#workspace-drawing-tools")?.getBoundingClientRect();
+          const dock = document.querySelector(".phone-chart-actions")?.getBoundingClientRect();
+          const head = document.querySelector(".chart-heading")?.getBoundingClientRect();
+          return !!rail && !!dock && !!head && rail.bottom <= dock.top + 2 && head.left >= rail.right - 2;
+        })()`, "phone drawing rail has zero overlap with bottom dock and top heading");
+        await tapWorkspaceTarget(cdp, '#workspace-drawing-tools .vela-dtb-cell .vela-dtb-icon', 36);
+        await waitForPagePredicate(cdp, `(() => {
+          const rail = document.querySelector("#workspace-drawing-tools")?.getBoundingClientRect();
+          const fly = document.querySelector("#workspace-drawing-tools .vela-dtb-flyout")?.getBoundingClientRect();
+          const dock = document.querySelector(".phone-chart-actions")?.getBoundingClientRect();
+          return !!rail && !!fly && !!dock && fly.width >= 120 && fly.height >= 40 && fly.left >= rail.right - 2 && fly.bottom <= dock.top + 4;
+        })()`, "phone drawing category icon opens unclipped translucent flyout");
+        recordAudit(vp, "/ drawing tools flyout open", await inspectViewportDom(cdp, true));
+        await tapWorkspaceTarget(cdp, '#workspace-drawing-tools .vela-dtb-flyout .vela-dtb-item', 36);
+        await waitForPagePredicate(cdp, '!document.querySelector("#workspace-drawing-tools")', "selecting tool from phone flyout closes rail for unobstructed drawing");
+        await tapWorkspaceTarget(cdp, ".phone-drawing-toggle", 36);
+        await waitForPagePredicate(cdp, '!!document.querySelector("#workspace-drawing-tools")', "phone drawing tools reopen via dock toggle");
         await tapWorkspaceTarget(cdp, ".phone-drawing-toggle", 36);
         await waitForPagePredicate(cdp, '!document.querySelector("#workspace-drawing-tools")', "phone drawing tools close");
         phoneDrawingOverlayChecked = true;

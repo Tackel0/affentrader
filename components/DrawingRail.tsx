@@ -11,8 +11,20 @@ import { IconButton } from "./ui";
 import { DrawingToolsMenu } from "./WorkspaceMenus";
 
 /** Vela's public, workspace-docked toolbar controls whichever chart is currently active. */
-export function DrawingRail({ id }: { id?: string }) {
+export function DrawingRail({
+  id,
+  phone = false,
+  onRequestClose,
+}: {
+  id?: string;
+  phone?: boolean;
+  onRequestClose?: () => void;
+}) {
   const host = useRef<HTMLDivElement>(null), native = useRef<DrawingToolbar | null>(null);
+  const closeRef = useRef(onRequestClose);
+  closeRef.current = onRequestClose;
+  const phoneRef = useRef(phone);
+  phoneRef.current = phone;
   const [owner, setOwner] = useState<Vela | null>(null), [ready, setReady] = useState(false), [error, setError] = useState("");
   const [collapsed, setCollapsed] = useState(false);
   const preferences = useChartStore(s => s.drawingPreferences), drawing = useChartStore(s => s.drawing);
@@ -28,17 +40,28 @@ export function DrawingRail({ id }: { id?: string }) {
           const state = useChartStore.getState();
           if (type === null) getPrimaryChart()?.drawings.setMode(null);
           state.set({ drawing: type ?? "cursor" });
+          if (phoneRef.current && type !== null) closeRef.current?.();
         },
         snap => useChartStore.getState().set({ drawingPreferences: { ...useChartStore.getState().drawingPreferences, snap } }),
-        () => { const chart = getPrimaryChart(); chart?.drawings.setMode(chart.drawings.getMode() === "measure" ? null : "measure"); },
-        () => { const chart = getPrimaryChart(); chart?.drawings.setMode(chart.drawings.getMode() === "eraser" ? null : "eraser"); },
+        () => {
+          const chart = getPrimaryChart();
+          const next = chart?.drawings.getMode() === "measure" ? null : "measure";
+          chart?.drawings.setMode(next);
+          if (phoneRef.current && next) closeRef.current?.();
+        },
+        () => {
+          const chart = getPrimaryChart();
+          const next = chart?.drawings.getMode() === "eraser" ? null : "eraser";
+          chart?.drawings.setMode(next);
+          if (phoneRef.current && next) closeRef.current?.();
+        },
         (type, on) => {
           const state = useChartStore.getState(), favorites = state.drawingPreferences.favorites.filter(t => t !== type);
           if (on) favorites.push(type);
           state.set({ drawingPreferences: { ...state.drawingPreferences, favorites } });
         },
         stay => useChartStore.getState().set({ drawingPreferences: { ...useChartStore.getState().drawingPreferences, stay } }),
-        { dock: "static", width: 52, onCollapse: setCollapsed },
+        { dock: "static", width: phoneRef.current ? 48 : 52, onCollapse: setCollapsed },
       );
       rail.setDefinition(definition);
       rail.setVisible(true);
@@ -48,6 +71,69 @@ export function DrawingRail({ id }: { id?: string }) {
     }).catch(reason => { if (!disposed) setError(String(reason)); });
     return () => { disposed = true; native.current?.destroy(); native.current = null; };
   }, []);
+
+  // Touch-first ergonomics on phone/coarse pointers:
+  // 1) Tapping any multi-tool category icon opens its flyout submenu directly (no impossible 11px hover chevron).
+  // 2) Clamp any open flyout inside the visible safe viewport so it never overlaps the bottom dock or clips off-screen.
+  useEffect(() => {
+    const el = host.current;
+    if (!el) return;
+
+    const handleCaptureClick = (event: MouseEvent) => {
+      const isCoarse =
+        phoneRef.current ||
+        (typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches);
+      if (!isCoarse) return;
+      const target = event.target as HTMLElement | null;
+      const iconBtn = target?.closest(".vela-dtb-icon");
+      if (!iconBtn) return;
+      const cell = iconBtn.closest(".vela-dtb-cell");
+      const arrow = cell?.querySelector<HTMLButtonElement>(".vela-dtb-arrow");
+      if (!arrow) return;
+      event.preventDefault();
+      event.stopPropagation();
+      arrow.click();
+    };
+
+    const clampFlyouts = () => {
+      const flyouts = el.querySelectorAll<HTMLElement>(".vela-dtb-flyout");
+      if (!flyouts.length) return;
+      const hostRect = el.getBoundingClientRect();
+      const topPad = phoneRef.current ? 12 : 8;
+      const bottomDockReserve = phoneRef.current ? 74 : 16;
+      const viewportTop = Math.max(topPad, hostRect.top);
+      const viewportBottom = Math.max(viewportTop + 180, window.innerHeight - bottomDockReserve);
+      const maxH = Math.min(phoneRef.current ? 360 : 480, Math.max(160, viewportBottom - viewportTop));
+      for (const fly of flyouts) {
+        fly.style.maxHeight = `${maxH}px`;
+        if (phoneRef.current) {
+          fly.style.left = `${hostRect.width + 8}px`;
+        }
+        const flyRect = fly.getBoundingClientRect();
+        const naturalH = Math.min(fly.scrollHeight || flyRect.height || 240, maxH);
+        const currentTopAbs = hostRect.top + (parseFloat(fly.style.top) || 0);
+        let clampedAbs = currentTopAbs;
+        if (clampedAbs + naturalH > viewportBottom) {
+          clampedAbs = Math.max(viewportTop, viewportBottom - naturalH);
+        }
+        if (clampedAbs < viewportTop) {
+          clampedAbs = viewportTop;
+        }
+        fly.style.top = `${Math.round(clampedAbs - hostRect.top)}px`;
+      }
+    };
+
+    el.addEventListener("click", handleCaptureClick, true);
+    const observer = new MutationObserver(() => {
+      requestAnimationFrame(clampFlyouts);
+    });
+    observer.observe(el, { childList: true });
+    return () => {
+      el.removeEventListener("click", handleCaptureClick, true);
+      observer.disconnect();
+    };
+  }, [ready]);
+
   useEffect(() => { native.current?.setTheme(chartTheme(theme)); }, [theme, ready]);
   useEffect(() => {
     const rail = native.current;
@@ -88,7 +174,7 @@ export function DrawingRail({ id }: { id?: string }) {
         >
           <Star size={18} fill={preferences.favorites.length ? "currentColor" : "none"} />
         </IconButton>
-        <DrawingToolsMenu />
+        <DrawingToolsMenu onSelect={phone ? () => closeRef.current?.() : undefined} />
         <IconButton label={locked ? "Unlock all drawings" : "Lock all drawings"} aria-pressed={locked} className={locked ? "active" : ""}
           disabled={!drawings.length} onClick={() => batch("locked", !locked)}><LockKeyhole size={19} /></IconButton>
         <IconButton label={hidden ? "Show all drawings" : "Hide all drawings"} aria-pressed={hidden} className={hidden ? "active" : ""}
