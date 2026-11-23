@@ -91,6 +91,7 @@ export function WorkspacePanelTabs({ children }: { children: ReactNode }) {
     return () => { observer.disconnect(); window.removeEventListener("resize", measure); };
   }, []);
   useEffect(() => {
+    if (!open) return;
     strip.current?.querySelector<HTMLElement>(`[data-panel="${tab}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [tab, open, overflow]);
   useEffect(() => {

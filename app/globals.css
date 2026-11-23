@@ -694,16 +694,16 @@ svg {
 }
 .price-alert-hint {
   position: absolute;
-  right: 65px;
-  top: 50%;
+  right: 8px;
+  top: 8px;
   z-index: 4;
   border: 1px solid #69728a;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  width: 18px;
-  height: 18px;
+  width: 22px;
+  height: 22px;
   background: #303849;
   color: #c8cdd9;
   opacity: 0;
@@ -2833,7 +2833,6 @@ svg {
 }
 @media (max-width: 768px), (pointer: coarse) {
   .chart-floating-controls,
-  .price-alert-hint,
   .indicator-chip .icon-button,
   .watchlist-row .row-remove {
     opacity: 1;
@@ -2843,8 +2842,7 @@ svg {
     height: 36px;
   }
   .price-alert-hint {
-    width: 36px;
-    height: 36px;
+    display: none;
   }
   .watchlist-row .row-remove {
     width: 36px;

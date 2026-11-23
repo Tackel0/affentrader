@@ -58,6 +58,7 @@ export function ChartToolbarOverflow({toggleSidebar, phone}:{
           </button>
         </div>
         <div className="phone-hub-sep" />
+        <button type="button" onClick={()=>{setOpen(false);useChartStore.getState().set({alertDraft:currentPriceAlertDraft()});}}><Bell size={18}/><span>Alarm erstellen</span></button>
         <div className="mobile-controls-component"><ChartTypeMenu showLabel onSelect={() => setOpen(false)} /></div>
         <button type="button" onClick={()=>{setOpen(false);phone.showRanges();}}><CalendarDays size={18}/><span>Zeitraum und Zeitzone</span></button>
         {tradingButtons && <button type="button" aria-pressed={phone.tradingOpen} onClick={()=>{setOpen(false);phone.toggleTrading();}}>
@@ -66,7 +67,7 @@ export function ChartToolbarOverflow({toggleSidebar, phone}:{
         {phone.openObjects ? <button type="button" onClick={()=>{setOpen(false);phone.openObjects?.();}}><ListTree size={18}/><span>Objektbaum</span></button> : null}
       </> : <button type="button" onClick={()=>{setOpen(false);useChartStore.getState().set({searchOpen:true,searchTarget:"chart"});}}><Search size={18}/><span>Symbol search</span></button>}
       <button type="button" onClick={()=>{setOpen(false);useChartStore.getState().set({compareOpen:true});}}><Plus size={18}/><span>Compare symbol</span></button>
-      <button type="button" onClick={()=>{setOpen(false);useChartStore.getState().set({alertDraft:currentPriceAlertDraft()});}}><Bell size={18}/><span>Create alert</span></button>
+      {!phone ? <button type="button" onClick={()=>{setOpen(false);useChartStore.getState().set({alertDraft:currentPriceAlertDraft()});}}><Bell size={18}/><span>Create alert</span></button> : null}
       <button type="button" aria-pressed={replay} onClick={()=>{setOpen(false);useWorkspaceStore.getState().commandReplay(replay?"stop":"start");}}><ChevronsLeft size={18}/><span>{replay?"Stop replay":"Bar Replay"}</span></button>
       <button type="button" onClick={()=>command("settings")}><SlidersHorizontal size={18}/><span>Chart settings</span></button>
       <div className="mobile-controls-component"><IndicatorTemplateMenu/></div>
