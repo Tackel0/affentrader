@@ -565,7 +565,23 @@
   .native-drawing-rail .vela-dtb-icon { width: 36px; min-width: 36px; height: 36px; }
   .native-drawing-rail .vela-dtb-hit--arrow { width: 14px; min-height: 36px; }
 }
+html:has(.trading-app.phone-workspace),
+body:has(.trading-app.phone-workspace) {
+  height: 100%;
+  min-height: 100vh;
+  min-height: 100lvh;
+  overflow: hidden;
+  background: #000;
+}
+html[data-theme="light"]:has(.trading-app.phone-workspace),
+html[data-theme="light"] body:has(.trading-app.phone-workspace) {
+  background: #fff;
+}
 .trading-app.phone-workspace {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   gap: 0;
   padding: 0;
   background: #000;
@@ -694,7 +710,7 @@
   grid-template-columns: minmax(0, 1fr) repeat(6, 44px);
   align-items: center;
   gap: 0;
-  padding: 4px max(8px, calc(env(safe-area-inset-right) + 4px)) calc(4px + env(safe-area-inset-bottom)) max(10px, calc(env(safe-area-inset-left) + 6px));
+  padding: 4px max(8px, calc(env(safe-area-inset-right) + 4px)) max(4px, calc(env(safe-area-inset-bottom) - 10px)) max(10px, calc(env(safe-area-inset-left) + 6px));
   flex: none;
   position: relative;
   height: auto;
@@ -709,7 +725,7 @@
   content: "";
   position: absolute;
   top: 3px;
-  bottom: calc(3px + env(safe-area-inset-bottom));
+  bottom: max(3px, calc(env(safe-area-inset-bottom) - 11px));
   left: max(6px, env(safe-area-inset-left));
   right: max(6px, env(safe-area-inset-right));
   border-radius: 999px;
@@ -1977,7 +1993,7 @@ body {
   padding-top: 0;
 }
 .phone-workspace .chart-heading {
-  top: calc(env(safe-area-inset-top) + 4px);
+  top: calc(env(safe-area-inset-top) * 1.25 + 2px);
   left: max(6px, env(safe-area-inset-left));
   right: 70px;
   max-width: calc(100% - 76px);
