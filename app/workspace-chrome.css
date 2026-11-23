@@ -1792,19 +1792,35 @@ body {
   width: 100%;
   min-width: 0;
 }
+.phone-workspace .modal-backdrop {
+  background: rgba(7, 10, 16, 0.48);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
 .phone-workspace .right-sidebar:not(.collapsed) {
   border-radius: 18px 18px 0 0;
-  background: color-mix(in srgb, var(--surface) 86%, transparent);
-  -webkit-backdrop-filter: blur(16px) saturate(145%);
-  backdrop-filter: blur(16px) saturate(145%);
+  background: color-mix(in srgb, var(--surface) 97%, transparent);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   border-top: 1px solid color-mix(in srgb, var(--border) 68%, rgba(255, 255, 255, 0.14));
+}
+.phone-workspace .modal,
+.phone-workspace .modal.phone-action-sheet,
+.phone-workspace .search-modal,
+.phone-workspace .modal:not(.phone-action-sheet):not(.search-modal) {
+  background: color-mix(in srgb, var(--surface) 97%, transparent);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 .phone-workspace .modal:not(.phone-action-sheet):not(.search-modal) {
   border-radius: 16px;
-  background: color-mix(in srgb, var(--surface) 86%, transparent);
-  -webkit-backdrop-filter: blur(18px) saturate(155%);
-  backdrop-filter: blur(18px) saturate(155%);
   border: 1px solid color-mix(in srgb, var(--border) 68%, rgba(255, 255, 255, 0.14));
+}
+.phone-workspace .tv-popover,
+.phone-workspace .tv-popover:not(.mobile-chart-controls) {
+  background: color-mix(in srgb, var(--tv-dialog, var(--surface)) 96%, transparent);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 /* Subtle native entrance animations for menus and bottom sheets (no scale/transform on popovers to preserve 44px touch hitboxes and fixed sub-popover positioning) */
@@ -1863,7 +1879,7 @@ body {
   background: color-mix(in srgb, var(--accent, #ff9e00) 18%, var(--surface2));
 }
 
-/* Eliminate heavy browser scrollbar on Vela's native drawing rail and add frosted glass on phone overlay */
+/* Eliminate heavy browser scrollbar on Vela's native drawing rail and avoid full-height GPU blur on phone */
 .native-drawing-rail .native-drawing-host,
 .native-drawing-rail .native-drawing-host * {
   scrollbar-width: none;
@@ -1875,9 +1891,9 @@ body {
   display: none;
 }
 .phone-workspace .native-drawing-rail {
-  background: color-mix(in srgb, var(--surface) 88%, transparent);
-  -webkit-backdrop-filter: blur(14px) saturate(145%);
-  backdrop-filter: blur(14px) saturate(145%);
+  background: color-mix(in srgb, var(--surface) 95%, transparent);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   border-radius: 0 12px 12px 0;
   box-shadow: 4px 0 22px rgba(0, 0, 0, 0.24);
   overflow: hidden;

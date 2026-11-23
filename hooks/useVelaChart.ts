@@ -15,7 +15,7 @@ import { useChartStore } from "@/stores/useChartStore";
 import { useAlertStore } from "@/stores/useAlertStore";
 import { INDICATORS } from "@/lib/indicators/catalog";
 import { nativeIndicatorInputs as makeInputs } from "@/lib/indicators/nativeInputs";
-import { bindPineEngine } from "@/lib/indicators/engineOptions";
+import { bindPineEngine, type PineEngineBinding } from "@/lib/indicators/engineOptions";
 import {installTradingSettings} from "@/lib/chart/tradingSettings";
 import {rangePlan,navigationDepth,dateWindow,recentWindow} from "@/lib/chart/ranges";
 import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
@@ -100,6 +100,7 @@ export function useVelaChart(container: RefObject<HTMLDivElement | null>) {
   const explicitRange=useRef<{symbol:string;timeframe:string}|null>(null);
   const nativeHistory=useRef<{chart:Vela;oldestTime:number;barsLoaded:number;reason:string}|null>(null);
   const feeds = useRef(new WeakMap<Vela, ReturnType<typeof trackChartFeed>>());
+  const pineRef = useRef<PineEngineBinding | null>(null);
   const isPhoneChartViewport = () =>
     typeof window !== "undefined" && typeof window.matchMedia === "function"
     && window.matchMedia("(max-width: 768px) and (pointer: coarse), (max-width: 1024px) and (max-height: 520px) and (pointer: coarse)").matches;
@@ -124,7 +125,7 @@ export function useVelaChart(container: RefObject<HTMLDivElement | null>) {
   useEffect(() => {
     let disposed = false;
     let instance: Vela | null = null;
-    let terminatePine: (() => void) | undefined;
+    let terminatePine: PineEngineBinding | undefined;
     const off: (() => void)[] = [];
     const initialize = async () => {
       try {
@@ -171,12 +172,14 @@ export function useVelaChart(container: RefObject<HTMLDivElement | null>) {
             theme: chartTheme(useWorkspaceStore.getState().theme),
             animations: phoneChart ? { intro: false, zoom: 0, pan: 0 } : { intro: false, zoom: 100, pan: 80 },
             currentPriceLine: true,
+            ...(phoneChart ? { nativeBackend: "canvas2d" as const } : {}),
           },
           { dataFeed: trackedFeed.feed },
         );
         feeds.current.set(instance, trackedFeed);
         off.push(bindReplayClock(instance));
         terminatePine = bindPineEngine(instance);
+        pineRef.current = terminatePine;
         instance.renderer.set({ attribution: true, indicatorTitles: false });
         off.push(instance.on("history:complete",report=>{if(instance&&!disposed)nativeHistory.current={chart:instance,...report};}));
         off.push(bindPriceScale(instance, container.current, priceScaleHost(useWorkspaceStore.getState().activeId)));
@@ -418,7 +421,10 @@ export function useVelaChart(container: RefObject<HTMLDivElement | null>) {
       replaySerial.current++;
       nativeHistory.current=null;
       off.forEach((fn) => fn());
-      try { instance?.destroy(); } finally { terminatePine?.(); }
+      try { instance?.destroy(); } finally {
+        if (pineRef.current === terminatePine) pineRef.current = null;
+        terminatePine?.();
+      }
       indicatorHandles.clear();
       signatures.current.clear();
       if (primaryChart === instance) publishPrimaryChart(null);
@@ -466,12 +472,13 @@ export function useVelaChart(container: RefObject<HTMLDivElement | null>) {
     const next = { symbol, timeframe };
     const sameMarket =
       chart.market.symbol === symbol && chart.market.timeframe === timeframe;
-    const currentDepth = chart.market.bars ?? 600;
+    const defaultDepth = isPhoneChartViewport() ? 300 : 600;
+    const currentDepth = chart.market.bars ?? defaultDepth;
     const historyDepth = sameMarket
       ? currentDepth >= MAX_HISTORY_BARS
         ? MAX_HISTORY_BARS - 1
         : currentDepth + 1
-      : 600;
+      : defaultDepth;
     const committedDrawings = !restoringDrawings.current;
     restoringDrawings.current = true;
     const change = ++marketChange.current;
@@ -608,43 +615,45 @@ export function useVelaChart(container: RefObject<HTMLDivElement | null>) {
                 !definition.nativeId.startsWith("af-") &&
                 !["volume", "vpvr"].includes(definition.nativeId)
               ) {
-                vela.registerNativeIndicator(
-                  Object.assign(Object.create(descriptor), {
-                    type: styledType,
-                    create: () => {
-                      const native = descriptor.create();
-                      const originalStart = native.start.bind(native);
-                      native.start = (ctx, inputs) => {
-                        const wrapped: NativeIndicatorContext = {
-                          ...ctx,
-                          emit: (out) => {
-                            const style = useChartStore
-                              .getState()
-                              .indicators.find((i) => i.id === indicator.id);
-                            ctx.emit({
-                              ...out,
-                              series: out.series?.map((s) =>
-                                s.kind !== "candle" &&
-                                s.kind !== "bar" &&
-                                s.kind !== "markers"
-                                  ? ({
-                                      ...s,
-                                      style: {
-                                        ...(s as LineLikeSeries).style,
-                                        width: style?.lineWidth ?? 2,
-                                      },
-                                    } as LineLikeSeries)
-                                  : s,
-                              ),
-                            });
-                          },
+                if (!vela.getNativeIndicator(styledType)) {
+                  vela.registerNativeIndicator(
+                    Object.assign(Object.create(descriptor), {
+                      type: styledType,
+                      create: () => {
+                        const native = descriptor.create();
+                        const originalStart = native.start.bind(native);
+                        native.start = (ctx, inputs) => {
+                          const wrapped: NativeIndicatorContext = {
+                            ...ctx,
+                            emit: (out) => {
+                              const style = useChartStore
+                                .getState()
+                                .indicators.find((i) => i.id === indicator.id);
+                              ctx.emit({
+                                ...out,
+                                series: out.series?.map((s) =>
+                                  s.kind !== "candle" &&
+                                  s.kind !== "bar" &&
+                                  s.kind !== "markers"
+                                    ? ({
+                                        ...s,
+                                        style: {
+                                          ...(s as LineLikeSeries).style,
+                                          width: style?.lineWidth ?? 2,
+                                        },
+                                      } as LineLikeSeries)
+                                    : s,
+                                ),
+                              });
+                            },
+                          };
+                          originalStart(wrapped, inputs);
                         };
-                        originalStart(wrapped, inputs);
-                      };
-                      return native;
-                    },
-                  }),
-                );
+                        return native;
+                      },
+                    }),
+                  );
+                }
                 handle = chart.addNativeIndicator(styledType, {
                   inputs: makeInputs(indicator),
                 });
@@ -683,6 +692,12 @@ export function useVelaChart(container: RefObject<HTMLDivElement | null>) {
           signatures.current.set(indicator.id, signature);
         }
       }
+      const catalog = [...INDICATORS, ...useChartStore.getState().nativeCatalog];
+      const hasPineStudy = indicators.some((ind) => {
+        if (ind.script) return true;
+        return Boolean(catalog.find((d) => d.id === ind.definitionId)?.script);
+      });
+      if (!hasPineStudy) pineRef.current?.releaseIdle();
     };
     void sync();
     return () => {

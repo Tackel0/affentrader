@@ -1,6 +1,12 @@
 import type { Tick } from "@/types/trading";
 import { MAX_PROFILE_TRADES } from "./volumeProfileModel";
 
+const MOBILE_PROFILE_TRADES = 8000;
+function isCompactTouchDevice(): boolean {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+  return window.matchMedia("(max-width: 768px) and (pointer: coarse)").matches;
+}
+
 /** Indicator-owned executions, independent of the market service's short display tape. */
 export class ProfileTradeCollection {
   private trades = new Map<string, Tick>();
@@ -8,10 +14,16 @@ export class ProfileTradeCollection {
   private source?: boolean;
   private last = -Infinity;
   private failure?: Error;
+  private readonly capacity: number;
+  private readonly rolling: boolean;
   revision = 0;
   rejected = 0;
   epoch = 0;
-  constructor(private readonly capacity = MAX_PROFILE_TRADES) {}
+  constructor(capacity?: number) {
+    const mobileDefault = capacity === undefined && isCompactTouchDevice();
+    this.capacity = capacity ?? (mobileDefault ? MOBILE_PROFILE_TRADES : MAX_PROFILE_TRADES);
+    this.rolling = mobileDefault;
+  }
   add(input: readonly Tick[]): void {
     if (this.failure) throw this.failure;
     for (const tick of [...input].sort((a, b) => a.time - b.time)) {
@@ -25,8 +37,13 @@ export class ProfileTradeCollection {
       this.source = tick.simulated;
       if (this.trades.has(tick.id)) continue;
       if (this.trades.size >= this.capacity) {
-        this.failure = new Error("SVP collection reached 100,000 executions. Remove and re-add the study to restart collection; no observed session volume was truncated.");
-        throw this.failure;
+        if (this.rolling) {
+          const oldest = this.trades.keys().next().value;
+          if (oldest !== undefined) this.trades.delete(oldest);
+        } else {
+          this.failure = new Error("SVP collection reached 100,000 executions. Remove and re-add the study to restart collection; no observed session volume was truncated.");
+          throw this.failure;
+        }
       }
       this.trades.set(tick.id, { ...tick }); this.last = Math.max(this.last, tick.time);
       this.cached = undefined; this.revision++;

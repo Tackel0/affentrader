@@ -12,6 +12,7 @@ export class ProfileJobs {
   private active: Job | null = null;
   private queued = new Map<number, Job>();
   private sequence = 0;
+  private idleTimer?: ReturnType<typeof setTimeout>;
   constructor(private readonly createWorker: () => Worker) {}
   submit(owner: number, bars: OHLCV[], options: FixedProfileOptions, complete: Job["complete"], execution?: ProfileExecutionInput): void {
     const previous = this.queued.get(owner);
@@ -24,8 +25,26 @@ export class ProfileJobs {
     }
     this.pump();
   }
+  private clearIdleCleanup(): void {
+    if (this.idleTimer !== undefined) { clearTimeout(this.idleTimer); this.idleTimer = undefined; }
+  }
+  private scheduleIdleCleanup(): void {
+    this.clearIdleCleanup();
+    if (!this.worker || this.active || this.queued.size) return;
+    this.idleTimer = setTimeout(() => {
+      this.idleTimer = undefined;
+      if (!this.active && !this.queued.size && this.worker) {
+        this.worker.terminate();
+        this.worker = null;
+      }
+    }, 15_000);
+  }
   private pump(): void {
-    if (this.active || !this.queued.size) return;
+    if (this.active || !this.queued.size) {
+      if (!this.active && !this.queued.size) this.scheduleIdleCleanup();
+      return;
+    }
+    this.clearIdleCleanup();
     const owner = this.queued.keys().next().value!;
     const job = this.queued.get(owner)!; this.queued.delete(owner); this.active = job;
     try {
@@ -44,6 +63,7 @@ export class ProfileJobs {
     } catch (error) { this.fail(error instanceof Error ? error.message : "Background profile worker unavailable."); }
   }
   private fail(message: string): void {
+    this.clearIdleCleanup();
     this.worker?.terminate(); this.worker = null;
     const jobs = [...(this.active ? [this.active] : []), ...this.queued.values()];
     this.active = null; this.queued.clear();

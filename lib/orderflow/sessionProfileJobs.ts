@@ -32,6 +32,7 @@ export class SessionProfileJobs implements SessionProfileExecutor {
   private queued = new Map<number, Job>();
   private sequence = 0;
   private timeout?: ReturnType<typeof setTimeout>;
+  private idleTimer?: ReturnType<typeof setTimeout>;
   constructor(private readonly createWorker: () => Worker) {}
   submit(owner: number, trades: readonly Tick[], style: VolumeProfilePreferences, symbol: string, complete: (response: SessionProfileResponse) => void, calendar?: MarketSessionCalendar, timeframe?: string): void {
     const old = this.queued.get(owner);
@@ -47,9 +48,28 @@ export class SessionProfileJobs implements SessionProfileExecutor {
   cancel(owner: number): void {
     this.queued.delete(owner);
     if (this.active?.owner === owner) this.active.complete = undefined;
+    if (!this.active && !this.queued.size) this.scheduleIdleCleanup();
+  }
+  private clearIdleCleanup(): void {
+    if (this.idleTimer !== undefined) { clearTimeout(this.idleTimer); this.idleTimer = undefined; }
+  }
+  private scheduleIdleCleanup(): void {
+    this.clearIdleCleanup();
+    if (!this.worker || this.active || this.queued.size) return;
+    this.idleTimer = setTimeout(() => {
+      this.idleTimer = undefined;
+      if (!this.active && !this.queued.size && this.worker) {
+        this.worker.terminate();
+        this.worker = null;
+      }
+    }, 15_000);
   }
   private pump(): void {
-    if (this.active || !this.queued.size) return;
+    if (this.active || !this.queued.size) {
+      if (!this.active && !this.queued.size) this.scheduleIdleCleanup();
+      return;
+    }
+    this.clearIdleCleanup();
     const owner = this.queued.keys().next().value!, job = this.queued.get(owner)!;
     this.queued.delete(owner); this.active = job;
     try {
@@ -72,6 +92,7 @@ export class SessionProfileJobs implements SessionProfileExecutor {
     } catch (error) { this.fail(error instanceof Error ? error.message : "Session profile worker unavailable."); }
   }
   private fail(message: string): void {
+    this.clearIdleCleanup();
     this.worker?.terminate(); this.worker = null; clearTimeout(this.timeout); this.timeout = undefined;
     const jobs = [...(this.active ? [this.active] : []), ...this.queued.values()]; this.active = null; this.queued.clear();
     for (const job of jobs) job.complete?.({ id: job.id, error: message });

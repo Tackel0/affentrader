@@ -5,8 +5,10 @@ import { marketService, normalizeTimeframe } from "@/lib/market/service";
 import { footprints, priceStep } from "@/lib/orderflow/math";
 import { useChartStore } from "@/stores/useChartStore";
 
+export type PineEngineBinding = (() => void) & { releaseIdle: () => void };
+
 /** Register the Pine engine before adding studies without loading it for native charts. */
-export function bindPineEngine(chart: Vela): () => void {
+export function bindPineEngine(chart: Vela): PineEngineBinding {
   let engine: import("@luxalgo/vela-pinets").PineWorkerEngine | undefined;
   let closed = false;
   const lazyEngine: ScriptingEngine = {
@@ -27,11 +29,17 @@ export function bindPineEngine(chart: Vela): () => void {
     },
   };
   chart.registerEngine("pine", lazyEngine);
-  return () => {
+  const dispose = (() => {
     closed = true;
     engine?.terminate();
     engine = undefined;
+  }) as PineEngineBinding;
+  dispose.releaseIdle = () => {
+    if (!engine) return;
+    engine.terminate();
+    engine = undefined;
   };
+  return dispose;
 }
 
 export function pineEngineOptions(): PineWorkerOptions {
