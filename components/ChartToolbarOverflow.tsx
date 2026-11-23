@@ -4,6 +4,7 @@ import {MoreHorizontal,Search,Plus,Bell,ChevronsLeft,SlidersHorizontal,Camera,Ma
 import {IconButton} from "./ui";
 import {useDismiss,LayoutMenu,SavedLayoutsMenu,IndicatorTemplateMenu} from "./WorkspaceMenus";
 import {ChartTypeMenu,PatternsButton} from "./ChartTools";
+import {ChartCoverageMenuItem} from "./ChartCoverage";
 import {currentPriceAlertDraft} from "@/lib/alerts/priceDraft";
 import {useChartStore} from "@/stores/useChartStore";
 import {useWorkspaceStore} from "@/stores/useWorkspaceStore";
@@ -66,6 +67,7 @@ export function ChartToolbarOverflow({toggleSidebar, phone}:{
         </button>}
         {phone.openObjects ? <button type="button" onClick={()=>{setOpen(false);phone.openObjects?.();}}><ListTree size={18}/><span>Objektbaum</span></button> : null}
       </> : <button type="button" onClick={()=>{setOpen(false);useChartStore.getState().set({searchOpen:true,searchTarget:"chart"});}}><Search size={18}/><span>Symbol search</span></button>}
+      <ChartCoverageMenuItem onSelect={() => setOpen(false)} />
       <button type="button" onClick={()=>{setOpen(false);useChartStore.getState().set({compareOpen:true});}}><Plus size={18}/><span>Compare symbol</span></button>
       {!phone ? <button type="button" onClick={()=>{setOpen(false);useChartStore.getState().set({alertDraft:currentPriceAlertDraft()});}}><Bell size={18}/><span>Create alert</span></button> : null}
       <button type="button" aria-pressed={replay} onClick={()=>{setOpen(false);useWorkspaceStore.getState().commandReplay(replay?"stop":"start");}}><ChevronsLeft size={18}/><span>{replay?"Stop replay":"Bar Replay"}</span></button>

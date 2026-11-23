@@ -1727,8 +1727,10 @@ async function run() {
           await tapWorkspaceTarget(cdp, selector, 44);
         };
         await chooseType("Bid × Ask, total volume or delta at each price");
-        await waitForPagePredicate(cdp, '!!document.querySelector(".chart-coverage")', "Footprint and its coverage control render");
-        await tapWorkspaceTarget(cdp, ".chart-coverage", 44);
+        await waitForPagePredicate(cdp, '!document.querySelector(".chart-section > .chart-coverage")', "Data coverage never floats over candles");
+        await openPhoneHub();
+        await waitForPagePredicate(cdp, '!!document.querySelector(".mobile-chart-controls .chart-coverage")', "Footprint coverage control renders inside overflow hub");
+        await tapWorkspaceTarget(cdp, ".mobile-chart-controls .chart-coverage", 44);
         await waitForPagePredicate(cdp, `(() => {
           const coverage = document.querySelector('.chart-coverage-details')?.textContent ?? '';
           return coverage.includes('4 collected trades') && coverage.includes('Binance · observed trades from') && coverage.includes('gaps possible');
@@ -1742,17 +1744,16 @@ async function run() {
         recordAudit(vp, "/ Footprint history coverage", await inspectViewportDom(cdp, true));
         await tapWorkspaceTarget(cdp, '.chart-coverage-modal [aria-label="Close dialog"]', 44);
         await chooseType("Japanese candlesticks");
-        await waitForPagePredicate(cdp, '!document.querySelector(".chart-coverage")', "restore Candles after Footprint coverage audit");
         await waitForPagePredicate(cdp, `window.__footprintCanvases.every(canvas => canvas.width === 0 && canvas.height === 0)`, "switching back to Candles releases Footprint drawing buffers");
         const beforeReopen = requestedTradePages.length;
         await chooseType("Bid × Ask, total volume or delta at each price");
-        await waitForPagePredicate(cdp, '!!document.querySelector(".chart-coverage")', "Footprint resumes after closing");
-        await tapWorkspaceTarget(cdp, ".chart-coverage", 44);
+        await openPhoneHub();
+        await waitForPagePredicate(cdp, '!!document.querySelector(".mobile-chart-controls .chart-coverage")', "Footprint resumes after closing");
+        await tapWorkspaceTarget(cdp, ".mobile-chart-controls .chart-coverage", 44);
         await waitForPagePredicate(cdp, `document.querySelector('.chart-coverage-details')?.textContent.includes('Binance · observed trades from')`, "reopened Footprint loads trade history again");
         if (requestedTradePages.length !== beforeReopen + 2) throw new Error("Reopened Footprint did not start one fresh historical request sequence");
         await tapWorkspaceTarget(cdp, '.chart-coverage-modal [aria-label="Close dialog"]', 44);
         await chooseType("Japanese candlesticks");
-        await waitForPagePredicate(cdp, '!document.querySelector(".chart-coverage")', "restore Candles after reopening Footprint");
         await waitForPagePredicate(cdp, `window.__footprintCanvases.every(canvas => canvas.width === 0 && canvas.height === 0)`, "Footprint buffers remain reusable through a second close");
         await cdp.send("Runtime.evaluate", { expression: `delete window.__sizedBeforeFootprint; delete window.__footprintCanvases` });
 

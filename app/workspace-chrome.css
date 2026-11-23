@@ -2081,7 +2081,72 @@ body {
 }
 .phone-workspace .drawing-favorites {
   top: auto;
-  bottom: 38px;
+  bottom: 32px;
+  gap: 1px;
+  padding: 2px 3px;
+  max-width: calc(100% - 16px);
+  background: color-mix(in srgb, var(--tv-dialog, var(--surface)) 30%, transparent);
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
+  backdrop-filter: blur(10px) saturate(140%);
+  border-color: color-mix(in srgb, var(--border) 34%, rgba(255, 255, 255, 0.2));
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  opacity: 0.92;
+}
+.phone-workspace .drawing-favorites:active,
+.phone-workspace .drawing-favorites:focus-within {
+  opacity: 1;
+}
+.phone-workspace .drawing-favorites .drawing-favorites-tools {
+  gap: 0;
+}
+.phone-workspace .drawing-favorites .drawing-favorites-tools svg,
+.phone-workspace .drawing-favorites svg {
+  width: 17px;
+  height: 17px;
+}
+.phone-workspace .drawing-favorites .drawing-favorites-sep {
+  height: 14px;
+  margin: 0 1px;
+}
+.phone-workspace .drawing-favorites.is-collapsed {
+  padding: 1px 4px 1px 2px;
+}
+
+/* Compact translucent selected-object mini toolbar (Vela DrawingSettingsPopup) on iPhone */
+.phone-workspace .vela-dpop {
+  background: color-mix(in srgb, var(--tv-dialog, var(--surface)) 40%, transparent) !important;
+  -webkit-backdrop-filter: blur(10px) saturate(145%);
+  backdrop-filter: blur(10px) saturate(145%);
+  border: 1px solid color-mix(in srgb, var(--border) 38%, rgba(255, 255, 255, 0.22)) !important;
+  border-radius: 14px !important;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.14) !important;
+  max-width: calc(100% - 12px);
+}
+.phone-workspace .vela-dpop > div:first-child {
+  padding: 2px 3px !important;
+  gap: 1px !important;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.phone-workspace .vela-dpop > div:first-child::-webkit-scrollbar {
+  display: none;
+}
+.phone-workspace .vela-dpop .vela-dpop-btn {
+  width: 28px !important;
+  height: 28px !important;
+  min-width: 28px !important;
+  min-height: 28px !important;
+  border-radius: 8px !important;
+}
+.phone-workspace .vela-dpop .vela-dpop-btn svg {
+  width: 15px !important;
+  height: 15px !important;
+}
+.phone-workspace .vela-dpop .vela-dpop-grip {
+  width: 20px !important;
+  min-width: 20px !important;
+  height: 28px !important;
 }
 .drawing-favorites .drawing-favorites-grip {
   width: 28px;
