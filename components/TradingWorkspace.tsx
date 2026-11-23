@@ -65,10 +65,7 @@ export default function TradingWorkspace({ deployment, initialSidebar }: Workspa
     const isPhone = window.matchMedia(PHONE_CHART_QUERY).matches;
     if (isPhone) {
       const state = useChartStore.getState();
-      const patch: Partial<Pick<typeof state, "bottomOpen" | "legendCollapsed">> = {};
-      if (state.bottomOpen) patch.bottomOpen = false;
-      if (!state.legendCollapsed) patch.legendCollapsed = true;
-      if (Object.keys(patch).length) state.set(patch);
+      if (state.bottomOpen) state.set({ bottomOpen: false });
     }
     const setupId = new URLSearchParams(window.location.search).get("setup");
     const setup = setupId ? useSetupJournal.getState().records.find(row => row.id === setupId) : undefined;

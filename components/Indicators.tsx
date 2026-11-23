@@ -207,7 +207,7 @@ export function IndicatorChips() {
     <div className="indicator-chips" id={listId} hidden={folded}>
       {indicators.map((i) => (
         <div
-          className={`indicator-chip ${i.error ? "has-error" : ""}`}
+          className={`indicator-chip${i.error ? " has-error" : ""}${!i.visible ? " is-hidden" : ""}`}
           key={i.id}
           data-indicator-id={i.id}
         >

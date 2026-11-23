@@ -1,6 +1,6 @@
 "use client";
 import {useState} from "react";
-import {MoreHorizontal,Search,Plus,Bell,ChevronsLeft,SlidersHorizontal,Camera,Maximize,PanelRight,Undo2,Redo2,CalendarDays,Wallet,ListTree,Star,ChartNoAxesCombined,LayoutGrid,Terminal,Menu} from "lucide-react";
+import {MoreHorizontal,Search,Plus,Bell,BellPlus,ChevronsLeft,SlidersHorizontal,Camera,Maximize,PanelRight,Undo2,Redo2,CalendarDays,Wallet,ListTree,Star,LayoutGrid,Terminal,Menu} from "lucide-react";
 import {IconButton} from "./ui";
 import {useDismiss,LayoutMenu,SavedLayoutsMenu,IndicatorTemplateMenu} from "./WorkspaceMenus";
 import {ChartTypeMenu,PatternsButton} from "./ChartTools";
@@ -32,9 +32,9 @@ export function ChartToolbarOverflow({toggleSidebar, phone}:{
     {open?<div className="tv-popover mobile-chart-controls" aria-label="Additional chart controls">
       {phone ? <>
         <div className="phone-hub-grid" role="group" aria-label="Schnellzugriff">
-          <button type="button" className="phone-hub-tile" aria-label="Indicators" onClick={()=>{setOpen(false);useChartStore.getState().set({indicatorsOpen:true});}}>
-            <ChartNoAxesCombined size={18}/>
-            <span>Indikatoren</span>
+          <button type="button" className="phone-hub-tile" aria-label="Alarm erstellen" onClick={()=>{setOpen(false);useChartStore.getState().set({alertDraft:currentPriceAlertDraft()});}}>
+            <BellPlus size={18}/>
+            <span>Neuer Alarm</span>
           </button>
           <button type="button" className="phone-hub-tile" aria-label="Alerts" onClick={()=>{setOpen(false);phone.openAlerts();}}>
             <Bell size={18}/>
@@ -59,7 +59,6 @@ export function ChartToolbarOverflow({toggleSidebar, phone}:{
           </button>
         </div>
         <div className="phone-hub-sep" />
-        <button type="button" onClick={()=>{setOpen(false);useChartStore.getState().set({alertDraft:currentPriceAlertDraft()});}}><Bell size={18}/><span>Alarm erstellen</span></button>
         <div className="mobile-controls-component"><ChartTypeMenu showLabel onSelect={() => setOpen(false)} /></div>
         <button type="button" onClick={()=>{setOpen(false);phone.showRanges();}}><CalendarDays size={18}/><span>Zeitraum und Zeitzone</span></button>
         {tradingButtons && <button type="button" aria-pressed={phone.tradingOpen} onClick={()=>{setOpen(false);phone.toggleTrading();}}>

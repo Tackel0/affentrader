@@ -1648,10 +1648,11 @@ async function run() {
             .filter(canvas => canvas.width > 0 && canvas.height > 0);
           return chart?.top <= 1 && chart?.height >= innerHeight * .88
             && tools?.top >= chart.bottom - 1 && Math.abs(tools.bottom - innerHeight) <= 1
-            && controls.length === 5
+            && controls.length === 6
+            && document.querySelectorAll('.study-legend .indicator-chips:not([hidden]) .indicator-chip').length >= 1
             && sizedCanvases.length >= 1 && sizedCanvases.length <= 7
             && !document.querySelector('.phone-workspace-header, nav.utility-rail, .bottom-panel, .range-toolbar, .chart-trading-controls');
-        })()`, `${vp.name} starts edge-to-edge at top with a single minimal 5-control bottom bar and parked idle canvases`);
+        })()`, `${vp.name} starts edge-to-edge at top with visible active indicators, a 6-control bottom bar, and parked idle canvases`);
       }
       if (vp.width === 390 && !opts.liveApis && strategyChunks.length) {
         activeLabel = "strategy tester on-demand loading";
@@ -1689,8 +1690,7 @@ async function run() {
         await tapPhoneHubRow("Chart-Handel");
         await waitForPagePredicate(cdp, '!document.querySelector(".chart-trading-controls")', "chart trading controls collapse again");
         activeLabel = "mobile liquidation heatmap study";
-        await openPhoneHub();
-        await tapWorkspaceTarget(cdp, '.phone-chart-actions .mobile-chart-controls [aria-label="Indicators"]');
+        await tapWorkspaceTarget(cdp, '.phone-chart-actions [aria-label="Indicators"]');
         await waitForPagePredicate(cdp, '!!document.querySelector(\'.indicator-modal input[aria-label="Search indicators"]\')', "indicator picker opens");
         await cdp.send("Runtime.evaluate", { expression: `document.querySelector('.indicator-modal input').focus()` });
         await cdp.send("Input.insertText", { text: "Liquidation Levels" });
@@ -2060,9 +2060,9 @@ async function run() {
           const rect = bar.getBoundingClientRect();
           const usable = [...bar.querySelectorAll(":scope > button, :scope > .toolbar-popover-host > button, :scope > .toolbar-mobile-overflow > button")]
             .filter(button => button.getClientRects().length > 0);
-          return chart.top <= 1 && Math.abs(rect.bottom - innerHeight) <= 1 && usable.length === 5
+          return chart.top <= 1 && Math.abs(rect.bottom - innerHeight) <= 1 && usable.length === 6
             && usable.every(button => button.offsetWidth >= 36 && button.offsetHeight >= 36);
-        })()`, `${vp.name} single ultra-minimal 5-control phone bottom bar`);
+        })()`, `${vp.name} single ultra-minimal 6-control phone bottom bar`);
       }
       await waitForPagePredicate(cdp, `(() => {
         const canvases = [...document.querySelectorAll(".vela-container canvas")]

@@ -682,13 +682,14 @@ describe("Mobile PWA & Touch UI regressions", () => {
     );
     const bar = container.querySelector(".phone-chart-actions") as HTMLElement;
     const directControls = bar.querySelectorAll(":scope > button, :scope > .toolbar-popover-host > button, :scope > .toolbar-mobile-overflow > button");
-    expect(directControls.length).toBe(5);
+    expect(directControls.length).toBe(6);
 
+    expect(within(bar).getByRole("button", { name: "Indicators" })).toBeTruthy();
     fireEvent.click(within(bar).getByRole("button", { name: "Watchlists" }));
     expect(toggleWatchlist).toHaveBeenCalledTimes(1);
 
     fireEvent.click(within(bar).getByRole("button", { name: "More chart controls" }));
-    expect(within(bar).getByRole("button", { name: "Indicators" })).toBeTruthy();
+    expect(within(bar).getByRole("button", { name: "Alarm erstellen" })).toBeTruthy();
     expect(within(bar).getByRole("button", { name: "Alerts" })).toBeTruthy();
     expect(within(bar).getByRole("button", { name: "Schwebende Objektleiste" })).toBeTruthy();
     expect(within(bar).getByRole("button", { name: "More workspace panels" })).toBeTruthy();

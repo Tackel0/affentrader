@@ -292,6 +292,13 @@ export function PhoneChartActions({
       </button>
       <IntervalPicker />
       <IconButton
+        label="Indicators"
+        className="phone-indicators-toggle"
+        onClick={() => useChartStore.getState().set({ indicatorsOpen: true })}
+      >
+        <ChartNoAxesCombined size={19} />
+      </IconButton>
+      <IconButton
         label="Watchlists"
         className="phone-watchlist-toggle"
         aria-pressed={watchlistOpen}
