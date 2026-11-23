@@ -19,7 +19,7 @@ describe("Mobile PWA metadata, /login CSP/safe-area & multi-leg exit scaling", (
         width: "device-width",
         initialScale: 1,
         viewportFit: "cover",
-        themeColor: "#131722",
+        themeColor: "#000000",
       }),
     );
     expect(metadata.manifest).toBe("/manifest.webmanifest");
