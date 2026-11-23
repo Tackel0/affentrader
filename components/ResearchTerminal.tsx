@@ -37,6 +37,7 @@ import { NewsPanel } from "./NewsPanel";
 import { CalendarPanel } from "./CalendarPanel";
 import { TerminalMarkets } from "./TerminalMarkets";
 import { TerminalCompare } from "./TerminalCompare";
+import { NoiseMeterPanel } from "./NoiseMeterPanel";
 import { ModuleErrorBoundary } from "./ModuleErrorBoundary";
 import { TerminalModulePicker, TerminalShortcuts } from "./TerminalNavigation";
 import { COMPACT_WORKSPACE_QUERY } from "@/lib/chart/bottomPanelResize";
@@ -56,9 +57,22 @@ type Capm = NonNullable<ReturnType<typeof terminalCapm>> & {
 type StatusTone = "neutral" | "ok" | "error";
 
 const HISTORY_KEY = accountScopedName("affentrader-terminal-history");
-const DEFAULT_HISTORY = ["OPPS", "QCOM FA", "OSINT", "HEATMAP", "MARKETS", "AAPL CAPM"];
+const DEFAULT_HISTORY = ["OPPS", "SPY NOISE", "QCOM FA", "OSINT", "HEATMAP", "MARKETS", "AAPL CAPM"];
 const ORDER_QUICK_TICKERS = ["AAPL", "NVDA", "TSLA", "MSFT", "AMD", "QCOM", "SPY"];
-const COMMAND_KEYWORDS_EXCLUDED_FROM_TICKER = new Set(["BUY", "SELL", "HELP", "CLEAR", "GRID", "FLOW"]);
+const COMMAND_KEYWORDS_EXCLUDED_FROM_TICKER = new Set([
+  "BUY",
+  "SELL",
+  "HELP",
+  "CLEAR",
+  "GRID",
+  "FLOW",
+  "NOISE",
+  "NOISEMETER",
+  "GAP",
+  "GAPS",
+  "STREAK",
+  "STREAKS",
+]);
 
 function loadCommandHistory(): string[] {
   if (typeof window === "undefined") return [...DEFAULT_HISTORY];
@@ -187,6 +201,12 @@ function TerminalHelpView() {
             <code>AAPL &lt;GO&gt;</code> / <code>AAPL GP</code>
           </dt>
           <dd>Open daily chart &amp; sync ticker</dd>
+        </div>
+        <div>
+          <dt>
+            <code>SPY NOISE</code> / <code>GAP</code> / <code>STREAK</code>
+          </dt>
+          <dd>NoiseMeter: Premarket-Pump-Realitätscheck, Gap-Close- &amp; Streak-Wahrscheinlichkeiten</dd>
         </div>
         <div>
           <dt>
@@ -487,6 +507,7 @@ export function ResearchTerminal({
     if (isYahooTicker(trimmed) && !COMMAND_KEYWORDS_EXCLUDED_FROM_TICKER.has(trimmed)) {
       list.push(
         { key: `${trimmed} <GO>`, description: `Open daily chart for ${trimmed}`, category: "CHART" },
+        { key: `${trimmed} NOISE`, description: `NoiseMeter Premarket-Gap & Streak stats for ${trimmed}`, category: "VIEW" },
         { key: `${trimmed} FA`, description: `Fundamentals & SEC Form 4 for ${trimmed}`, category: "VIEW" },
         { key: `${trimmed} GP`, description: `Price action & technicals for ${trimmed}`, category: "CHART" },
         { key: `${trimmed} FLOW`, description: `Footprint & orderflow for ${trimmed}`, category: "SHORTCUT" },
@@ -507,7 +528,7 @@ export function ResearchTerminal({
       if (seen.has(item.key)) continue;
       seen.add(item.key);
       res.push(item);
-      if (res.length >= 8) break;
+      if (res.length >= 10) break;
     }
     return res;
   }, [command, ticker]);
@@ -879,7 +900,7 @@ export function ResearchTerminal({
     }
 
     setMessage(
-      "Unknown command. Enter HELP for available commands (e.g., OPPS, QCOM FA, AAPL GP, BUY AAPL 10 @ 180, FLOW, OSINT, MACRO, NEWS).",
+      "Unknown command. Enter HELP for available commands (e.g., OPPS, SPY NOISE, QCOM FA, AAPL GP, BUY AAPL 10 @ 180, FLOW, OSINT, MACRO, NEWS).",
     );
   };
 
@@ -980,6 +1001,14 @@ export function ResearchTerminal({
             onMarketChange={setMarket}
             onRateChange={setRate}
             onSubmit={() => void runCapm(ticker.trim().toUpperCase(), paneId)}
+          />
+        );
+      case "noise":
+        return (
+          <NoiseMeterPanel
+            initialTicker={ticker}
+            onOpenChart={openChart}
+            onTickerSelect={selectResearchTicker}
           />
         );
       case "help":

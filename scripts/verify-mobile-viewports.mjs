@@ -31,6 +31,7 @@ const TERMINAL_VIEW_TABS = [
   { key: "MARKETS", label: "Markets" },
   { key: "OSINT", label: "Tanker & Flights (OSINT)", content: '[aria-label="OSINT filter"]' },
   { key: "HEATMAP", label: "Heatmap", content: ".heatmap-panel" },
+  { key: "NOISE", label: "NoiseMeter", content: '[aria-label="NoiseMeter Statistik"]' },
   { key: "CAPM", label: "CAPM" },
   { key: "NEWS", label: "News" },
 ];
@@ -242,6 +243,59 @@ function buildMockApiPayload(urlStr) {
       trends: [{ ticker: "NVDA", count: 1, reddit: 1, x: 0, latest: now - 60_000 }],
       posts: [{ source: "mauerstrassenwetten", id: "t3_sample", at: now - 60_000, tickers: ["NVDA"],
         title: "Diskussion zu Nvidia", text: "Wie bewertet ihr $NVDA?", url: "https://www.reddit.com/r/mauerstrassenwetten/comments/sample/nvda/" }],
+    };
+  }
+
+  if (url.pathname === "/api/terminal-noise") {
+    const ticker = (url.searchParams.get("ticker") || "SPY").toUpperCase();
+    const years = Number(url.searchParams.get("years") || "10");
+    const bars = [];
+    let prev = 500;
+    const startMs = Date.UTC(2026, 4, 1);
+    let dayOffset = 0;
+    for (let i = 0; i < 95; i++) {
+      let dt;
+      do {
+        dt = new Date(startMs + dayOffset * 86_400_000);
+        dayOffset++;
+      } while (dt.getUTCDay() === 0 || dt.getUTCDay() === 6);
+      const inSevenRedStreak = i >= 40 && i < 47;
+      const gapPct = i % 7 === 0 ? 1.15 : i % 5 === 0 ? -0.95 : i % 3 === 0 ? 0.55 : -0.35;
+      const open = Number((prev * (1 + gapPct / 100)).toFixed(2));
+      const dayMove = inSevenRedStreak ? -0.65 : i === 47 ? 1.45 : i % 2 === 0 ? 0.42 : -0.38;
+      const close = Number((prev * (1 + dayMove / 100)).toFixed(2));
+      const high = Number((Math.max(open, close) * 1.005).toFixed(2));
+      const low = Number((Math.min(open, close, i % 7 === 0 ? prev * 0.999 : open) * 0.996).toFixed(2));
+      bars.push({
+        session: dt.toISOString().slice(0, 10),
+        open,
+        high,
+        low,
+        close,
+        volume: 55_000_000 + i * 250_000,
+      });
+      prev = close;
+    }
+    const lastBar = bars[bars.length - 1];
+    return {
+      ticker,
+      name: ticker === "SPY" ? "SPDR S&P 500 ETF Trust" : `${ticker} Index / Equity`,
+      exchange: "NYSE ARCA",
+      currency: "USD",
+      timezone: "America/New_York",
+      asOf: lastBar.session,
+      years: Number.isFinite(years) ? years : 10,
+      totalDays: bars.length,
+      live: {
+        prevClose: lastBar.close,
+        lastPrice: Number((lastBar.close * 1.0115).toFixed(2)),
+        liveGapPct: 1.15,
+        priceSource: "premarket",
+        currentStreak: { direction: "red", count: 3 },
+        currentAtr14Pct: 1.18,
+        nextWeekday: 1,
+      },
+      bars,
     };
   }
 

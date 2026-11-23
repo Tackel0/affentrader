@@ -12,6 +12,7 @@ export type TerminalView =
   | "markets"
   | "compare"
   | "capm"
+  | "noise"
   | "macro"
   | "news"
   | "heatmap"
@@ -34,9 +35,9 @@ export type ParsedTerminalCommand =
  * - Layout: `SPLIT 1`, `SPLIT 2`, `SPLIT 3`, `1-PANE`, `2-PANE`, `3-PANE`, `GRID`, `PANE 1`, `PANE 2`, `PANE 3`, `CLEAR`
  * - Orders: `BUY AAPL`, `BUY AAPL 100`, `SELL NVDA 50`, `BUY TSLA 10 @ 250`
  * - Shortcuts: `HELP`, `QUOTE <TICKER>`, `DES <TICKER>`, `WEI`
- * - Views: `OPPS`, `SCAN`, `VALUE`, `FA`, `FLOW`, `CHART`, `MACRO`, `NEWS`, `MARKETS`, `COMPARE`, `HEATMAP`
+ * - Views: `OPPS`, `SCAN`, `VALUE`, `FA`, `FLOW`, `CHART`, `MACRO`, `NEWS`, `MARKETS`, `COMPARE`, `HEATMAP`, `NOISE`
  * - Tickers: `AAPL <GO>`, `AAPL GO`, `AAPL GP`, `AAPL CHART`, `AAPL`
- * - Two-token: `QCOM FA`, `QCOM VALUE`, `AAPL CAPM`, `NVDA FLOW`, `MSFT NEWS`
+ * - Two-token: `QCOM FA`, `QCOM VALUE`, `AAPL CAPM`, `SPY NOISE`, `NVDA FLOW`, `MSFT NEWS`
  */
 export function tokenizeTerminalCommand(raw: string): string[] {
   const cleaned = raw
@@ -123,6 +124,13 @@ export function parseTerminalCommand(raw: string, currentTicker = "AAPL"): Parse
         return { kind: "view", view: "compare" };
       case "HEATMAP":
         return { kind: "view", view: "heatmap" };
+      case "NOISE":
+      case "NOISEMETER":
+      case "GAP":
+      case "GAPS":
+      case "STREAK":
+      case "STREAKS":
+        return { kind: "view", view: "noise", ticker: currentTicker };
       case "OSINT":
       case "TANKER":
       case "AIS":
@@ -177,7 +185,7 @@ export function parseTerminalCommand(raw: string, currentTicker = "AAPL"): Parse
     }
 
     // General two-token commands: `<TICKER> <ACTION>` or `<ACTION> <TICKER>`
-    const actionTokens = ["FA", "VALUE", "FUNDAMENTALS", "CAPM", "BETA", "GP", "CHART", "FLOW", "FOOTPRINT", "ORDERFLOW", "NEWS", "OPPS", "SCAN", "INSIDER", "OPTIONSFLOW", "SOCIAL"];
+    const actionTokens = ["FA", "VALUE", "FUNDAMENTALS", "CAPM", "BETA", "NOISE", "NOISEMETER", "GAP", "GAPS", "STREAK", "GP", "CHART", "FLOW", "FOOTPRINT", "ORDERFLOW", "NEWS", "OPPS", "SCAN", "INSIDER", "OPTIONSFLOW", "SOCIAL"];
     const actionFirst = actionTokens.includes(first) && isYahooTicker(second) && !/^\d+$/.test(second);
     const actionSecond = actionTokens.includes(second) && isYahooTicker(first) && !/^\d+$/.test(first);
 
@@ -201,6 +209,12 @@ export function parseTerminalCommand(raw: string, currentTicker = "AAPL"): Parse
           return { kind: "view", view: "optionsflow", ticker };
         case "SOCIAL":
           return { kind: "view", view: "social", ticker };
+        case "NOISE":
+        case "NOISEMETER":
+        case "GAP":
+        case "GAPS":
+        case "STREAK":
+          return { kind: "view", view: "noise", ticker };
         case "CAPM":
         case "BETA":
           return { kind: "capm", ticker };
