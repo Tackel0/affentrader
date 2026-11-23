@@ -291,6 +291,7 @@ export function PhoneChartActions({
         <span className={`status-dot ${phoneStatus.connected ? "green" : "amber"}`} aria-hidden="true" />
       </button>
       <IntervalPicker />
+      <ChartTypeMenu compact />
       <IconButton
         label="Indicators"
         className="phone-indicators-toggle"

@@ -898,6 +898,7 @@ async function chooseTouchChartLayout(cdp, label) {
   await tapWorkspaceTarget(cdp, layout, 36);
   const choice = `.layout-popover button[aria-label="${label}"]`;
   await waitForPagePredicate(cdp, `!!document.querySelector(${JSON.stringify(choice)})`, `${label} layout choice`);
+  await cdp.send("Runtime.evaluate", { expression: `document.querySelector(${JSON.stringify(choice)})?.scrollIntoView({ block: "nearest" })` });
   await tapWorkspaceTarget(cdp, choice, 36);
   const close = await cdp.send("Runtime.evaluate", {
     expression: `document.querySelector(${JSON.stringify(menu)})?.getAttribute("aria-expanded") === "true"`,
@@ -1648,11 +1649,11 @@ async function run() {
             .filter(canvas => canvas.width > 0 && canvas.height > 0);
           return chart?.top <= 1 && chart?.height >= innerHeight * .88
             && tools?.top >= chart.bottom - 1 && Math.abs(tools.bottom - innerHeight) <= 1
-            && controls.length === 6
+            && controls.length === 7
             && document.querySelectorAll('.study-legend .indicator-chips:not([hidden]) .indicator-chip').length >= 1
             && sizedCanvases.length >= 1 && sizedCanvases.length <= 7
             && !document.querySelector('.phone-workspace-header, nav.utility-rail, .bottom-panel, .range-toolbar, .chart-trading-controls');
-        })()`, `${vp.name} starts edge-to-edge at top with visible active indicators, a 6-control bottom bar, and parked idle canvases`);
+        })()`, `${vp.name} starts edge-to-edge at top with visible active indicators, a 7-control bottom bar, and parked idle canvases`);
       }
       if (vp.width === 390 && !opts.liveApis && strategyChunks.length) {
         activeLabel = "strategy tester on-demand loading";
@@ -1668,6 +1669,19 @@ async function run() {
         strategyLoadsOnDemandChecked = true;
       }
       if (vp.width === 390 && !opts.liveApis) {
+        activeLabel = "phone chart type popover";
+        await tapWorkspaceTarget(cdp, '.phone-chart-actions .chart-type-button');
+        await waitForPagePredicate(cdp, `(() => {
+          const pop = document.querySelector(".phone-chart-actions .chart-type-popover");
+          if (!pop) return false;
+          const r = pop.getBoundingClientRect();
+          const btn = pop.querySelector('button[role="menuitemradio"]');
+          const br = btn?.getBoundingClientRect();
+          return r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight
+            && br && br.left >= r.left && br.right <= r.right && br.width >= 180;
+        })()`, "phone chart type menu opens cleanly above the bottom bar without clipping");
+        await tapWorkspaceTarget(cdp, '.phone-chart-actions .chart-type-button');
+        await waitForPagePredicate(cdp, '!document.querySelector(".phone-chart-actions .chart-type-popover")', "phone chart type menu closes");
         activeLabel = "phone range controls and chart trading";
         const chartTools = '.phone-chart-actions [aria-label="More chart controls"]';
         const openPhoneHub = async () => {
@@ -1719,8 +1733,7 @@ async function run() {
         const beforeFootprint = requestedTradePages.length;
         await cdp.send("Runtime.evaluate", { expression: `window.__sizedBeforeFootprint = new Set([...document.querySelectorAll('.vela-container canvas')].filter(canvas => canvas.width && canvas.height))` });
         const chooseType = async (name) => {
-          await openPhoneHub();
-          await tapWorkspaceTarget(cdp, ".mobile-chart-controls .chart-type-button", 36);
+          await tapWorkspaceTarget(cdp, ".phone-chart-actions .chart-type-button", 44);
           const selector = `.chart-type-popover [title="${name}"]`;
           await waitForPagePredicate(cdp, `!!document.querySelector(${JSON.stringify(selector)})`, `chart type picker offers ${name}`);
           await cdp.send("Runtime.evaluate", { expression: `document.querySelector(${JSON.stringify(selector)}).scrollIntoView({ block: 'nearest' })` });
@@ -2060,9 +2073,9 @@ async function run() {
           const rect = bar.getBoundingClientRect();
           const usable = [...bar.querySelectorAll(":scope > button, :scope > .toolbar-popover-host > button, :scope > .toolbar-mobile-overflow > button")]
             .filter(button => button.getClientRects().length > 0);
-          return chart.top <= 1 && Math.abs(rect.bottom - innerHeight) <= 1 && usable.length === 6
+          return chart.top <= 1 && Math.abs(rect.bottom - innerHeight) <= 1 && usable.length === 7
             && usable.every(button => button.offsetWidth >= 36 && button.offsetHeight >= 36);
-        })()`, `${vp.name} single ultra-minimal 6-control phone bottom bar`);
+        })()`, `${vp.name} single ultra-minimal 7-control phone bottom bar`);
       }
       await waitForPagePredicate(cdp, `(() => {
         const canvases = [...document.querySelectorAll(".vela-container canvas")]

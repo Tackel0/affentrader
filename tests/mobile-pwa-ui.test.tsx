@@ -657,7 +657,7 @@ describe("Mobile PWA & Touch UI regressions", () => {
     expect(marketService.resumeFromBackground()).toBe(false);
   });
 
-  it("renders ultra-minimal 5-control PhoneChartActions bar with unified phone hub and MainMenuSheet", async () => {
+  it("renders PhoneChartActions bar with direct Interval, Chart Type, Indicators controls and unified phone hub", async () => {
     const { PhoneChartActions } = await import("@/components/WorkspaceToolbar");
     const openAlerts = vi.fn();
     const openPanel = vi.fn();
@@ -682,7 +682,12 @@ describe("Mobile PWA & Touch UI regressions", () => {
     );
     const bar = container.querySelector(".phone-chart-actions") as HTMLElement;
     const directControls = bar.querySelectorAll(":scope > button, :scope > .toolbar-popover-host > button, :scope > .toolbar-mobile-overflow > button");
-    expect(directControls.length).toBe(6);
+    expect(directControls.length).toBe(7);
+
+    const chartTypeButton = within(bar).getByRole("button", { name: /Chart type:/i });
+    fireEvent.click(chartTypeButton);
+    expect(within(bar).getByRole("menuitemradio", { name: "Hollow candles" })).toBeTruthy();
+    fireEvent.click(chartTypeButton);
 
     expect(within(bar).getByRole("button", { name: "Indicators" })).toBeTruthy();
     fireEvent.click(within(bar).getByRole("button", { name: "Watchlists" }));
@@ -694,7 +699,6 @@ describe("Mobile PWA & Touch UI regressions", () => {
     expect(within(bar).getByRole("button", { name: "Schwebende Objektleiste" })).toBeTruthy();
     expect(within(bar).getByRole("button", { name: "More workspace panels" })).toBeTruthy();
     expect(within(bar).getByRole("button", { name: "Terminal" })).toBeTruthy();
-    expect(within(bar).getByRole("button", { name: /Chart type:/i })).toBeTruthy();
 
     fireEvent.click(within(bar).getByRole("button", { name: "Main menu" }));
     expect(within(document.body).getByRole("button", { name: "Konto erstellen" })).toBeTruthy();

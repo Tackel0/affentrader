@@ -19,7 +19,7 @@ export interface VolumeProfilePreferences extends SessionClock {
 export const defaultVolumeProfile = (): VolumeProfilePreferences => ({
   sessionPeriod: "Day", tradingHours: "Full day", customStart: 0, customEnd: 0, sessionZone: "UTC", sessionStartMinutes: 0, sessionMinutes: 1440, weekdaysOnly: false,
   rows: 24, rowSize: 0, valueAreaPercent: 70, widthPercent: 30, placement: "Session start", volumeMode: "Buy/Sell",
-  showHistogram: true, showPoc: true, showValueArea: true, showLabels: true, showNodes: true, extendPoc: false, showDevelopingPoc: false, showDevelopingValueArea: false,
+  showHistogram: true, showPoc: true, showValueArea: true, showLabels: true, showNodes: false, extendPoc: false, showDevelopingPoc: false, showDevelopingValueArea: false,
   buyColor: "#2962ff", sellColor: "#f7b955", outsideBuyColor: "#434651", outsideSellColor: "#787b86", pocColor: "#f23645", valueLineColor: "#9598a1",
 });
 const numeric = { rows: [2, 500], rowSize: [0, 1e9], valueAreaPercent: [1, 100], widthPercent: [5, 100], sessionStartMinutes: [0, 1439], sessionMinutes: [1, 1440] } as const;

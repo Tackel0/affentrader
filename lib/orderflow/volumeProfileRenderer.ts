@@ -7,8 +7,23 @@ export interface VolumeProfilePayload { model?: VolumeProfileModel; style: Volum
 /** Stable SDK channel; trade-only updates invalidate its own canvas rather than every native price layer. */
 export interface VolumeProfileContext { id: string; symbol: string; timeframe: string; epoch: number; live: boolean; replayThrough?: number; revision?: string | number; kind?: "rolling" }
 export interface VolumeProfileChannel { current?: VolumeProfilePayload; context?: VolumeProfileContext; repaint?: () => void }
-const priceLabel = (price: number) => price !== 0 && (Math.abs(price) < 1e-6 || Math.abs(price) >= 1e15)
-  ? price.toExponential() : price.toLocaleString("en-US", { maximumSignificantDigits: 17 });
+const priceLabel = (price: number, step?: number) => {
+  if (!Number.isFinite(price)) return "";
+  const abs = Math.abs(price);
+  if (price !== 0 && (abs < 1e-6 || abs >= 1e15)) return price.toExponential();
+  const clean = Number(price.toPrecision(12));
+  const stepDigits = step && Number.isFinite(step) && step > 0 && step < 1
+    ? Math.min(8, Math.ceil(-Math.log10(step) - 1e-9))
+    : 0;
+  const maxDecimals = abs >= 100
+    ? Math.max(2, Math.min(3, stepDigits))
+    : abs >= 1
+      ? Math.max(2, Math.min(4, stepDigits || 4))
+      : abs >= 0.01
+        ? Math.max(4, Math.min(5, stepDigits || 5))
+        : Math.max(4, Math.min(8, stepDigits || 8));
+  return clean.toLocaleString("en-US", { maximumFractionDigits: maxDecimals });
+};
 const audits = new WeakMap<object, string>();
 const extensionCaches = new WeakMap<object, ReturnType<typeof createProfilePocExtensionCache>>();
 export function paintVolumeProfiles(ctx: CanvasRenderingContext2D, args: RendererLayerArgs, payload: VolumeProfilePayload, report?: (message: string) => boolean) {
@@ -25,9 +40,18 @@ export function paintVolumeProfiles(ctx: CanvasRenderingContext2D, args: Rendere
     if (right < 0 || left > coords.width || right <= left) continue;
     const observedRight = payload.kind === "rolling" ? right : session.end > (model.lastTrade ?? -Infinity) ? coords.timeToX(session.lastTrade) + 3 : right;
     const profileRight = Math.max(left + 1, Math.min(right, observedRight));
-    const anchor = style.placement === "Session start" ? left : profileRight;
+    const clippedLeft = left < 0 && profileRight > 0;
+    const clippedRight = profileRight > coords.width && left < coords.width;
+    const visibleLeft = Math.max(4, left);
+    const visibleRight = Math.min(coords.width - 4, profileRight);
+    const visibleSpan = Math.max(1, visibleRight - visibleLeft);
+    const anchor = style.placement === "Session start"
+      ? (clippedLeft ? visibleLeft : left)
+      : (clippedRight ? visibleRight : profileRight);
     const direction = style.placement === "Session start" ? 1 : -1;
-    const width = Math.min(payload.maximumWidth ?? 220, (profileRight - left) * style.widthPercent / 100);
+    const rawSpan = (style.placement === "Session start" ? clippedLeft : clippedRight) ? visibleSpan : (profileRight - left);
+    const baseWidth = Math.min(payload.maximumWidth ?? 220, rawSpan * style.widthPercent / 100);
+    const width = (clippedLeft || clippedRight) ? Math.min(payload.maximumWidth ?? 220, Math.max(24, baseWidth)) : baseWidth;
     const maximum = Math.max(...session.rows.map(row => style.volumeMode === "Delta" ? Math.abs(row.buy - row.sell) : row.total));
     if (typeof window !== "undefined" && new URLSearchParams(window.location.search).has("svp-frame-audit")) {
       const report = { placement: style.placement, histogram: style.showHistogram, left, right, observedRight, anchor, width, maximum,
@@ -55,11 +79,13 @@ export function paintVolumeProfiles(ctx: CanvasRenderingContext2D, args: Rendere
     });
     ctx.globalAlpha = 1;
     const labels: Array<{ y: number; color: string; text: string }> = [];
+    const primaryPrices: number[] = [];
     const line = (price: number, color: string, title: string, thickness = 1) => {
+      primaryPrices.push(price);
       const y = coords.priceToY(price, scale, bounds); ctx.strokeStyle = color; ctx.lineWidth = thickness;
       ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(right, y); ctx.stroke();
       if (style.showLabels && y >= bounds.top + 10 && y <= bounds.top + bounds.height - 10) {
-        labels.push({ y: y - 7, color, text: `${title} ${priceLabel(price)}` });
+        labels.push({ y: y - 7, color, text: `${title} ${priceLabel(price, session.step)}` });
       }
     };
     if (style.showPoc) line(session.rowGrid?.[session.valueArea.poc]?.center ?? session.rows[session.valueArea.poc].price + session.step / 2, style.pocColor, "POC", 1.5);
@@ -72,7 +98,9 @@ export function paintVolumeProfiles(ctx: CanvasRenderingContext2D, args: Rendere
       ctx.setLineDash([3, 3]);
       ctx.lineWidth = 1;
       for (const node of session.nodes.slice(0, 6)) {
-        const y = coords.priceToY(node.price + session.step / 2, scale, bounds);
+        const nodePrice = node.price + session.step / 2;
+        if (primaryPrices.some(p => Math.abs(p - nodePrice) <= session.step * 0.75)) continue;
+        const y = coords.priceToY(nodePrice, scale, bounds);
         if (!Number.isFinite(y) || y < bounds.top + 8 || y > bounds.top + bounds.height - 8) continue;
         const color = node.kind === "HVN" ? "#38bdf8" : "#f59e0b";
         ctx.strokeStyle = color;
@@ -81,7 +109,7 @@ export function paintVolumeProfiles(ctx: CanvasRenderingContext2D, args: Rendere
         ctx.moveTo(left, Math.round(y) + .5);
         ctx.lineTo(right, Math.round(y) + .5);
         ctx.stroke();
-        if (style.showLabels) labels.push({ y: y - 7, color, text: `${node.kind} ${priceLabel(node.price + session.step / 2)}` });
+        if (style.showLabels) labels.push({ y: y - 7, color, text: `${node.kind} ${priceLabel(nodePrice, session.step)}` });
       }
       ctx.restore();
     }
@@ -106,11 +134,18 @@ export function paintVolumeProfiles(ctx: CanvasRenderingContext2D, args: Rendere
       ctx.restore();
     }
     labels.sort((a, b) => a.y - b.y);
-    for (let i = 0; i < labels.length; i++) labels[i].y = Math.max(bounds.top + 8, labels[i].y, i ? labels[i - 1].y + 12 : 0);
-    for (let i = labels.length - 1; i >= 0; i--) labels[i].y = Math.min(labels[i].y, i < labels.length - 1 ? labels[i + 1].y - 12 : bounds.top + bounds.height - 8);
+    for (let i = 0; i < labels.length; i++) labels[i].y = Math.max(bounds.top + 8, labels[i].y, i ? labels[i - 1].y + 14 : 0);
+    for (let i = labels.length - 1; i >= 0; i--) labels[i].y = Math.min(labels[i].y, i < labels.length - 1 ? labels[i + 1].y - 14 : bounds.top + bounds.height - 8);
+    const halo = theme.background ?? "#131722";
     for (const label of labels) {
-      ctx.fillStyle = label.color; ctx.textAlign = "left"; const x = Math.max(4, left + 3);
-      ctx.fillText(label.text, x, label.y, Math.max(1, Math.min(right, coords.width) - x - 4));
+      ctx.textAlign = "left"; const x = Math.max(4, left + 3);
+      const maxW = Math.max(1, Math.min(right, coords.width) - x - 4);
+      if (typeof ctx.strokeText === "function") {
+        ctx.strokeStyle = halo; ctx.lineWidth = 3; ctx.lineJoin = "round";
+        ctx.strokeText(label.text, x, label.y, maxW);
+      }
+      ctx.fillStyle = label.color;
+      ctx.fillText(label.text, x, label.y, maxW);
     }
   }
   for (const extension of extensions.values()) {

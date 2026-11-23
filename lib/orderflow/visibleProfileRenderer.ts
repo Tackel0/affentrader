@@ -50,6 +50,7 @@ export function paintVisibleProfile(ctx: CanvasRenderingContext2D, args: Rendere
         ctx.textAlign = "right";
         ctx.textBaseline = "middle";
         ctx.setLineDash([4, 3]);
+        const nodeLabels: Array<{ y: number; color: string; kind: string }> = [];
         for (const node of profile.nodes.slice(0, 6)) {
           const y = project(node.price);
           if (!Number.isFinite(y) || y < bounds.top + 8 || y > bounds.top + bounds.height - 8) continue;
@@ -61,9 +62,15 @@ export function paintVisibleProfile(ctx: CanvasRenderingContext2D, args: Rendere
           ctx.moveTo(coords.width - width, Math.round(y) + .5);
           ctx.lineTo(coords.width, Math.round(y) + .5);
           ctx.stroke();
-          ctx.globalAlpha = .9;
-          ctx.fillStyle = color;
-          ctx.fillText(node.kind, coords.width - 3, y - 6);
+          nodeLabels.push({ y: y - 6, color, kind: node.kind });
+        }
+        nodeLabels.sort((a, b) => a.y - b.y);
+        for (let i = 0; i < nodeLabels.length; i++) nodeLabels[i].y = Math.max(bounds.top + 8, nodeLabels[i].y, i ? nodeLabels[i - 1].y + 13 : 0);
+        for (let i = nodeLabels.length - 1; i >= 0; i--) nodeLabels[i].y = Math.min(nodeLabels[i].y, i < nodeLabels.length - 1 ? nodeLabels[i + 1].y - 13 : bounds.top + bounds.height - 8);
+        ctx.globalAlpha = .9;
+        for (const nl of nodeLabels) {
+          ctx.fillStyle = nl.color;
+          ctx.fillText(nl.kind, coords.width - 3, nl.y);
         }
         ctx.restore();
       }

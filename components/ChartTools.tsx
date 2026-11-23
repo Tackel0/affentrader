@@ -315,7 +315,7 @@ function ChartTypeSettingsDialog({ type, onClose }: { type: ChartType; onClose: 
   );
 }
 
-export function ChartTypeMenu({ showLabel = false, onSelect }: { showLabel?: boolean; onSelect?: () => void } = {}) {
+export function ChartTypeMenu({ showLabel = false, compact = false, onSelect }: { showLabel?: boolean; compact?: boolean; onSelect?: () => void } = {}) {
   const type = useChartStore((s) => s.chartType);
   const [open, setOpen] = useState(false);
   const [settings, setSettings] = useState<ChartType | null>(null);
@@ -326,6 +326,7 @@ export function ChartTypeMenu({ showLabel = false, onSelect }: { showLabel?: boo
     return [...map];
   }, []);
   const current = chartTypeInfo(type);
+  const hasSettings = Boolean(current?.settings?.length && current.id !== "baseline");
   return (
     <div ref={ref} className="toolbar-popover-host chart-type-host">
       <button
@@ -338,13 +339,26 @@ export function ChartTypeMenu({ showLabel = false, onSelect }: { showLabel?: boo
         <ChartCandlestick size={19} />
         {showLabel ? <span>Charttyp: {current?.label ?? type}</span> : null}
       </button>
-      {current?.settings?.length && current.id !== "baseline" ? (
-        <IconButton label={`${current.label} settings`} onClick={() => setSettings(type)}>
+      {!compact && hasSettings ? (
+        <IconButton label={`${current!.label} settings`} onClick={() => setSettings(type)}>
           <Settings2 size={14} />
         </IconButton>
       ) : null}
       {open ? (
         <div className="tv-popover chart-type-popover" role="menu">
+          {compact && hasSettings ? (
+            <button
+              type="button"
+              className="chart-type-settings-row"
+              onClick={() => {
+                setOpen(false);
+                setSettings(type);
+              }}
+            >
+              <span>{current!.label} settings</span>
+              <Settings2 size={15} />
+            </button>
+          ) : null}
           {groups.map(([group, items]) => (
             <div key={group}>
               <div className="popover-label">{group}</div>

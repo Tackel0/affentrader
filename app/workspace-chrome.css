@@ -687,10 +687,10 @@
 .phone-workspace .utility-rail .icon-button > * { pointer-events: none; }
 .phone-chart-actions {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) repeat(5, 44px);
+  grid-template-columns: minmax(0, 1fr) repeat(6, 44px);
   align-items: center;
-  gap: 2px;
-  padding: 5px max(4px, env(safe-area-inset-right)) calc(5px + env(safe-area-inset-bottom)) max(6px, env(safe-area-inset-left));
+  gap: 0;
+  padding: 5px max(2px, env(safe-area-inset-right)) calc(5px + env(safe-area-inset-bottom)) max(5px, env(safe-area-inset-left));
   flex: none;
   position: relative;
   height: auto;
@@ -701,25 +701,25 @@
 .phone-chart-actions > .symbol-selector.phone-bottom-symbol {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   min-width: 0;
   width: 100%;
   max-width: none;
   height: 38px;
   min-height: 38px;
   margin: 0;
-  padding: 0 9px 0 6px;
+  padding: 0 7px 0 5px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--tv-hover) 60%, transparent);
   border: 1px solid color-mix(in srgb, var(--border) 55%, rgba(255, 255, 255, 0.12));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
   color: var(--text);
-  font-size: 13px;
-  letter-spacing: -0.015em;
+  font-size: 12.5px;
+  letter-spacing: -0.02em;
 }
 .phone-chart-actions > .symbol-selector.phone-bottom-symbol > .asset-badge.xs {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
 }
 .phone-chart-actions > .symbol-selector.phone-bottom-symbol > strong {
   flex: 1 1 auto;
@@ -732,8 +732,8 @@
 }
 .phone-chart-actions > .symbol-selector.phone-bottom-symbol > .status-dot {
   flex: none;
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
 }
 .phone-chart-actions > .symbol-selector.phone-bottom-symbol > .status-dot.green {
@@ -754,33 +754,56 @@
   height: 44px;
   min-height: 44px;
   margin: 0;
+  padding: 0;
   border-radius: 12px;
   color: color-mix(in srgb, var(--text) 84%, var(--muted));
 }
+@media (max-width: 379px) {
+  .phone-chart-actions > .symbol-selector.phone-bottom-symbol {
+    gap: 4px;
+    padding: 0 5px 0 4px;
+    font-size: 11.5px;
+  }
+  .phone-chart-actions > .symbol-selector.phone-bottom-symbol > .asset-badge.xs {
+    width: 16px;
+    height: 16px;
+  }
+}
 .phone-chart-actions .interval-button {
-  font-size: 12.5px !important;
+  font-size: 12px !important;
   font-weight: 650;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
   color: var(--text) !important;
   background: color-mix(in srgb, var(--tv-hover) 50%, transparent);
 }
 .phone-chart-actions .phone-drawing-toggle[aria-expanded="true"],
 .phone-chart-actions .phone-watchlist-toggle[aria-pressed="true"],
-.phone-chart-actions .interval-button[aria-expanded="true"] {
+.phone-chart-actions .interval-button[aria-expanded="true"],
+.phone-chart-actions .chart-type-button[aria-expanded="true"] {
   color: var(--accent) !important;
   background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
-.phone-chart-actions > :is(.toolbar-popover-host, .toolbar-mobile-overflow) > .tv-popover {
+.phone-chart-actions.tv-toolbar > :is(.toolbar-popover-host, .toolbar-mobile-overflow) > .tv-popover {
   top: auto;
   bottom: calc(100% + 8px);
   left: 8px;
   right: auto;
-  width: min(304px, calc(100% - 16px));
-  max-height: min(48dvh, 380px);
+  width: min(304px, calc(100vw - 16px));
+  max-height: min(56dvh, 440px);
   overflow-y: auto;
   border-radius: 18px;
 }
-.phone-chart-actions .toolbar-mobile-overflow > .tv-popover {
+.phone-chart-actions.tv-toolbar > .chart-type-host > .tv-popover {
+  width: min(272px, calc(100vw - 16px));
+  padding: 6px 0;
+}
+.chart-type-popover .chart-type-settings-row {
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
+  margin-bottom: 4px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.phone-chart-actions.tv-toolbar .toolbar-mobile-overflow > .tv-popover {
   left: auto;
   right: 8px;
   width: min(336px, calc(100vw - 16px));
@@ -801,10 +824,44 @@
   line-height: 1.3;
   overflow-wrap: anywhere;
 }
+.phone-chart-actions .mobile-chart-controls .mobile-controls-component > .toolbar-popover-host {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
+}
+.phone-chart-actions .mobile-chart-controls .mobile-controls-component > .saved-layout-control {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.phone-chart-actions .mobile-chart-controls .mobile-controls-component > .saved-layout-control > .toolbar-button {
+  flex: 1 1 auto;
+  width: auto;
+  margin-right: 0;
+}
+.phone-chart-actions .mobile-chart-controls .mobile-controls-component > .saved-layout-control > .icon-button {
+  flex: none;
+  width: 44px;
+  min-width: 44px;
+  justify-content: center;
+  padding: 0;
+  margin-right: 6px;
+}
 .phone-chart-actions .mobile-chart-controls .tv-popover {
+  position: static;
+  flex: 1 0 100%;
   top: auto;
-  bottom: calc(62px + env(safe-area-inset-bottom));
-  max-height: min(56dvh, calc(100dvh - 88px - env(safe-area-inset-top) - env(safe-area-inset-bottom)));
+  bottom: auto;
+  left: auto;
+  right: auto;
+  width: calc(100% - 16px);
+  margin: 4px 8px 8px;
+  max-height: 260px;
+  overflow-y: auto;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--tv-hover) 48%, transparent);
+  box-shadow: none;
 }
 .phone-workspace .modal-backdrop {
   background: rgba(7, 10, 16, 0.3);
@@ -1875,8 +1932,8 @@ body {
   padding-top: 0;
 }
 .phone-workspace .chart-heading {
-  top: max(1px, env(safe-area-inset-top));
-  left: max(5px, env(safe-area-inset-left));
+  top: 2px;
+  left: 5px;
   right: 70px;
   max-width: calc(100% - 76px);
   gap: 0;
@@ -1939,7 +1996,7 @@ body {
   margin-top: -5px;
 }
 .phone-workspace .native-drawing-rail {
-  top: env(safe-area-inset-top);
+  top: 0;
 }
 .phone-workspace .alert-empty {
   padding: 14px 16px;

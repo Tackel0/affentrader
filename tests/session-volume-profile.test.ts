@@ -197,4 +197,32 @@ describe("session volume profiles from retained executions", () => {
     const context = { symbol: "YF:AAPL", live: true, emit() {}, pushData: (value: VolumeProfileChannel | null) => { channel = value; }, setStatus() {} } as unknown as NativeIndicatorContext;
     instance.start(context, {}); expect((channel as VolumeProfileChannel | null)?.current?.message).toMatch(/no classified trade feed/); instance.stop();
   });
+  it("keeps default SVP clean without node clutter, rounds floating-point labels cleanly, and anchors zoomed-in histograms visibly", () => {
+    expect(defaultVolumeProfile().showNodes).toBe(false);
+    const style = { ...defaultVolumeProfile(), rows: 12 };
+    const zoomedSamples = [
+      tick("z1", 16 * 3600000, 26761.135, 3, "buy"),
+      tick("z2", 16 * 3600000 + minute, 26767.675, 8, "sell"),
+      tick("z3", 16 * 3600000 + 2 * minute, 26781.844999999998, 4, "buy"),
+    ];
+    const model = buildSessionVolumeProfiles(zoomedSamples, style, "BTCUSDT");
+    const view = {
+      bounds: { top: 0, height: 300 },
+      scale: { min: 26700, max: 26850 },
+      theme: { textColor: "#d1d4dc", background: "#131722" },
+      coords: {
+        width: 390,
+        timeToX: (time: number) => (time - 16 * 3600000) / minute * 40 + 40,
+        priceToY: (price: number) => 300 - (price - 26700) * 2,
+      },
+    } as unknown as RendererLayerArgs;
+    const { ctx, calls } = canvas();
+    paintVolumeProfiles(ctx, view, { model, style });
+    const rects = calls.filter(call => call.kind === "rect" && call.fill !== "#131722");
+    expect(rects.length).toBeGreaterThan(0);
+    expect(rects.every(call => Number(call.values[0]) >= 4 && Number(call.values[0]) + Number(call.values[2]) <= 390)).toBe(true);
+    const labelTexts = calls.filter(call => call.kind === "text" && /^(POC|VAH|VAL|HVN|LVN) /.test(String(call.values[0]))).map(call => String(call.values[0]));
+    expect(labelTexts.length).toBe(3);
+    expect(labelTexts.every(text => !/999999|000000/.test(text))).toBe(true);
+  });
 });

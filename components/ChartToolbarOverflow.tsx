@@ -3,7 +3,7 @@ import {useState} from "react";
 import {MoreHorizontal,Search,Plus,Bell,BellPlus,ChevronsLeft,SlidersHorizontal,Camera,Maximize,PanelRight,Undo2,Redo2,CalendarDays,Wallet,ListTree,Star,LayoutGrid,Terminal,Menu} from "lucide-react";
 import {IconButton} from "./ui";
 import {useDismiss,LayoutMenu,SavedLayoutsMenu,IndicatorTemplateMenu} from "./WorkspaceMenus";
-import {ChartTypeMenu,PatternsButton} from "./ChartTools";
+import {PatternsButton} from "./ChartTools";
 import {ChartCoverageMenuItem} from "./ChartCoverage";
 import {currentPriceAlertDraft} from "@/lib/alerts/priceDraft";
 import {useChartStore} from "@/stores/useChartStore";
@@ -59,7 +59,6 @@ export function ChartToolbarOverflow({toggleSidebar, phone}:{
           </button>
         </div>
         <div className="phone-hub-sep" />
-        <div className="mobile-controls-component"><ChartTypeMenu showLabel onSelect={() => setOpen(false)} /></div>
         <button type="button" onClick={()=>{setOpen(false);phone.showRanges();}}><CalendarDays size={18}/><span>Zeitraum und Zeitzone</span></button>
         {tradingButtons && <button type="button" aria-pressed={phone.tradingOpen} onClick={()=>{setOpen(false);phone.toggleTrading();}}>
           <Wallet size={18}/><span>{phone.tradingOpen ? "Chart-Handel ausblenden" : "Chart-Handel einblenden"}</span>
