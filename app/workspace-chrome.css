@@ -589,6 +589,25 @@ html[data-theme="light"] body:has(.trading-app.phone-workspace) {
 [data-theme="light"] .trading-app.phone-workspace {
   background: #fff;
 }
+.ios-edge-anchor {
+  position: fixed;
+  left: 0;
+  right: 0;
+  width: 100%;
+  height: 2px;
+  background-color: #000000;
+  pointer-events: none;
+  z-index: 9999;
+}
+.ios-edge-anchor-top {
+  top: 0;
+}
+.ios-edge-anchor-bottom {
+  bottom: 0;
+}
+[data-theme="light"] .ios-edge-anchor {
+  background-color: #ffffff;
+}
 .phone-workspace > .app-status { display: none; }
 .workspace-toolbar.tv-toolbar.phone-workspace-header {
   height: 46px;
@@ -1993,7 +2012,7 @@ body {
   padding-top: 0;
 }
 .phone-workspace .chart-heading {
-  top: calc(env(safe-area-inset-top) * 1.25 + 2px);
+  top: calc(env(safe-area-inset-top) + 4px);
   left: max(6px, env(safe-area-inset-left));
   right: 70px;
   max-width: calc(100% - 76px);

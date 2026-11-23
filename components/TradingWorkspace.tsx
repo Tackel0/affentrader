@@ -289,7 +289,12 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
       <TradeArchive/>
       <OrderPresetSync/>
       <ChartSnapshotDialog/>
-      {!phoneChart ? (
+      {phoneChart ? (
+        <>
+          <div className="ios-edge-anchor ios-edge-anchor-top" aria-hidden="true" />
+          <div className="ios-edge-anchor ios-edge-anchor-bottom" aria-hidden="true" />
+        </>
+      ) : (
         <WorkspaceToolbar
           onExport={save}
           onImport={() => workspaceFile.current?.click()}
@@ -298,7 +303,7 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
           tabletStatus={isTablet ? feedBadge : undefined}
           tabletDeployment={isTablet ? deployment : undefined}
         />
-      ) : null}
+      )}
       <input
         hidden
         ref={workspaceFile}
