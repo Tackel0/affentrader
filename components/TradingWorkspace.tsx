@@ -106,9 +106,10 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
     const resolved = theme === "light" ? "light" : "dark";
     document.documentElement.dataset.theme = resolved;
     document.documentElement.style.colorScheme = resolved;
-    const color = resolved === "light" ? "#ffffff" : "#131722";
-    const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
-    if (meta) meta.content = color;
+    const color = resolved === "light" ? "#ffffff" : "#000000";
+    for (const meta of document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')) {
+      meta.content = color;
+    }
   }, [theme]);
   const [sidebarOpen, setSidebarOpen] = useState(
     () => Boolean(initialSidebar) || !window.matchMedia(COMPACT_WORKSPACE_QUERY).matches,

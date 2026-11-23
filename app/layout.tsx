@@ -9,7 +9,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   viewportFit: "cover",
   interactiveWidget: "resizes-content",
-  themeColor: "#131722",
+  themeColor: "#000000",
 };
 export const metadata: Metadata = {
   title: "AffenTerminal — Institutional Market & Orderflow Workstation",

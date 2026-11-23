@@ -567,7 +567,11 @@
 }
 .trading-app.phone-workspace {
   gap: 0;
-  padding-bottom: 0;
+  padding: 0;
+  background: #000;
+}
+[data-theme="light"] .trading-app.phone-workspace {
+  background: #fff;
 }
 .phone-workspace > .app-status { display: none; }
 .workspace-toolbar.tv-toolbar.phone-workspace-header {
@@ -685,34 +689,58 @@
 }
 .phone-workspace :is(.utility-rail .icon-button, .phone-chart-actions button) { touch-action: manipulation; }
 .phone-workspace .utility-rail .icon-button > * { pointer-events: none; }
-.phone-chart-actions {
+.workspace-toolbar.tv-toolbar.phone-chart-actions {
   display: grid;
   grid-template-columns: minmax(0, 1fr) repeat(6, 44px);
   align-items: center;
   gap: 0;
-  padding: 5px max(2px, env(safe-area-inset-right)) calc(5px + env(safe-area-inset-bottom)) max(5px, env(safe-area-inset-left));
+  padding: 4px max(8px, calc(env(safe-area-inset-right) + 4px)) calc(4px + env(safe-area-inset-bottom)) max(10px, calc(env(safe-area-inset-left) + 6px));
   flex: none;
   position: relative;
   height: auto;
-  min-height: 54px;
-  background: var(--surface);
-  border-top: 1px solid color-mix(in srgb, var(--border) 54%, transparent);
+  min-height: 52px;
+  background: #000;
+  border-top: 0;
+}
+[data-theme="light"] .workspace-toolbar.tv-toolbar.phone-chart-actions {
+  background: #fff;
+}
+.workspace-toolbar.tv-toolbar.phone-chart-actions::before {
+  content: "";
+  position: absolute;
+  top: 3px;
+  bottom: calc(3px + env(safe-area-inset-bottom));
+  left: max(6px, env(safe-area-inset-left));
+  right: max(6px, env(safe-area-inset-right));
+  border-radius: 999px;
+  background: rgba(24, 27, 34, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  pointer-events: none;
+  z-index: 0;
+}
+[data-theme="light"] .workspace-toolbar.tv-toolbar.phone-chart-actions::before {
+  background: rgba(242, 244, 248, 0.92);
+  border: 1px solid rgba(15, 23, 42, 0.09);
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 .phone-chart-actions > .symbol-selector.phone-bottom-symbol {
+  position: relative;
+  z-index: 1;
   display: inline-flex;
   align-items: center;
   gap: 5px;
   min-width: 0;
   width: 100%;
   max-width: none;
-  height: 38px;
-  min-height: 38px;
+  height: 44px;
+  min-height: 44px;
   margin: 0;
-  padding: 0 7px 0 5px;
+  padding: 0 4px 0 4px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--tv-hover) 60%, transparent);
-  border: 1px solid color-mix(in srgb, var(--border) 55%, rgba(255, 255, 255, 0.12));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  background: transparent;
+  border: 0;
+  box-shadow: none;
   color: var(--text);
   font-size: 12.5px;
   letter-spacing: -0.02em;
@@ -745,6 +773,8 @@
 }
 .phone-chart-actions.tv-toolbar > .icon-button,
 .phone-chart-actions > :is(.toolbar-popover-host, .toolbar-mobile-overflow) > :is(.icon-button, .toolbar-button) {
+  position: relative;
+  z-index: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -755,13 +785,20 @@
   min-height: 44px;
   margin: 0;
   padding: 0;
-  border-radius: 12px;
-  color: color-mix(in srgb, var(--text) 84%, var(--muted));
+  border-radius: 999px;
+  color: color-mix(in srgb, var(--text) 86%, var(--muted));
 }
 @media (max-width: 379px) {
+  .workspace-toolbar.tv-toolbar.phone-chart-actions {
+    padding-inline: max(5px, env(safe-area-inset-left)) max(4px, env(safe-area-inset-right));
+  }
+  .workspace-toolbar.tv-toolbar.phone-chart-actions::before {
+    left: max(3px, env(safe-area-inset-left));
+    right: max(3px, env(safe-area-inset-right));
+  }
   .phone-chart-actions > .symbol-selector.phone-bottom-symbol {
     gap: 4px;
-    padding: 0 5px 0 4px;
+    padding: 0 2px 0 3px;
     font-size: 11.5px;
   }
   .phone-chart-actions > .symbol-selector.phone-bottom-symbol > .asset-badge.xs {
@@ -774,14 +811,25 @@
   font-weight: 650;
   letter-spacing: -0.02em;
   color: var(--text) !important;
-  background: color-mix(in srgb, var(--tv-hover) 50%, transparent);
+  background: transparent;
+  position: relative;
+}
+.phone-chart-actions .interval-button::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 1px;
+  background: color-mix(in srgb, var(--border) 68%, rgba(255, 255, 255, 0.14));
+  pointer-events: none;
 }
 .phone-chart-actions .phone-drawing-toggle[aria-expanded="true"],
 .phone-chart-actions .phone-watchlist-toggle[aria-pressed="true"],
 .phone-chart-actions .interval-button[aria-expanded="true"],
 .phone-chart-actions .chart-type-button[aria-expanded="true"] {
   color: var(--accent) !important;
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
 }
 .phone-chart-actions.tv-toolbar > :is(.toolbar-popover-host, .toolbar-mobile-overflow) > .tv-popover {
   top: auto;
@@ -1653,9 +1701,6 @@ body {
   border-top: 1px solid color-mix(in srgb, var(--border) 68%, rgba(255, 255, 255, 0.14));
   box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.24);
 }
-.phone-workspace .phone-chart-actions {
-  background: var(--surface);
-}
 .phone-workspace .utility-rail.phone-bottom-nav {
   background: transparent;
 }
@@ -1932,8 +1977,8 @@ body {
   padding-top: 0;
 }
 .phone-workspace .chart-heading {
-  top: 2px;
-  left: 5px;
+  top: calc(env(safe-area-inset-top) + 4px);
+  left: max(6px, env(safe-area-inset-left));
   right: 70px;
   max-width: calc(100% - 76px);
   gap: 0;
@@ -1996,7 +2041,7 @@ body {
   margin-top: -5px;
 }
 .phone-workspace .native-drawing-rail {
-  top: 0;
+  top: env(safe-area-inset-top);
 }
 .phone-workspace .alert-empty {
   padding: 14px 16px;
