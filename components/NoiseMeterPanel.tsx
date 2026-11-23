@@ -6,6 +6,7 @@ import {
   buildNoiseDataset,
   evaluateNoiseScenario,
   type NoiseApiPayload,
+  type NoiseStreakBasis,
   type NoiseVerdictTone,
   type StreakStats,
 } from "@/lib/terminal/noiseMeter";
@@ -37,6 +38,12 @@ function fmtSigned2(v: number | null | undefined): string {
   if (v === null || v === undefined || !Number.isFinite(v)) return "—";
   const sign = v > 0 ? "+" : v < 0 ? "−" : "";
   return `${sign}${Math.abs(v).toFixed(2).replace(".", ",")} %`;
+}
+
+function fmtShortDate(iso: string): string {
+  const parts = iso.split("-");
+  if (parts.length !== 3) return iso;
+  return `${parts[2]}.${parts[1]}.`;
 }
 
 function sourceLabel(src: NoiseApiPayload["live"]["priceSource"]): string {
@@ -137,9 +144,10 @@ export function NoiseMeterPanel({
   const [error, setError] = useState("");
   const [reloadNonce, setReloadNonce] = useState(0);
 
-  // Interactive scenario controls (defaults to live premarket gap + live streak, editable for What-If)
+  // Interactive scenario controls (defaults to live premarket gap + live candle streak, editable for What-If)
   const [gapPct, setGapPct] = useState<number>(1.0);
   const [gapTouched, setGapTouched] = useState(false);
+  const [streakBasis, setStreakBasis] = useState<NoiseStreakBasis>("candle");
   const [streakDirection, setStreakDirection] = useState<"red" | "green">("red");
   const [streakDays, setStreakDays] = useState<number>(3);
   const [streakTouched, setStreakTouched] = useState(false);
@@ -170,14 +178,17 @@ export function NoiseMeterPanel({
         if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
         if (controller.signal.aborted) return;
         setData(body);
+        const computed = buildNoiseDataset(body.bars);
         if (!gapTouched) {
-          // If live market is completely flat (0%), default simulator to +1.0% only when user has no live gap?
-          // Better: use exact liveGapPct when non-zero, otherwise 0 so live readout stays honest.
           setGapPct(body.live.liveGapPct);
         }
         if (!streakTouched) {
-          setStreakDirection(body.live.currentStreak.direction);
-          setStreakDays(Math.max(1, body.live.currentStreak.count || 1));
+          const liveStreak =
+            streakBasis === "candle"
+              ? (body.live.currentCandleStreak ?? computed.currentCandleStreak)
+              : body.live.currentStreak;
+          setStreakDirection(liveStreak.direction);
+          setStreakDays(Math.max(1, liveStreak.count || 1));
         }
       } catch (err) {
         if (controller.signal.aborted) return;
@@ -192,15 +203,29 @@ export function NoiseMeterPanel({
 
   const dataset = useMemo(() => (data ? buildNoiseDataset(data.bars) : null), [data]);
 
+  const liveCloseStreak = dataset?.currentStreak ?? data?.live.currentStreak ?? { direction: "red" as const, count: 1 };
+  const liveCandleStreak =
+    dataset?.currentCandleStreak ?? data?.live.currentCandleStreak ?? liveCloseStreak;
+  const activeLiveStreak = streakBasis === "candle" ? liveCandleStreak : liveCloseStreak;
+
   const evaluation = useMemo(() => {
     if (!dataset) return null;
     return evaluateNoiseScenario(dataset, {
       gapPct,
       streakDays,
       streakDirection,
+      streakBasis,
       weekday: data?.live.nextWeekday,
     });
-  }, [dataset, gapPct, streakDays, streakDirection, data?.live.nextWeekday]);
+  }, [dataset, gapPct, streakDays, streakDirection, streakBasis, data?.live.nextWeekday]);
+
+  const switchStreakBasis = (nextBasis: NoiseStreakBasis) => {
+    setStreakBasis(nextBasis);
+    const nextLive = nextBasis === "candle" ? liveCandleStreak : liveCloseStreak;
+    setStreakDirection(nextLive.direction);
+    setStreakDays(Math.max(1, nextLive.count || 1));
+    setStreakTouched(false);
+  };
 
   const selectTicker = (next: string) => {
     const clean = next.replace(/^YF:/i, "").trim().toUpperCase();
@@ -408,13 +433,13 @@ export function NoiseMeterPanel({
                     type="button"
                     className={`noise-mini-btn${!streakTouched ? " active" : ""}`}
                     onClick={() => {
-                      setStreakDirection(data.live.currentStreak.direction);
-                      setStreakDays(Math.max(1, data.live.currentStreak.count || 1));
+                      setStreakDirection(activeLiveStreak.direction);
+                      setStreakDays(Math.max(1, activeLiveStreak.count || 1));
                       setStreakTouched(false);
                     }}
                   >
-                    Aktuell ({data.live.currentStreak.count}{" "}
-                    {data.live.currentStreak.direction === "red" ? "rot" : "grün"})
+                    Aktuell ({activeLiveStreak.count}{" "}
+                    {activeLiveStreak.direction === "red" ? "rot" : "grün"})
                   </button>
                   <button
                     type="button"
@@ -440,6 +465,26 @@ export function NoiseMeterPanel({
                   </button>
                 </div>
               </div>
+              <div className="noise-basis-row" role="group" aria-label="Streak-Berechnungsbasis">
+                <button
+                  type="button"
+                  className={`noise-mini-btn${streakBasis === "candle" ? " active" : ""}`}
+                  aria-pressed={streakBasis === "candle"}
+                  title="Tageskerzen-Farbe im Chart (Close vs. Open)"
+                  onClick={() => switchStreakBasis("candle")}
+                >
+                  Kerzen (C vs O): {liveCandleStreak.count} {liveCandleStreak.direction === "red" ? "rot" : "grün"}
+                </button>
+                <button
+                  type="button"
+                  className={`noise-mini-btn${streakBasis === "close" ? " active" : ""}`}
+                  aria-pressed={streakBasis === "close"}
+                  title="Schlusskurs gegenüber Vortags-Close (Close vs. PrevClose)"
+                  onClick={() => switchStreakBasis("close")}
+                >
+                  Close (vs Vortag): {liveCloseStreak.count} {liveCloseStreak.direction === "red" ? "rot" : "grün"}
+                </button>
+              </div>
               <div className="noise-quick-row noise-streak-nums" role="group" aria-label="Anzahl Tage in Folge">
                 {QUICK_STREAKS.map((d) => (
                   <button
@@ -456,6 +501,27 @@ export function NoiseMeterPanel({
                   </button>
                 ))}
               </div>
+              {dataset && dataset.recentDays.length > 0 ? (
+                <div className="noise-recent-strip" aria-label="Letzte Handelstage">
+                  {dataset.recentDays.map((day) => {
+                    const isGreen = streakBasis === "candle" ? day.greenCandle : day.greenDay;
+                    const primaryDelta = streakBasis === "candle" ? day.openToClosePct : day.closeToClosePct;
+                    const differs = day.greenCandle !== day.greenDay;
+                    return (
+                      <div
+                        key={day.session}
+                        className={`noise-recent-day ${isGreen ? "is-green" : "is-red"}${differs ? " is-mixed" : ""}`}
+                        title={`${day.session}: Kerze (C vs O) ${fmtSigned2(day.openToClosePct)} · Close vs Vortag ${fmtSigned2(day.closeToClosePct)}`}
+                      >
+                        <span className="noise-recent-date">{fmtShortDate(day.session)}</span>
+                        <span className="noise-recent-val mono">
+                          {primaryDelta > 0 ? `+${primaryDelta.toFixed(1).replace(".", ",")}` : `${primaryDelta.toFixed(1).replace(".", ",")}`}%
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : null}
               <p className="noise-sim-hint">
                 {evaluation.streakExact.label}: n = {evaluation.streakExact.sampleSize} ·{" "}
                 {evaluation.streakAtLeast.label}: n = {evaluation.streakAtLeast.sampleSize}
@@ -510,8 +576,11 @@ export function NoiseMeterPanel({
                 <span className="negative">Rot {fmtPct(evaluation.streakPrimary.redCloseProb)}</span>
               </div>
               <small>
-                Ø Folgetag: <b className="mono">{fmtSigned2(evaluation.streakPrimary.avgNextDayPct)}</b> · 5T:{" "}
-                <b className="mono">{fmtSigned2(evaluation.streakPrimary.fwd5dAvgPct)}</b> (n ={" "}
+                Grüne Kerze (C&gt;O): <b className="mono">{fmtPct(evaluation.streakPrimary.greenIntradayProb)}</b> · Ø 1T:{" "}
+                <b className="mono">{fmtSigned2(evaluation.streakPrimary.avgNextDayPct)}</b>
+              </small>
+              <small>
+                Ø 5T Folgerendite: <b className="mono">{fmtSigned2(evaluation.streakPrimary.fwd5dAvgPct)}</b> (n ={" "}
                 {evaluation.streakPrimary.sampleSize})
               </small>
             </article>
@@ -537,7 +606,8 @@ export function NoiseMeterPanel({
             <div className="noise-combo-title">
               <strong>
                 Kombi-Statistik: Nach ≥ {evaluation.combo.effectiveStreakDays}{" "}
-                {evaluation.combo.streakDirection === "red" ? "roten" : "grünen"} Tagen + Premarket-Gap
+                {evaluation.combo.streakDirection === "red" ? "roten" : "grünen"}{" "}
+                {streakBasis === "candle" ? "Kerzen" : "Tagen"} + Premarket-Gap
               </strong>
               {evaluation.combo.usedFallbackThreshold ? (
                 <span className="noise-meta-chip">Auf ≥ {evaluation.combo.effectiveStreakDays}T erweitert für Stichprobe</span>
@@ -663,7 +733,7 @@ export function NoiseMeterPanel({
             <div className="noise-streaks-layout">
               <div className="noise-streak-tables">
                 <div className="noise-table-wrap">
-                  <h4>Nach roten Tagen in Folge</h4>
+                  <h4>Nach roten {streakBasis === "candle" ? "Kerzen" : "Tagen"} in Folge</h4>
                   <table className="noise-table">
                     <thead>
                       <tr>
@@ -704,7 +774,7 @@ export function NoiseMeterPanel({
                 </div>
 
                 <div className="noise-table-wrap">
-                  <h4>Nach grünen Tagen in Folge</h4>
+                  <h4>Nach grünen {streakBasis === "candle" ? "Kerzen" : "Tagen"} in Folge</h4>
                   <table className="noise-table">
                     <thead>
                       <tr>

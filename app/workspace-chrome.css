@@ -2591,6 +2591,51 @@ body {
   font-size: 11.5px;
   color: var(--muted);
 }
+.noise-basis-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.noise-basis-row > .noise-mini-btn {
+  flex: 1 1 140px;
+}
+.noise-recent-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(56px, 1fr));
+  gap: 4px;
+}
+.noise-recent-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  padding: 4px 3px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  font-size: 10.5px;
+  line-height: 1.25;
+}
+.noise-recent-day.is-red {
+  border-color: color-mix(in srgb, var(--red, #ef4444) 44%, var(--border));
+  background: color-mix(in srgb, var(--red, #ef4444) 14%, transparent);
+  color: var(--red, #ef4444);
+}
+.noise-recent-day.is-green {
+  border-color: color-mix(in srgb, var(--green, #10b981) 44%, var(--border));
+  background: color-mix(in srgb, var(--green, #10b981) 14%, transparent);
+  color: var(--green, #10b981);
+}
+.noise-recent-day.is-mixed {
+  border-style: dashed;
+}
+.noise-recent-date {
+  font-size: 9.5px;
+  color: var(--muted);
+}
+.noise-recent-val {
+  font-weight: 700;
+}
 
 .noise-kpi-grid {
   display: grid;

@@ -220,6 +220,7 @@ export async function GET(request: Request) {
       live: {
         ...liveQuote,
         currentStreak: dataset.currentStreak,
+        currentCandleStreak: dataset.currentCandleStreak,
         currentAtr14Pct: dataset.currentAtr14Pct,
         nextWeekday: nextTradingWeekday(now, timezone),
       },

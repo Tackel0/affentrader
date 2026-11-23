@@ -186,6 +186,27 @@ describe("NoiseMeter empirical engine", () => {
       expect(result.analogues[0].session > result.analogues[1].session).toBe(true);
     }
   });
+
+  it("separates candlestick-color streaks (Close < Open) from close-to-close streaks (QQQ gap-up red candle case)", () => {
+    // Reproduces QQQ Nov 12–20: 6 consecutive red candles (Close < Open), where Nov 18 gapped up and closed
+    // slightly above Nov 17's close (+0.39%), so close-to-close streak is 2 while candle streak is 6.
+    const qqqLikeBars: NoiseDayBar[] = [
+      { session: "2026-11-12", open: 680.32, high: 690.0, low: 679.0, close: 688.17, volume: 40_000_000 }, // green candle
+      { session: "2026-11-13", open: 688.54, high: 689.0, low: 678.0, close: 679.89, volume: 42_000_000 }, // red candle 1
+      { session: "2026-11-16", open: 671.04, high: 672.0, low: 660.0, close: 661.75, volume: 45_000_000 }, // red candle 2
+      { session: "2026-11-17", open: 663.05, high: 664.0, low: 655.0, close: 656.95, volume: 44_000_000 }, // red candle 3
+      { session: "2026-11-18", open: 661.03, high: 662.0, low: 658.0, close: 659.51, volume: 41_000_000 }, // red candle 4 (C2C +0.39%!)
+      { session: "2026-11-19", open: 671.09, high: 672.0, low: 644.0, close: 645.04, volume: 55_000_000 }, // red candle 5
+      { session: "2026-11-20", open: 638.84, high: 640.0, low: 606.0, close: 608.45, volume: 70_000_000 }, // red candle 6
+    ];
+
+    const dataset = buildNoiseDataset(qqqLikeBars);
+    expect(dataset.currentCandleStreak).toEqual({ direction: "red", count: 6 });
+    expect(dataset.currentStreak).toEqual({ direction: "red", count: 2 });
+    expect(dataset.recentDays).toHaveLength(6);
+    expect(dataset.recentDays.every((d) => !d.greenCandle)).toBe(true);
+    expect(dataset.recentDays.find((d) => d.session === "2026-11-18")?.greenDay).toBe(true);
+  });
 });
 
 describe("NoiseMeter terminal commands", () => {
@@ -221,6 +242,7 @@ describe("NoiseMeterPanel & ResearchTerminal UI", () => {
       liveGapPct: 0.8,
       priceSource: "premarket",
       currentStreak: { direction: "red", count: 2 },
+      currentCandleStreak: { direction: "red", count: 6 },
       currentAtr14Pct: 1.15,
       nextWeekday: 1,
     },
@@ -254,7 +276,7 @@ describe("NoiseMeterPanel & ResearchTerminal UI", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders KPIs and recomputes live on 7-red-day and tab interactions without refetching", async () => {
+  it("renders KPIs and recomputes live on 7-red-candle, Close-basis toggle, and tab interactions without refetching", async () => {
     const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
     const { container } = render(<NoiseMeterPanel initialTicker="SPY" />);
 
@@ -264,15 +286,22 @@ describe("NoiseMeterPanel & ResearchTerminal UI", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(container.textContent).toContain("SPDR S&P 500 ETF Trust");
     expect(container.textContent).toContain("Gap-Close-Chance (Intraday)");
+    expect(container.querySelectorAll(".noise-recent-day").length).toBeGreaterThan(0);
 
-    // Select 7T + Rot in the interactive streak simulator
+    // Select 7T + Rot in default Kerzen (C vs O) mode
     const panel = within(container);
     fireEvent.click(panel.getByRole("button", { name: "Rot" }));
     fireEvent.click(panel.getByRole("button", { name: "7T" }));
 
-    expect(container.textContent).toContain("Nach ≥ 7 roten Tagen");
+    expect(container.textContent).toContain("Nach ≥ 7 roten Kerzen");
     expect(container.textContent).toContain("75,0 %");
     expect(fetchMock).toHaveBeenCalledTimes(1); // Pure client-side recompute
+
+    // Switch basis to Close (vs Vortag) and select 7T + Rot
+    fireEvent.click(panel.getByRole("button", { name: /Close \(vs Vortag\)/i }));
+    fireEvent.click(panel.getByRole("button", { name: "Rot" }));
+    fireEvent.click(panel.getByRole("button", { name: "7T" }));
+    expect(container.textContent).toContain("Nach ≥ 7 roten Tagen");
 
     // Switch detail tabs: Streak-Tabelle & Wochentage, then Historische Analogien
     fireEvent.click(panel.getByRole("tab", { name: /Streak-Tabelle/i }));

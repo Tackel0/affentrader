@@ -7,6 +7,16 @@ export interface NoiseDayBar {
   volume: number;
 }
 
+export type NoiseStreakBasis = "candle" | "close";
+
+export interface NoiseRecentDay {
+  session: string;
+  openToClosePct: number;
+  closeToClosePct: number;
+  greenCandle: boolean;
+  greenDay: boolean;
+}
+
 export interface NoiseObservation {
   session: string;
   weekday: number; // 1=Mon .. 5=Fri (0/6 for 24/7 crypto)
@@ -24,7 +34,8 @@ export interface NoiseObservation {
   greenDay: boolean;
   mfePct: number;
   maePct: number;
-  priorStreak: number; // >0 green days before this bar, <0 red days before this bar
+  priorStreak: number; // >0 green days (C>PrevC) before this bar, <0 red days before this bar
+  priorCandleStreak: number; // >0 green candles (C>O) before this bar, <0 red candles before this bar
   atr14Pct: number;
   fwd3dPct: number | null;
   fwd5dPct: number | null;
@@ -36,6 +47,8 @@ export interface NoiseDataset {
   lastSession: string;
   totalDays: number;
   currentStreak: { direction: "red" | "green"; count: number };
+  currentCandleStreak: { direction: "red" | "green"; count: number };
+  recentDays: NoiseRecentDay[];
   currentAtr14Pct: number;
   gapMean: number;
   gapStd: number;
@@ -46,6 +59,7 @@ export interface NoiseScenarioInput {
   gapPct: number;
   streakDays: number;
   streakDirection: "red" | "green";
+  streakBasis?: NoiseStreakBasis;
   weekday?: number;
 }
 
@@ -145,6 +159,7 @@ export interface NoiseEvaluation {
   tone: NoiseVerdictTone;
   verdictLabel: string;
   verdictSubtitle: string;
+  streakBasis: NoiseStreakBasis;
   insights: string[];
   gapStats: GapCohortStats;
   streakExact: StreakStats;
@@ -173,6 +188,7 @@ export interface NoiseApiPayload {
     liveGapPct: number;
     priceSource: "premarket" | "afterhours" | "regular" | "last-close";
     currentStreak: { direction: "red" | "green"; count: number };
+    currentCandleStreak?: { direction: "red" | "green"; count: number };
     currentAtr14Pct: number;
     nextWeekday: number;
   };
@@ -265,6 +281,8 @@ export function buildNoiseDataset(rawBars: readonly NoiseDayBar[]): NoiseDataset
       lastSession: bars.at(-1)?.session ?? "",
       totalDays: bars.length,
       currentStreak: { direction: "green", count: 0 },
+      currentCandleStreak: { direction: "green", count: 0 },
+      recentDays: [],
       currentAtr14Pct: 0,
       gapMean: 0,
       gapStd: 0,
@@ -275,6 +293,8 @@ export function buildNoiseDataset(rawBars: readonly NoiseDayBar[]): NoiseDataset
   const trueRanges: number[] = [bars[0].high - bars[0].low];
   const observations: NoiseObservation[] = [];
   let runningStreak = 0;
+  let runningCandleStreak =
+    bars[0].close > bars[0].open ? 1 : bars[0].close < bars[0].open ? -1 : 0;
 
   for (let i = 1; i < bars.length; i++) {
     const prev = bars[i - 1];
@@ -341,6 +361,7 @@ export function buildNoiseDataset(rawBars: readonly NoiseDayBar[]): NoiseDataset
       mfePct: Math.max(0, mfePct),
       maePct: Math.max(0, maePct),
       priorStreak: runningStreak,
+      priorCandleStreak: runningCandleStreak,
       atr14Pct,
       fwd3dPct,
       fwd5dPct,
@@ -353,6 +374,15 @@ export function buildNoiseDataset(rawBars: readonly NoiseDayBar[]): NoiseDataset
       runningStreak = runningStreak <= 0 ? runningStreak - 1 : -1;
     } else {
       runningStreak = 0;
+    }
+
+    // Update candle-color streak (Close vs Open) AFTER recording priorCandleStreak for day `i`
+    if (curr.close > curr.open) {
+      runningCandleStreak = runningCandleStreak >= 0 ? runningCandleStreak + 1 : 1;
+    } else if (curr.close < curr.open) {
+      runningCandleStreak = runningCandleStreak <= 0 ? runningCandleStreak - 1 : -1;
+    } else {
+      runningCandleStreak = 0;
     }
   }
 
@@ -371,6 +401,14 @@ export function buildNoiseDataset(rawBars: readonly NoiseDayBar[]): NoiseDataset
   const gapStd = gaps.length > 1 ? Math.sqrt(varSum / (gaps.length - 1)) : 0;
   const absGapsSorted = observations.map((o) => Math.abs(o.gapPct)).sort((a, b) => a - b);
 
+  const recentDays: NoiseRecentDay[] = observations.slice(-8).map((o) => ({
+    session: o.session,
+    openToClosePct: round2(o.openToClosePct),
+    closeToClosePct: round2(o.closeToClosePct),
+    greenCandle: o.greenIntraday,
+    greenDay: o.greenDay,
+  }));
+
   return {
     observations,
     firstSession: bars[0].session,
@@ -380,6 +418,11 @@ export function buildNoiseDataset(rawBars: readonly NoiseDayBar[]): NoiseDataset
       direction: runningStreak < 0 ? "red" : "green",
       count: Math.abs(runningStreak),
     },
+    currentCandleStreak: {
+      direction: runningCandleStreak < 0 ? "red" : "green",
+      count: Math.abs(runningCandleStreak),
+    },
+    recentDays,
     currentAtr14Pct: round2(currentAtr14Pct),
     gapMean: round2(gapMean),
     gapStd: round2(gapStd),
@@ -387,17 +430,23 @@ export function buildNoiseDataset(rawBars: readonly NoiseDayBar[]): NoiseDataset
   };
 }
 
+function streakValueOf(o: NoiseObservation, basis: NoiseStreakBasis): number {
+  return basis === "candle" ? o.priorCandleStreak : o.priorStreak;
+}
+
 function summarizeStreak(
   observations: readonly NoiseObservation[],
   direction: "red" | "green",
   days: number,
   mode: "exact" | "atLeast",
+  basis: NoiseStreakBasis = "close",
 ): StreakStats {
   const matched = observations.filter((o) => {
+    const val = streakValueOf(o, basis);
     if (direction === "red") {
-      return mode === "exact" ? o.priorStreak === -days : o.priorStreak <= -days;
+      return mode === "exact" ? val === -days : val <= -days;
     }
-    return mode === "exact" ? o.priorStreak === days : o.priorStreak >= days;
+    return mode === "exact" ? val === days : val >= days;
   });
 
   const n = matched.length;
@@ -408,7 +457,22 @@ function summarizeStreak(
   const fwd3 = matched.map((o) => o.fwd3dPct).filter((v): v is number => v !== null);
   const fwd5 = matched.map((o) => o.fwd5dPct).filter((v): v is number => v !== null);
 
-  const dirWord = direction === "red" ? (days === 1 ? "rotem Tag" : "roten Tagen") : (days === 1 ? "grünem Tag" : "grünen Tagen");
+  const dirWord =
+    basis === "candle"
+      ? direction === "red"
+        ? days === 1
+          ? "roter Kerze"
+          : "roten Kerzen"
+        : days === 1
+          ? "grüner Kerze"
+          : "grünen Kerzen"
+      : direction === "red"
+        ? days === 1
+          ? "rotem Tag"
+          : "roten Tagen"
+        : days === 1
+          ? "grünem Tag"
+          : "grünen Tagen";
   const prefix = mode === "atLeast" ? "≥ " : "";
 
   return {
@@ -520,6 +584,7 @@ export function evaluateNoiseScenario(
   const gapPct = Number.isFinite(input.gapPct) ? clamp(input.gapPct, -30, 30) : 0;
   const streakDays = Math.max(1, Math.min(12, Math.round(input.streakDays || 1)));
   const streakDirection = input.streakDirection === "red" ? "red" : "green";
+  const streakBasis: NoiseStreakBasis = input.streakBasis === "candle" ? "candle" : "close";
 
   const { matched, bandLabel, direction } = selectGapCohort(dataset, gapPct);
   const n = matched.length;
@@ -562,17 +627,18 @@ export function evaluateNoiseScenario(
   };
 
   // Streak stats (exact and cumulative >= k)
-  const streakExact = summarizeStreak(dataset.observations, streakDirection, streakDays, "exact");
-  const streakAtLeast = summarizeStreak(dataset.observations, streakDirection, streakDays, "atLeast");
+  const streakExact = summarizeStreak(dataset.observations, streakDirection, streakDays, "exact", streakBasis);
+  const streakAtLeast = summarizeStreak(dataset.observations, streakDirection, streakDays, "atLeast", streakBasis);
   const streakPrimary = streakExact.sampleSize >= 12 ? streakExact : streakAtLeast;
 
-  // Streak + Gap combination effect (fall back down to smaller >= k if needed for >= 5 samples)
+  // Streak + Gap combination effect (fall back down to smaller >= k if needed for >= 10 samples)
   let effectiveDays = streakDays;
   let usedFallbackThreshold = false;
   const filterByStreak = (d: number) =>
-    dataset.observations.filter((o) =>
-      streakDirection === "red" ? o.priorStreak <= -d : o.priorStreak >= d,
-    );
+    dataset.observations.filter((o) => {
+      const val = streakValueOf(o, streakBasis);
+      return streakDirection === "red" ? val <= -d : val >= d;
+    });
   let streakPool = filterByStreak(effectiveDays);
   while (effectiveDays > 2 && streakPool.length < 10) {
     effectiveDays -= 1;
@@ -682,8 +748,8 @@ export function evaluateNoiseScenario(
 
   // Streak matrices: 1..6 exact + 7+ cumulative (for both red and green)
   const buildMatrix = (dir: "red" | "green"): StreakStats[] => [
-    ...[1, 2, 3, 4, 5, 6].map((d) => summarizeStreak(dataset.observations, dir, d, "exact")),
-    summarizeStreak(dataset.observations, dir, 7, "atLeast"),
+    ...[1, 2, 3, 4, 5, 6].map((d) => summarizeStreak(dataset.observations, dir, d, "exact", streakBasis)),
+    summarizeStreak(dataset.observations, dir, 7, "atLeast", streakBasis),
   ];
 
   // Weekday statistics (Mon–Fri)
@@ -711,7 +777,7 @@ export function evaluateNoiseScenario(
       closeToClosePct: round2(o.closeToClosePct),
       gapFilled: o.gapFilled,
       fullFade: o.fullFade,
-      priorStreak: o.priorStreak,
+      priorStreak: streakValueOf(o, streakBasis),
     }));
 
   return {
@@ -719,6 +785,7 @@ export function evaluateNoiseScenario(
     tone,
     verdictLabel,
     verdictSubtitle,
+    streakBasis,
     insights,
     gapStats,
     streakExact,
