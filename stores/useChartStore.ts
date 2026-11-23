@@ -91,6 +91,7 @@ interface ChartState {
   searchOpen: boolean;
   searchTarget: "chart" | "watchlist";
   indicatorsOpen: boolean;
+  drawingFavoritesOpen: boolean;
   settingsId: string | null;
   alertDraft: AlertDraft | null;
   sidebarTab: "watchlist" | "alerts" | "objects";
@@ -184,6 +185,7 @@ export const useChartStore = create<ChartState>()(
       searchOpen: false,
       searchTarget: "chart",
       indicatorsOpen: false,
+      drawingFavoritesOpen: false,
       settingsId: null,
       alertDraft: null,
       sidebarTab: "watchlist",

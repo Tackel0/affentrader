@@ -25,11 +25,26 @@ export function workspacePanelLabel(tab: BottomTab) {
   return PANELS.find(panel => panel.id === tab)?.name ?? "Workspace";
 }
 
-export function PhoneWorkspacePanels({ onSelect }: { onSelect: (tab: BottomTab) => void }) {
+export function PhoneWorkspacePanels({
+  onSelect,
+  navLabel,
+  active = false,
+}: {
+  onSelect: (tab: BottomTab) => void;
+  navLabel?: string;
+  active?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   return <>
-    <IconButton label="More workspace panels" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}>
+    <IconButton
+      label="More workspace panels"
+      aria-haspopup="dialog"
+      aria-expanded={open}
+      aria-pressed={active || open}
+      onClick={() => setOpen(true)}
+    >
       <LayoutGrid size={20} />
+      {navLabel ? <span className="compact-nav-label" aria-hidden="true">{navLabel}</span> : null}
     </IconButton>
     {open && <Modal title="Workspace-Module" className="phone-action-sheet phone-workspace-panels" onClose={() => setOpen(false)}>
       <div className="phone-panel-list">

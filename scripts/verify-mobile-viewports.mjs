@@ -1445,18 +1445,14 @@ async function run() {
         expression: '!!document.querySelector(".phone-workspace")', returnByValue: true,
       })).result.value;
       if (phone) {
-        const directNav = { orderflow: "Order flow panel", terminal: "Terminal" }[tab];
-        if (directNav) {
-          const item = `nav.utility-rail [aria-label="${directNav}"]`;
-          if (tap) await tapWorkspaceTarget(cdp, item);
-          else await cdp.send("Runtime.evaluate", { expression: `document.querySelector(${JSON.stringify(item)}).click()` });
-          return;
-        }
-        await tapWorkspaceTarget(cdp, '.phone-chart-actions [aria-label="More workspace panels"]');
+        const trigger = 'nav.utility-rail [aria-label="More workspace panels"]';
+        if (tap) await tapWorkspaceTarget(cdp, trigger);
+        else await cdp.send("Runtime.evaluate", { expression: `document.querySelector(${JSON.stringify(trigger)}).click()` });
         const item = `.phone-panel-list button[data-panel="${tab}"]`;
         await waitForPagePredicate(cdp, `!!document.querySelector(${JSON.stringify(item)})`, `phone module picker offers ${tab}`);
         await cdp.send("Runtime.evaluate", { expression: `document.querySelector(${JSON.stringify(item)}).scrollIntoView({ block: "nearest" })` });
-        await tapWorkspaceTarget(cdp, item);
+        if (tap) await tapWorkspaceTarget(cdp, item);
+        else await cdp.send("Runtime.evaluate", { expression: `document.querySelector(${JSON.stringify(item)}).click()` });
         return;
       }
       const opened = await cdp.send("Runtime.evaluate", { expression: `(() => {
@@ -1587,9 +1583,9 @@ async function run() {
         await waitForPagePredicate(cdp, `(() => {
           const chart = document.querySelector('.chart-grid')?.getBoundingClientRect();
           const tools = document.querySelector('.phone-chart-actions')?.getBoundingClientRect();
-          return chart?.height >= innerHeight * .8 && tools?.top >= chart.bottom - 1
-            && !document.querySelector('.bottom-panel, .range-toolbar, .chart-trading-controls');
-        })()`, `${vp.name} starts on the chart with reachable controls below it`);
+          return chart?.top <= 1 && chart?.height >= innerHeight * .8 && tools?.top >= chart.bottom - 1
+            && !document.querySelector('.phone-workspace-header, .bottom-panel, .range-toolbar, .chart-trading-controls');
+        })()`, `${vp.name} starts edge-to-edge at top with reachable controls below the chart`);
       }
       if (vp.width === 390 && !opts.liveApis && strategyChunks.length) {
         activeLabel = "strategy tester on-demand loading";
@@ -1735,14 +1731,14 @@ async function run() {
         await waitForPagePredicate(cdp, '!document.querySelector(".search-modal")', "symbol search closes");
 
         activeLabel = "main menu Konto erstellen";
-        await tapWorkspaceTarget(cdp, '.workspace-toolbar [aria-label="Main menu"]', 36);
+        await tapWorkspaceTarget(cdp, 'button[aria-label="Main menu"]', 36);
         await waitForPagePredicate(cdp, `[...document.querySelectorAll(".main-menu button")].some(b => b.textContent.trim() === "Konto erstellen")`, "main menu exposes Konto erstellen");
         recordAudit(vp, "/ main menu account actions", await inspectViewportDom(cdp, true));
-        await tapWorkspaceTarget(cdp, '.workspace-toolbar [aria-label="Main menu"]', 36);
+        await tapWorkspaceTarget(cdp, 'button[aria-label="Main menu"]', 36);
         await waitForPagePredicate(cdp, '!document.querySelector(".main-menu")', "main menu closes");
 
         await verifyOrderflowDock(vp);
-        activeLabel = "phone drawings overlay";
+        activeLabel = "phone drawings overlay and floating favorites bar";
         const widthBefore = (await cdp.send("Runtime.evaluate", {
           expression: 'document.querySelector(".chart-grid").clientWidth',
           returnByValue: true,
@@ -1755,6 +1751,15 @@ async function run() {
             && document.querySelector(".chart-grid").clientWidth === ${widthBefore};
         })()`, "phone drawing tools open without squeezing the chart");
         recordAudit(vp, "/ drawing tools overlay", await inspectViewportDom(cdp, true));
+        await tapWorkspaceTarget(cdp, '.drawing-favorites-trigger', 36);
+        await waitForPagePredicate(cdp, '!!document.querySelector(".drawing-favorites-modal")', "drawing favorites picker opens");
+        await cdp.send("Runtime.evaluate", {
+          expression: `[...document.querySelectorAll(".drawing-favorites-quick button")].find(b => b.textContent?.includes("Standard-Favoriten"))?.click()`,
+        });
+        await waitForPagePredicate(cdp, 'document.querySelectorAll(".drawing-favorites-tools button").length >= 4', "floating favorites object bar appears with selected tools");
+        await tapWorkspaceTarget(cdp, '.drawing-favorites-modal [aria-label="Close dialog"]', 36);
+        await waitForPagePredicate(cdp, '!document.querySelector(".drawing-favorites-modal")', "drawing favorites picker closes");
+        recordAudit(vp, "/ floating translucent favorites bar", await inspectViewportDom(cdp, true));
         await tapWorkspaceTarget(cdp, ".phone-drawing-toggle", 36);
         await waitForPagePredicate(cdp, '!document.querySelector("#workspace-drawing-tools")', "phone drawing tools close");
         phoneDrawingOverlayChecked = true;

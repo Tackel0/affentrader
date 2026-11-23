@@ -1,6 +1,6 @@
 "use client";
 import {useState} from "react";
-import {MoreHorizontal,Search,Plus,Bell,ChevronsLeft,SlidersHorizontal,Camera,Maximize,PanelRight,Undo2,Redo2,CalendarDays,Wallet,ListTree} from "lucide-react";
+import {MoreHorizontal,Search,Plus,Bell,ChevronsLeft,SlidersHorizontal,Camera,Maximize,PanelRight,Undo2,Redo2,CalendarDays,Wallet,ListTree,Star} from "lucide-react";
 import {IconButton} from "./ui";
 import {useDismiss,LayoutMenu,SavedLayoutsMenu,IndicatorTemplateMenu} from "./WorkspaceMenus";
 import {PatternsButton} from "./ChartTools";
@@ -14,6 +14,7 @@ export function ChartToolbarOverflow({toggleSidebar, phone}:{
   const [open,setOpen]=useState(false),ref=useDismiss(open,()=>setOpen(false));
   const replay = useWorkspaceStore((s) => s.replay.active);
   const tradingButtons = useChartStore(s => s.chartTrading.showButtons);
+  const favoriteCount = useChartStore(s => s.drawingPreferences.favorites.length);
   const command=(kind:"settings"|"snapshot"|"undo"|"redo")=>{setOpen(false);useChartStore.getState().set({command:{kind,id:Date.now()}});};
   return <div ref={ref} className="toolbar-mobile-overflow">
     <IconButton label="More chart controls" aria-expanded={open} aria-haspopup="true" onClick={()=>setOpen(!open)}><MoreHorizontal size={21}/></IconButton>
@@ -23,6 +24,9 @@ export function ChartToolbarOverflow({toggleSidebar, phone}:{
         {tradingButtons && <button type="button" aria-pressed={phone.tradingOpen} onClick={()=>{setOpen(false);phone.toggleTrading();}}>
           <Wallet size={18}/><span>{phone.tradingOpen ? "Chart-Handel ausblenden" : "Chart-Handel einblenden"}</span>
         </button>}
+        <button type="button" onClick={()=>{setOpen(false);useChartStore.getState().set({drawingFavoritesOpen:true});}}>
+          <Star size={18}/><span>{favoriteCount ? `Schwebende Objektleiste (${favoriteCount})` : "Schwebende Objektleiste"}</span>
+        </button>
         {phone.openObjects ? <button type="button" onClick={()=>{setOpen(false);phone.openObjects?.();}}><ListTree size={18}/><span>Objektbaum</span></button> : null}
       </> : <button type="button" onClick={()=>{setOpen(false);useChartStore.getState().set({searchOpen:true,searchTarget:"chart"});}}><Search size={18}/><span>Symbol search</span></button>}
       <button type="button" onClick={()=>{setOpen(false);useChartStore.getState().set({compareOpen:true});}}><Plus size={18}/><span>Compare symbol</span></button>

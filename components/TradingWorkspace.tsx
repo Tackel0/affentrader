@@ -32,6 +32,9 @@ import { getSymbol, describeSymbol } from "@/lib/symbols";
 import { IconButton } from "./ui";
 import { ChartGrid } from "./ChartGrid";
 import { PhoneChartActions, WorkspaceToolbar } from "./WorkspaceToolbar";
+import { MainMenu } from "./WorkspaceMenus";
+import { PhoneWorkspacePanels } from "./WorkspacePanelTabs";
+import { DrawingFavoritesPicker } from "./DrawingFavorites";
 import { ReplayBar } from "./ReplayBar";
 import { DrawingRail } from "./DrawingRail";
 import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
@@ -287,16 +290,16 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
       <TradeArchive/>
       <OrderPresetSync/>
       <ChartSnapshotDialog/>
-      <WorkspaceToolbar
-        onExport={save}
-        onImport={() => workspaceFile.current?.click()}
-        sidebarOpen={sidebarOpen}
-        toggleSidebar={toggleSidebar}
-        phoneStatus={phoneChart ? feedBadge : undefined}
-        phoneDeployment={phoneChart ? deployment : undefined}
-        tabletStatus={isTablet ? feedBadge : undefined}
-        tabletDeployment={isTablet ? deployment : undefined}
-      />
+      {!phoneChart ? (
+        <WorkspaceToolbar
+          onExport={save}
+          onImport={() => workspaceFile.current?.click()}
+          sidebarOpen={sidebarOpen}
+          toggleSidebar={toggleSidebar}
+          tabletStatus={isTablet ? feedBadge : undefined}
+          tabletDeployment={isTablet ? deployment : undefined}
+        />
+      ) : null}
       <input
         hidden
         ref={workspaceFile}
@@ -320,7 +323,7 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
           <ReplayBar />
           {phoneChart ? <PhoneChartActions drawingOpen={drawingToolsOpen} toggleDrawing={toggleDrawing}
             toggleSidebar={toggleSidebar} tradingOpen={phoneTradingOpen} toggleTrading={() => setPhoneTradingOpen(open => !open)}
-            openPanel={openPanel} openObjects={() => toggleSidebar("objects")} /> : <RangeToolbar />}
+            openObjects={() => toggleSidebar("objects")} phoneStatus={feedBadge} /> : <RangeToolbar />}
           <ModuleErrorBoundary moduleName="Bottom Panel" compact>
             <BottomPanel phone={phoneChart} />
           </ModuleErrorBoundary>
@@ -388,6 +391,9 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
           openChart={openChart}
           phone={phoneChart}
           tablet={isTablet}
+          onExport={save}
+          onImport={() => workspaceFile.current?.click()}
+          deployment={deployment}
         />
       </div>
       <footer className="app-status">
@@ -435,6 +441,7 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
       <SymbolSearch />
       <IndicatorPicker />
       <IndicatorSettings />
+      <DrawingFavoritesPicker />
       <AlertDialog />
       <CompareDialog />
       <DerivedDialog />
@@ -479,13 +486,26 @@ function ToastManager() {
 
 type SidebarTab = "watchlist" | "alerts" | "objects";
 
-function WorkspaceNavigation({ sidebar, toggleSidebar, openPanel, openChart, phone, tablet }: {
+function WorkspaceNavigation({
+  sidebar,
+  toggleSidebar,
+  openPanel,
+  openChart,
+  phone,
+  tablet,
+  onExport,
+  onImport,
+  deployment,
+}: {
   sidebar: SidebarTab | null;
   toggleSidebar: (tab: SidebarTab) => void;
-  openPanel: (tab: "orderflow" | "terminal" | "pine") => void;
+  openPanel: (tab: BottomTab) => void;
   openChart: () => void;
   phone: boolean;
   tablet: boolean;
+  onExport: () => void;
+  onImport: () => void;
+  deployment?: ReactNode;
 }) {
   const panel = useChartStore(s => s.bottomOpen ? s.bottomTab : null);
   const alertCount = useAlertStore(s => s.alerts.filter(a => a.status === "active").length);
@@ -496,6 +516,12 @@ function WorkspaceNavigation({ sidebar, toggleSidebar, openPanel, openChart, pho
     }
     openPanel(tab);
   };
+  const phoneMenuFooter = phone ? (
+    <div className="phone-menu-footer">
+      <span>Powered by <a href="https://github.com/luxalgo/vela" target="_blank" rel="noreferrer">Vela™</a> &amp; PineTS</span>
+      {deployment}
+    </div>
+  ) : undefined;
   return (
     <nav className={`utility-rail${phone ? " phone-bottom-nav" : ""}${tablet ? " tablet-right-rail" : ""}`} aria-label="Workspace navigation">
       {!tablet ? (
@@ -515,26 +541,33 @@ function WorkspaceNavigation({ sidebar, toggleSidebar, openPanel, openChart, pho
         </IconButton>
         {alertCount ? <span>{alertCount}</span> : null}
       </div>
-      {!phone ? (
-        <IconButton label="Object tree" aria-pressed={sidebar === "objects"} onClick={() => toggleSidebar("objects")}>
-          <ListTree size={20} />
-          <span className="compact-nav-label" aria-hidden="true">Objekte</span>
-        </IconButton>
-      ) : null}
-      {tablet ? <span className="tablet-rail-divider" aria-hidden="true" /> : null}
-      <IconButton label="Order flow panel" aria-pressed={panel === "orderflow"} onClick={() => toggleBottom("orderflow")}>
-        <Layers size={20} />
-        <span className="compact-nav-label" aria-hidden="true">Flow</span>
-      </IconButton>
-      <IconButton label="Terminal" className={tablet ? "tablet-rail-tool" : "compact-nav-only"} aria-pressed={panel === "terminal"} onClick={() => toggleBottom("terminal")}>
-        <Terminal size={20} />
-        <span className="compact-nav-label" aria-hidden="true">Terminal</span>
-      </IconButton>
-      <IconButton label="Pine editor" className={tablet ? "tablet-rail-tool" : "desktop-nav-only"} aria-pressed={panel === "pine"} onClick={() => toggleBottom("pine")}>
-        <SquareTerminal size={20} />
-      </IconButton>
-      <span className="flex-1 desktop-nav-only" />
-      <a className="engine-link desktop-nav-only" href="https://github.com/luxalgo/vela" target="_blank" rel="noreferrer" title="Powered by Vela">V</a>
+      {phone ? (
+        <>
+          <PhoneWorkspacePanels navLabel="Module" active={Boolean(panel)} onSelect={openPanel} />
+          <MainMenu compactLabel="Menü" onExport={onExport} onImport={onImport} footer={phoneMenuFooter} />
+        </>
+      ) : (
+        <>
+          <IconButton label="Object tree" aria-pressed={sidebar === "objects"} onClick={() => toggleSidebar("objects")}>
+            <ListTree size={20} />
+            <span className="compact-nav-label" aria-hidden="true">Objekte</span>
+          </IconButton>
+          {tablet ? <span className="tablet-rail-divider" aria-hidden="true" /> : null}
+          <IconButton label="Order flow panel" aria-pressed={panel === "orderflow"} onClick={() => toggleBottom("orderflow")}>
+            <Layers size={20} />
+            <span className="compact-nav-label" aria-hidden="true">Flow</span>
+          </IconButton>
+          <IconButton label="Terminal" className={tablet ? "tablet-rail-tool" : "compact-nav-only"} aria-pressed={panel === "terminal"} onClick={() => toggleBottom("terminal")}>
+            <Terminal size={20} />
+            <span className="compact-nav-label" aria-hidden="true">Terminal</span>
+          </IconButton>
+          <IconButton label="Pine editor" className={tablet ? "tablet-rail-tool" : "desktop-nav-only"} aria-pressed={panel === "pine"} onClick={() => toggleBottom("pine")}>
+            <SquareTerminal size={20} />
+          </IconButton>
+          <span className="flex-1 desktop-nav-only" />
+          <a className="engine-link desktop-nav-only" href="https://github.com/luxalgo/vela" target="_blank" rel="noreferrer" title="Powered by Vela">V</a>
+        </>
+      )}
     </nav>
   );
 }

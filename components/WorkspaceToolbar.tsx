@@ -232,18 +232,38 @@ export function WorkspaceToolbar({
   );
 }
 
-export function PhoneChartActions({ drawingOpen, toggleDrawing, toggleSidebar, tradingOpen, toggleTrading, openPanel, openObjects }: {
+export function PhoneChartActions({
+  drawingOpen,
+  toggleDrawing,
+  toggleSidebar,
+  tradingOpen,
+  toggleTrading,
+  openObjects,
+  phoneStatus,
+}: {
   drawingOpen: boolean;
   toggleDrawing: () => void;
   toggleSidebar: () => void;
   tradingOpen: boolean;
   toggleTrading: () => void;
-  openPanel: (tab: BottomTab) => void;
   openObjects?: () => void;
+  phoneStatus: { label: string; description: string; connected: boolean };
 }) {
+  const symbol = useChartStore((s) => s.symbol);
   const [ranges, setRanges] = useState(false);
   return (
-    <div className="phone-chart-actions tv-toolbar" role="toolbar" aria-label="Quick chart controls">
+    <div className="phone-chart-actions workspace-toolbar tv-toolbar" role="toolbar" aria-label="Quick chart controls">
+      <button
+        type="button"
+        className="symbol-selector phone-bottom-symbol"
+        aria-label={`Search symbols · ${symbolLabel(symbol)}`}
+        title={phoneStatus.description}
+        onClick={() => useChartStore.getState().set({ searchOpen: true, searchTarget: "chart" })}
+      >
+        <AssetBadge symbol={symbol} size="xs" />
+        <strong>{symbolLabel(symbol)}</strong>
+        <span className={`status-dot ${phoneStatus.connected ? "green" : "amber"}`} aria-hidden="true" />
+      </button>
       <IntervalPicker />
       <ChartTypeMenu />
       <IconButton label="Indicators" onClick={() => useChartStore.getState().set({ indicatorsOpen: true })}>
@@ -253,7 +273,6 @@ export function PhoneChartActions({ drawingOpen, toggleDrawing, toggleSidebar, t
         aria-controls={drawingOpen ? "workspace-drawing-tools" : undefined} onClick={toggleDrawing}>
         <PenTool size={19} />
       </IconButton>
-      <PhoneWorkspacePanels onSelect={openPanel} />
       <ChartToolbarOverflow toggleSidebar={toggleSidebar} phone={{
         showRanges: () => setRanges(true), tradingOpen, toggleTrading, openObjects,
       }} />

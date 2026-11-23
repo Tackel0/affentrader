@@ -60,10 +60,12 @@ export function MainMenu({
   onExport,
   onImport,
   footer,
+  compactLabel,
 }: {
   onExport: () => void;
   onImport: () => void;
   footer?: React.ReactNode;
+  compactLabel?: string;
 }) {
   const [open, setOpen] = useState(false),
     theme = useWorkspaceStore((s) => s.theme),
@@ -77,9 +79,10 @@ export function MainMenu({
   const hasPersonalAccount = Boolean(workspaceProfile());
   const ref = useDismiss(open, () => setOpen(false));
   return (
-    <div ref={ref} className="toolbar-popover-host">
-      <IconButton label="Main menu" onClick={() => setOpen(!open)}>
-        <Menu size={21} />
+    <div ref={ref} className={`toolbar-popover-host${compactLabel ? " phone-nav-menu-host" : ""}`}>
+      <IconButton label="Main menu" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <Menu size={compactLabel ? 20 : 21} />
+        {compactLabel ? <span className="compact-nav-label" aria-hidden="true">{compactLabel}</span> : null}
       </IconButton>
       {open ? (
         <div className="tv-popover main-menu">

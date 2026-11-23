@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import type { DrawingToolbar, Vela } from "@luxalgo/vela";
-import { EyeOff, LockKeyhole, Trash2 } from "lucide-react";
+import { EyeOff, LockKeyhole, Star, Trash2 } from "lucide-react";
 import { useChartStore } from "@/stores/useChartStore";
 import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
 import { getPrimaryChart, subscribePrimaryChart } from "@/hooks/useVelaChart";
@@ -80,6 +80,14 @@ export function DrawingRail({ id }: { id?: string }) {
       <div className="native-drawing-host" ref={host} />
       {error ? <span role="alert" className="drawing-load-error" title={error}>Tools unavailable</span> : null}
       <div className="drawing-rail-actions">
+        <IconButton
+          label="Objekt-Favoriten anpassen"
+          className={preferences.favorites.length ? "active drawing-favorites-trigger" : "drawing-favorites-trigger"}
+          aria-pressed={preferences.favorites.length > 0}
+          onClick={() => useChartStore.getState().set({ drawingFavoritesOpen: true })}
+        >
+          <Star size={18} fill={preferences.favorites.length ? "currentColor" : "none"} />
+        </IconButton>
         <DrawingToolsMenu />
         <IconButton label={locked ? "Unlock all drawings" : "Lock all drawings"} aria-pressed={locked} className={locked ? "active" : ""}
           disabled={!drawings.length} onClick={() => batch("locked", !locked)}><LockKeyhole size={19} /></IconButton>

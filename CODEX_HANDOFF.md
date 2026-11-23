@@ -6,6 +6,11 @@ This document is the single self-contained architectural, operational, and itera
 
 ## 1. Completed Modules & Current Status
 
+### Top-free iPhone chart layout & floating translucent favorites object bar 2026-11-22
+
+- **Top-free iPhone Layout (`components/TradingWorkspace.tsx`, `components/WorkspaceToolbar.tsx`, `components/WorkspacePanelTabs.tsx`, `components/WorkspaceMenus.tsx`, `app/workspace-chrome.css`):** Removed the top `.phone-workspace-header` bar on phones (`phoneChart`) so the candlestick chart renders edge-to-edge right to the top (`chart.top <= 1`, OHLC readout respects `env(safe-area-inset-top)`). Kept the bottom clean and uncluttered with only two airy rows: `.phone-chart-actions` (6 spacious controls: `[Logo] Symbol •` pill + `Interval`, `ChartType`, `Indicators`, `Drawing`, `···`) and the 5-tab `phone-bottom-nav` (`Chart`, `Watchlist`, `Alerts`, `Module`, `Menü` opening upward as frosted glass).
+- **Free-Floating Translucent Favorites Object Bar (`components/DrawingFavorites.tsx`, `components/DrawingRail.tsx`, `components/ChartToolbarOverflow.tsx`, `stores/useChartStore.ts`, `app/workspace-chrome.css`):** Upgraded `.drawing-favorites` into a translucent frosted-glass capsule pill floating directly inside `.chart-grid` with smooth touch & mouse dragging, active-tool toggle back to cursor, collapse-to-orb toggle, and a dedicated `DrawingFavoritesPicker` modal (`Objekt-Favoriten` with 1-tap `Standard-Favoriten`, `Alle entfernen`, 16px search filter, and star toggles for all Vela drawing objects), reachable from the floating pill (`★`), `DrawingRail` (`★`), and `More chart controls` (`Schwebende Objektleiste`).
+
 ### Real asset logos & vector icons across all asset classes 2026-11-22
 
 - **Same-Origin Cached Icon Pipeline (`lib/assetIcon.ts`, `lib/server/assetIcon.ts`, `app/api/asset-icon/route.ts`, `proxy.ts`):** Added canonical cross-venue asset key resolution (`BTCUSDT` / `HL:BTC` / `BYBIT:linear:BTCUSDT` / `KRAKEN:XBTUSD` -> `crypto:BTC`; `YF:NVDA` / `HL:xyz:NVDA` / `IEX:NVDA` -> `equity:NVDA`; `YF:GC=F` / `HL:xyz:GOLD` / `PAXGUSDT` -> `commodity:GOLD`; indices & forex) so browsers cache each asset logo once across all exchanges under strict `img-src 'self' data: blob:` CSP with zero third-party browser requests.
