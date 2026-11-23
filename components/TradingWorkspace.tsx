@@ -103,6 +103,7 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
     sidebar = useChartStore((s) => s.sidebarTab),
     bottomOpen = useChartStore((s) => s.bottomOpen),
     bottomTab = useChartStore((s) => s.bottomTab);
+  const activeAlertCount = useAlertStore((s) => s.alerts.filter((a) => a.status === "active").length);
   const theme = useWorkspaceStore((s) => s.theme);
   useEffect(() => {
     const resolved = theme === "light" ? "light" : "dark";
@@ -321,9 +322,25 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
             } : undefined} />
           </ModuleErrorBoundary>
           <ReplayBar />
-          {phoneChart ? <PhoneChartActions drawingOpen={drawingToolsOpen} toggleDrawing={toggleDrawing}
-            toggleSidebar={toggleSidebar} tradingOpen={phoneTradingOpen} toggleTrading={() => setPhoneTradingOpen(open => !open)}
-            openObjects={() => toggleSidebar("objects")} phoneStatus={feedBadge} /> : <RangeToolbar />}
+          {phoneChart ? (
+            <PhoneChartActions
+              drawingOpen={drawingToolsOpen}
+              toggleDrawing={toggleDrawing}
+              toggleSidebar={toggleSidebar}
+              tradingOpen={phoneTradingOpen}
+              toggleTrading={() => setPhoneTradingOpen(open => !open)}
+              watchlistOpen={sidebarOpen && sidebar === "watchlist"}
+              toggleWatchlist={() => toggleSidebar("watchlist")}
+              openAlerts={() => toggleSidebar("alerts")}
+              openObjects={() => toggleSidebar("objects")}
+              openPanel={openPanel}
+              alertCount={activeAlertCount}
+              onExport={save}
+              onImport={() => workspaceFile.current?.click()}
+              deployment={deployment}
+              phoneStatus={feedBadge}
+            />
+          ) : <RangeToolbar />}
           <ModuleErrorBoundary moduleName="Bottom Panel" compact>
             <BottomPanel phone={phoneChart} />
           </ModuleErrorBoundary>
@@ -374,27 +391,29 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
                   phone={phoneChart}
                   tablet={isTablet}
                   onOpenChart={phoneChart ? openChart : undefined}
-                  onClose={isTablet ? () => setSidebarOpen(false) : undefined}
+                  onClose={phoneChart || isTablet ? () => setSidebarOpen(false) : undefined}
                 />
               ) : sidebar === "alerts" ? (
-                <AlertsPanel />
+                <AlertsPanel onClose={phoneChart || isTablet ? () => setSidebarOpen(false) : undefined} />
               ) : (
-                <ObjectSidebar />
+                <ObjectSidebar onClose={phoneChart || isTablet ? () => setSidebarOpen(false) : undefined} />
               )}
             </ModuleErrorBoundary>
           </aside>
         ) : null}
-        <WorkspaceNavigation
-          sidebar={sidebarOpen ? sidebar : null}
-          toggleSidebar={toggleSidebar}
-          openPanel={openPanel}
-          openChart={openChart}
-          phone={phoneChart}
-          tablet={isTablet}
-          onExport={save}
-          onImport={() => workspaceFile.current?.click()}
-          deployment={deployment}
-        />
+        {!phoneChart ? (
+          <WorkspaceNavigation
+            sidebar={sidebarOpen ? sidebar : null}
+            toggleSidebar={toggleSidebar}
+            openPanel={openPanel}
+            openChart={openChart}
+            phone={false}
+            tablet={isTablet}
+            onExport={save}
+            onImport={() => workspaceFile.current?.click()}
+            deployment={deployment}
+          />
+        ) : null}
       </div>
       <footer className="app-status">
         {(recordingTrades || recordingFailed) && <button className="archive-recording-status" aria-label={recordingFailed ? "Trade recording stopped; open archive" : "Trade recording active; open archive"} title={recordingFailed ? "Trade recording stopped. Open the local archive for details." : "Recording observed real classified trades locally in this tab."} onClick={() => useTradeArchiveStore.setState({ open: true })}>{recordingFailed ? "REC!" : "● REC"}</button>}

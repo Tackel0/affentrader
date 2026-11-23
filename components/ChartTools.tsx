@@ -315,7 +315,7 @@ function ChartTypeSettingsDialog({ type, onClose }: { type: ChartType; onClose: 
   );
 }
 
-export function ChartTypeMenu() {
+export function ChartTypeMenu({ showLabel = false, onSelect }: { showLabel?: boolean; onSelect?: () => void } = {}) {
   const type = useChartStore((s) => s.chartType);
   const [open, setOpen] = useState(false);
   const [settings, setSettings] = useState<ChartType | null>(null);
@@ -336,6 +336,7 @@ export function ChartTypeMenu() {
         onClick={() => setOpen(!open)}
       >
         <ChartCandlestick size={19} />
+        {showLabel ? <span>Charttyp: {current?.label ?? type}</span> : null}
       </button>
       {current?.settings?.length && current.id !== "baseline" ? (
         <IconButton label={`${current.label} settings`} onClick={() => setSettings(type)}>
@@ -357,6 +358,7 @@ export function ChartTypeMenu() {
                   onClick={() => {
                     useChartStore.getState().set({ chartType: t.id });
                     setOpen(false);
+                    onSelect?.();
                   }}
                 >
                   <span>{t.label}</span>

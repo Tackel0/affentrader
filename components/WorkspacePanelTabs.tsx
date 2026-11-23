@@ -25,6 +25,28 @@ export function workspacePanelLabel(tab: BottomTab) {
   return PANELS.find(panel => panel.id === tab)?.name ?? "Workspace";
 }
 
+export function PhoneWorkspacePanelsSheet({
+  open,
+  onClose,
+  onSelect,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSelect: (tab: BottomTab) => void;
+}) {
+  if (!open) return null;
+  return (
+    <Modal title="Workspace-Module" className="phone-action-sheet phone-workspace-panels" onClose={onClose}>
+      <div className="phone-panel-list">
+        {PANELS.map(panel => <button type="button" key={panel.id} data-panel={panel.id} onClick={() => {
+          onClose();
+          onSelect(panel.id);
+        }}><panel.icon size={18} /><span>{panel.name}</span></button>)}
+      </div>
+    </Modal>
+  );
+}
+
 export function PhoneWorkspacePanels({
   onSelect,
   navLabel,
@@ -46,14 +68,7 @@ export function PhoneWorkspacePanels({
       <LayoutGrid size={20} />
       {navLabel ? <span className="compact-nav-label" aria-hidden="true">{navLabel}</span> : null}
     </IconButton>
-    {open && <Modal title="Workspace-Module" className="phone-action-sheet phone-workspace-panels" onClose={() => setOpen(false)}>
-      <div className="phone-panel-list">
-        {PANELS.map(panel => <button type="button" key={panel.id} data-panel={panel.id} onClick={() => {
-          setOpen(false);
-          onSelect(panel.id);
-        }}><panel.icon size={18} /><span>{panel.name}</span></button>)}
-      </div>
-    </Modal>}
+    <PhoneWorkspacePanelsSheet open={open} onClose={() => setOpen(false)} onSelect={onSelect} />
   </>;
 }
 

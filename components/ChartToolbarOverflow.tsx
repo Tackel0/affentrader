@@ -1,15 +1,25 @@
 "use client";
 import {useState} from "react";
-import {MoreHorizontal,Search,Plus,Bell,ChevronsLeft,SlidersHorizontal,Camera,Maximize,PanelRight,Undo2,Redo2,CalendarDays,Wallet,ListTree,Star} from "lucide-react";
+import {MoreHorizontal,Search,Plus,Bell,ChevronsLeft,SlidersHorizontal,Camera,Maximize,PanelRight,Undo2,Redo2,CalendarDays,Wallet,ListTree,Star,ChartNoAxesCombined,LayoutGrid,Terminal,Menu} from "lucide-react";
 import {IconButton} from "./ui";
 import {useDismiss,LayoutMenu,SavedLayoutsMenu,IndicatorTemplateMenu} from "./WorkspaceMenus";
-import {PatternsButton} from "./ChartTools";
+import {ChartTypeMenu,PatternsButton} from "./ChartTools";
 import {currentPriceAlertDraft} from "@/lib/alerts/priceDraft";
 import {useChartStore} from "@/stores/useChartStore";
 import {useWorkspaceStore} from "@/stores/useWorkspaceStore";
 export function ChartToolbarOverflow({toggleSidebar, phone}:{
   toggleSidebar:()=>void;
-  phone?: { showRanges: () => void; tradingOpen: boolean; toggleTrading: () => void; openObjects?: () => void };
+  phone?: {
+    showRanges: () => void;
+    tradingOpen: boolean;
+    toggleTrading: () => void;
+    openObjects?: () => void;
+    openAlerts: () => void;
+    openModules: () => void;
+    openTerminal: () => void;
+    openMainMenu: () => void;
+    alertCount: number;
+  };
 }){
   const [open,setOpen]=useState(false),ref=useDismiss(open,()=>setOpen(false));
   const replay = useWorkspaceStore((s) => s.replay.active);
@@ -20,13 +30,39 @@ export function ChartToolbarOverflow({toggleSidebar, phone}:{
     <IconButton label="More chart controls" aria-expanded={open} aria-haspopup="true" onClick={()=>setOpen(!open)}><MoreHorizontal size={21}/></IconButton>
     {open?<div className="tv-popover mobile-chart-controls" aria-label="Additional chart controls">
       {phone ? <>
+        <div className="phone-hub-grid" role="group" aria-label="Schnellzugriff">
+          <button type="button" className="phone-hub-tile" aria-label="Indicators" onClick={()=>{setOpen(false);useChartStore.getState().set({indicatorsOpen:true});}}>
+            <ChartNoAxesCombined size={18}/>
+            <span>Indikatoren</span>
+          </button>
+          <button type="button" className="phone-hub-tile" aria-label="Alerts" onClick={()=>{setOpen(false);phone.openAlerts();}}>
+            <Bell size={18}/>
+            <span>Alerts</span>
+            {phone.alertCount ? <em className="phone-hub-badge">{phone.alertCount}</em> : null}
+          </button>
+          <button type="button" className="phone-hub-tile" aria-label="Schwebende Objektleiste" onClick={()=>{setOpen(false);useChartStore.getState().set({drawingFavoritesOpen:true});}}>
+            <Star size={18}/>
+            <span>{favoriteCount ? `Objekte (${favoriteCount})` : "Objekte"}</span>
+          </button>
+          <button type="button" className="phone-hub-tile" aria-label="More workspace panels" onClick={()=>{setOpen(false);phone.openModules();}}>
+            <LayoutGrid size={18}/>
+            <span>Module</span>
+          </button>
+          <button type="button" className="phone-hub-tile" aria-label="Terminal" onClick={()=>{setOpen(false);phone.openTerminal();}}>
+            <Terminal size={18}/>
+            <span>Terminal</span>
+          </button>
+          <button type="button" className="phone-hub-tile" aria-label="Main menu" onClick={()=>{setOpen(false);phone.openMainMenu();}}>
+            <Menu size={18}/>
+            <span>Menü</span>
+          </button>
+        </div>
+        <div className="phone-hub-sep" />
+        <div className="mobile-controls-component"><ChartTypeMenu showLabel onSelect={() => setOpen(false)} /></div>
         <button type="button" onClick={()=>{setOpen(false);phone.showRanges();}}><CalendarDays size={18}/><span>Zeitraum und Zeitzone</span></button>
         {tradingButtons && <button type="button" aria-pressed={phone.tradingOpen} onClick={()=>{setOpen(false);phone.toggleTrading();}}>
           <Wallet size={18}/><span>{phone.tradingOpen ? "Chart-Handel ausblenden" : "Chart-Handel einblenden"}</span>
         </button>}
-        <button type="button" onClick={()=>{setOpen(false);useChartStore.getState().set({drawingFavoritesOpen:true});}}>
-          <Star size={18}/><span>{favoriteCount ? `Schwebende Objektleiste (${favoriteCount})` : "Schwebende Objektleiste"}</span>
-        </button>
         {phone.openObjects ? <button type="button" onClick={()=>{setOpen(false);phone.openObjects?.();}}><ListTree size={18}/><span>Objektbaum</span></button> : null}
       </> : <button type="button" onClick={()=>{setOpen(false);useChartStore.getState().set({searchOpen:true,searchTarget:"chart"});}}><Search size={18}/><span>Symbol search</span></button>}
       <button type="button" onClick={()=>{setOpen(false);useChartStore.getState().set({compareOpen:true});}}><Plus size={18}/><span>Compare symbol</span></button>
@@ -39,7 +75,7 @@ export function ChartToolbarOverflow({toggleSidebar, phone}:{
       <div className="mobile-controls-component"><SavedLayoutsMenu/></div>
       <button type="button" onClick={()=>command("undo")}><Undo2 size={18}/><span>Undo drawing</span></button>
       <button type="button" onClick={()=>command("redo")}><Redo2 size={18}/><span>Redo drawing</span></button>
-      <button type="button" onClick={()=>{setOpen(false);toggleSidebar();}}><PanelRight size={18}/><span>Toggle sidebar</span></button>
+      {!phone ? <button type="button" onClick={()=>{setOpen(false);toggleSidebar();}}><PanelRight size={18}/><span>Toggle sidebar</span></button> : null}
       <button type="button" onClick={()=>command("snapshot")}><Camera size={18}/><span>Take a snapshot</span></button>
       <button type="button" onClick={()=>{setOpen(false);void(document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen()).catch(()=>useChartStore.getState().toast("Full screen unavailable","Use your browser full screen shortcut."));}}><Maximize size={18}/><span>Full screen</span></button>
     </div>:null}

@@ -16,6 +16,7 @@ import {
   PanelRightOpen,
   ExternalLink,
   PenTool,
+  List,
 } from "lucide-react";
 import { useChartStore } from "@/stores/useChartStore";
 import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
@@ -32,12 +33,13 @@ import {
 } from "./ChartTools";
 import {
   MainMenu,
+  MainMenuSheet,
   LayoutMenu,
   SavedLayoutsMenu,
   IndicatorTemplateMenu,
 } from "./WorkspaceMenus";
 import { RangeToolbar } from "./RangeToolbar";
-import { PhoneWorkspacePanels } from "./WorkspacePanelTabs";
+import { PhoneWorkspacePanelsSheet } from "./WorkspacePanelTabs";
 import type { BottomTab } from "@/types/trading";
 export function WorkspaceToolbar({
   onExport,
@@ -238,7 +240,15 @@ export function PhoneChartActions({
   toggleSidebar,
   tradingOpen,
   toggleTrading,
+  watchlistOpen,
+  toggleWatchlist,
+  openAlerts,
   openObjects,
+  openPanel,
+  alertCount,
+  onExport,
+  onImport,
+  deployment,
   phoneStatus,
 }: {
   drawingOpen: boolean;
@@ -246,11 +256,27 @@ export function PhoneChartActions({
   toggleSidebar: () => void;
   tradingOpen: boolean;
   toggleTrading: () => void;
+  watchlistOpen: boolean;
+  toggleWatchlist: () => void;
+  openAlerts: () => void;
   openObjects?: () => void;
+  openPanel: (tab: BottomTab) => void;
+  alertCount: number;
+  onExport: () => void;
+  onImport: () => void;
+  deployment?: ReactNode;
   phoneStatus: { label: string; description: string; connected: boolean };
 }) {
   const symbol = useChartStore((s) => s.symbol);
   const [ranges, setRanges] = useState(false);
+  const [modulesOpen, setModulesOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const phoneMenuFooter = (
+    <div className="phone-menu-footer">
+      <span>Powered by <a href="https://github.com/luxalgo/vela" target="_blank" rel="noreferrer">Vela™</a> &amp; PineTS</span>
+      {deployment}
+    </div>
+  );
   return (
     <div className="phone-chart-actions workspace-toolbar tv-toolbar" role="toolbar" aria-label="Quick chart controls">
       <button
@@ -265,20 +291,34 @@ export function PhoneChartActions({
         <span className={`status-dot ${phoneStatus.connected ? "green" : "amber"}`} aria-hidden="true" />
       </button>
       <IntervalPicker />
-      <ChartTypeMenu />
-      <IconButton label="Indicators" onClick={() => useChartStore.getState().set({ indicatorsOpen: true })}>
-        <ChartNoAxesCombined size={20} />
+      <IconButton
+        label="Watchlists"
+        className="phone-watchlist-toggle"
+        aria-pressed={watchlistOpen}
+        onClick={toggleWatchlist}
+      >
+        <List size={20} />
       </IconButton>
       <IconButton label="Drawing tools" className="phone-drawing-toggle" aria-expanded={drawingOpen}
         aria-controls={drawingOpen ? "workspace-drawing-tools" : undefined} onClick={toggleDrawing}>
         <PenTool size={19} />
       </IconButton>
       <ChartToolbarOverflow toggleSidebar={toggleSidebar} phone={{
-        showRanges: () => setRanges(true), tradingOpen, toggleTrading, openObjects,
+        showRanges: () => setRanges(true),
+        tradingOpen,
+        toggleTrading,
+        openObjects,
+        openAlerts,
+        openModules: () => setModulesOpen(true),
+        openTerminal: () => openPanel("terminal"),
+        openMainMenu: () => setMenuOpen(true),
+        alertCount,
       }} />
       {ranges && <Modal title="Zeitraum und Zeitzone" className="phone-action-sheet phone-range-dialog" onClose={() => setRanges(false)}>
         <RangeToolbar onRangeSelected={() => setRanges(false)} />
       </Modal>}
+      <PhoneWorkspacePanelsSheet open={modulesOpen} onClose={() => setModulesOpen(false)} onSelect={openPanel} />
+      <MainMenuSheet open={menuOpen} onClose={() => setMenuOpen(false)} onExport={onExport} onImport={onImport} footer={phoneMenuFooter} />
     </div>
   );
 }

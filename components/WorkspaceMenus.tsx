@@ -56,6 +56,301 @@ export function useDismiss(open: boolean, close: () => void) {
   }, [open, close]);
   return ref;
 }
+function MainMenuContent({
+  close,
+  onExport,
+  onImport,
+  footer,
+}: {
+  close: () => void;
+  onExport: () => void;
+  onImport: () => void;
+  footer?: React.ReactNode;
+}) {
+  const theme = useWorkspaceStore((s) => s.theme),
+    mode = useChartStore((s) => s.feedMode),
+    session = useChartStore((s) => s.session),
+    adjust = useChartStore((s) => s.adjustDividends);
+  const pwa = usePwa();
+  const linkGroup = useLinkStore((s) => s.group);
+  const setLinkGroup = useLinkStore((s) => s.setGroup);
+  const popout = isPopout();
+  const hasPersonalAccount = Boolean(workspaceProfile());
+  return (
+    <>
+      <div className="menu-product">
+        AffenTerminal<span>Pro Market &amp; Orderflow GUI</span>
+      </div>
+      <div className="popover-label">Konto &amp; Sync</div>
+      <button
+        onClick={() => {
+          close();
+          window.location.assign("/konto");
+        }}
+      >
+        <User size={16} />
+        Konto
+      </button>
+      <button
+        onClick={() => {
+          close();
+          window.location.assign("/login?mode=register&next=/");
+        }}
+      >
+        <UserPlus size={16} />
+        Konto erstellen
+      </button>
+      {!hasPersonalAccount ? (
+        <button
+          onClick={() => {
+            close();
+            window.location.assign("/login?mode=account&next=/");
+          }}
+        >
+          <LogIn size={16} />
+          Konto anmelden
+        </button>
+      ) : null}
+      <button
+        onClick={() => {
+          useChartStore.getState().set({ syncOpen: true });
+          close();
+        }}
+      >
+        <Cloud size={16} />
+        Sync across devices…
+      </button>
+      <hr />
+      <button onClick={() => { useAlpacaStore.setState({ open: true }); close(); }}><Cloud size={16}/>Market data connections…</button>
+      <button onClick={() => { useTradeArchiveStore.setState({ open: true }); close(); }}><Download size={16}/>Local orderflow archive…</button>
+      {hasPersonalAccount ? (
+        <form action="/logout" method="post"><button type="submit"><LockKeyhole size={16}/>Abmelden</button></form>
+      ) : null}
+      <button
+        onClick={() => {
+          onExport();
+          close();
+        }}
+      >
+        <Download size={16} />
+        Export workspace
+      </button>
+      <button
+        onClick={() => {
+          onImport();
+          close();
+        }}
+      >
+        <Upload size={16} />
+        Import workspace
+      </button>
+      <button
+        onClick={() => {
+          useChartStore
+            .getState()
+            .set({ command: { id: Date.now(), kind: "csv" } });
+          close();
+        }}
+      >
+        <Download size={16} />
+        Export chart data (CSV)
+      </button>
+      <hr />
+      <div className="popover-label">Color theme</div>
+      <button
+        className={theme === "light" ? "selected" : ""}
+        onClick={() => useWorkspaceStore.getState().setTheme("light")}
+      >
+        <Sun size={16} />
+        Light{theme === "light" ? <Check size={14} /> : null}
+      </button>
+      <button
+        className={theme === "dark" ? "selected" : ""}
+        onClick={() => useWorkspaceStore.getState().setTheme("dark")}
+      >
+        <Moon size={16} />
+        Dark{theme === "dark" ? <Check size={14} /> : null}
+      </button>
+      <hr />
+      <div className="popover-label">Windows</div>
+      <div className="link-groups" role="radiogroup" aria-label="Link this window to others">
+        {LINK_GROUPS.map((g) => (
+          <button
+            key={g}
+            role="radio"
+            aria-checked={linkGroup === g}
+            className={`link-chip ${g} ${linkGroup === g ? "active" : ""}`}
+            title={g === "off" ? "Not linked" : `Linked group: ${g}`}
+            onClick={() => setLinkGroup(g)}
+          >
+            {g === "off" ? "Off" : ""}
+          </button>
+        ))}
+      </div>
+      {popout ? null : (
+        <>
+          <button
+            onClick={() => {
+              // A new window joins a group so it follows this one straight away.
+              const group = linkGroup === "off" ? "red" : linkGroup;
+              if (linkGroup === "off") setLinkGroup("red");
+              if (!openPopout(group))
+                useChartStore.getState().toast("Pop-up blocked", "Allow pop-ups for this site to open a second window.", "error");
+              close();
+            }}
+          >
+            <ExternalLink size={16} />
+            Open in new window
+          </button>
+          <button
+            onClick={() => {
+              const group = linkGroup === "off" ? "red" : linkGroup;
+              if (linkGroup === "off") setLinkGroup("red");
+              if (!openAffenTerminalWindow("opps", undefined, group))
+                useChartStore.getState().toast("Pop-up blocked", "Allow pop-ups for this site to open AffenTerminal GUI.", "error");
+              close();
+            }}
+          >
+            <ExternalLink size={16} />
+            Open AffenTerminal GUI ↗
+          </button>
+        </>
+      )}
+      <div className="popover-label">App</div>
+      {pwa.installable ? (
+        <button
+          onClick={() => {
+            void pwa.install();
+            close();
+          }}
+        >
+          <Download size={16} />
+          Install as an app
+        </button>
+      ) : null}
+      <button
+        disabled={pwa.busy || pwa.push === "unsupported" || pwa.push === "denied"}
+        title={
+          pwa.push === "unsupported"
+            ? "Needs HTTPS or localhost and a browser with push support"
+            : pwa.push === "denied"
+              ? "Notifications are blocked in the browser settings"
+              : "Server-side alerts reach this device even when the tab is closed"
+        }
+        onClick={() => void pwa.togglePush()}
+      >
+        <Check size={16} style={{ opacity: pwa.push === "on" ? 1 : 0.25 }} />
+        Background notifications: {pwa.push === "on" ? "on" : pwa.push === "off" ? "off" : "unavailable"}
+      </button>
+      <hr />
+      <div className="popover-label">Yahoo stocks, ETFs and forex</div>
+      <label className="sync-option">
+        Session
+        <select
+          aria-label="Trading session"
+          value={session}
+          onChange={(e) => {
+            useChartStore.getState().set({ session: e.target.value as "regular" | "extended" });
+            marketService.refreshYahoo();
+          }}
+        >
+          <option value="regular">Regular hours</option>
+          <option value="extended">Extended hours</option>
+        </select>
+      </label>
+      <label className="sync-option">
+        Adjust for dividends
+        <input
+          type="checkbox"
+          aria-label="Adjust for dividends"
+          checked={adjust}
+          onChange={(e) => {
+            useChartStore.getState().set({ adjustDividends: e.target.checked });
+            marketService.refreshYahoo();
+          }}
+        />
+      </label>
+      <hr />
+      <label className="sync-option">
+        Market data
+        <select
+          aria-label="Market data mode"
+          value={mode}
+          onChange={(e) =>
+            useChartStore
+              .getState()
+              .set({ feedMode: e.target.value as "auto" | "simulation" })
+          }
+        >
+          <option value="auto">Live / auto</option>
+          <option value="simulation">Simulation</option>
+        </select>
+      </label>
+      <button type="button" disabled={mode === "simulation"} onClick={() => {
+        marketService.reconnect();
+        close();
+      }}>Reconnect market data</button>
+      <hr />
+      <div className="popover-label">Rechtliches</div>
+      <button
+        type="button"
+        onClick={() => {
+          close();
+          window.location.assign("/impressum");
+        }}
+      >
+        <Scale size={16} />
+        Impressum
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          close();
+          window.location.assign("/risikohinweis");
+        }}
+      >
+        <ShieldAlert size={16} />
+        Risikohinweis (Keine Anlageberatung)
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          close();
+          window.location.assign("/datenschutz");
+        }}
+      >
+        <FileText size={16} />
+        Datenschutz
+      </button>
+      <p className="menu-legal-note">Keine Anlageberatung · Marktdaten ohne Gewähr.</p>
+      {footer}
+    </>
+  );
+}
+
+export function MainMenuSheet({
+  open,
+  onClose,
+  onExport,
+  onImport,
+  footer,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onExport: () => void;
+  onImport: () => void;
+  footer?: React.ReactNode;
+}) {
+  if (!open) return null;
+  return (
+    <Modal title="Menü" className="phone-action-sheet main-menu-sheet" onClose={onClose}>
+      <div className="main-menu main-menu-sheet-body">
+        <MainMenuContent close={onClose} onExport={onExport} onImport={onImport} footer={footer} />
+      </div>
+    </Modal>
+  );
+}
+
 export function MainMenu({
   onExport,
   onImport,
@@ -67,16 +362,7 @@ export function MainMenu({
   footer?: React.ReactNode;
   compactLabel?: string;
 }) {
-  const [open, setOpen] = useState(false),
-    theme = useWorkspaceStore((s) => s.theme),
-    mode = useChartStore((s) => s.feedMode),
-    session = useChartStore((s) => s.session),
-    adjust = useChartStore((s) => s.adjustDividends);
-  const pwa = usePwa();
-  const linkGroup = useLinkStore((s) => s.group);
-  const setLinkGroup = useLinkStore((s) => s.setGroup);
-  const popout = isPopout();
-  const hasPersonalAccount = Boolean(workspaceProfile());
+  const [open, setOpen] = useState(false);
   const ref = useDismiss(open, () => setOpen(false));
   return (
     <div ref={ref} className={`toolbar-popover-host${compactLabel ? " phone-nav-menu-host" : ""}`}>
@@ -86,252 +372,7 @@ export function MainMenu({
       </IconButton>
       {open ? (
         <div className="tv-popover main-menu">
-          <div className="menu-product">
-            AffenTerminal<span>Pro Market &amp; Orderflow GUI</span>
-          </div>
-          <div className="popover-label">Konto &amp; Sync</div>
-          <button
-            onClick={() => {
-              setOpen(false);
-              window.location.assign("/konto");
-            }}
-          >
-            <User size={16} />
-            Konto
-          </button>
-          <button
-            onClick={() => {
-              setOpen(false);
-              window.location.assign("/login?mode=register&next=/");
-            }}
-          >
-            <UserPlus size={16} />
-            Konto erstellen
-          </button>
-          {!hasPersonalAccount ? (
-            <button
-              onClick={() => {
-                setOpen(false);
-                window.location.assign("/login?mode=account&next=/");
-              }}
-            >
-              <LogIn size={16} />
-              Konto anmelden
-            </button>
-          ) : null}
-          <button
-            onClick={() => {
-              useChartStore.getState().set({ syncOpen: true });
-              setOpen(false);
-            }}
-          >
-            <Cloud size={16} />
-            Sync across devices…
-          </button>
-          <hr />
-          <button onClick={() => { useAlpacaStore.setState({ open: true }); setOpen(false); }}><Cloud size={16}/>Market data connections…</button>
-          <button onClick={() => { useTradeArchiveStore.setState({ open: true }); setOpen(false); }}><Download size={16}/>Local orderflow archive…</button>
-          {hasPersonalAccount ? (
-            <form action="/logout" method="post"><button type="submit"><LockKeyhole size={16}/>Abmelden</button></form>
-          ) : null}
-          <button
-            onClick={() => {
-              onExport();
-              setOpen(false);
-            }}
-          >
-            <Download size={16} />
-            Export workspace
-          </button>
-          <button
-            onClick={() => {
-              onImport();
-              setOpen(false);
-            }}
-          >
-            <Upload size={16} />
-            Import workspace
-          </button>
-          <button
-            onClick={() => {
-              useChartStore
-                .getState()
-                .set({ command: { id: Date.now(), kind: "csv" } });
-              setOpen(false);
-            }}
-          >
-            <Download size={16} />
-            Export chart data (CSV)
-          </button>
-          <hr />
-          <div className="popover-label">Color theme</div>
-          <button
-            className={theme === "light" ? "selected" : ""}
-            onClick={() => useWorkspaceStore.getState().setTheme("light")}
-          >
-            <Sun size={16} />
-            Light{theme === "light" ? <Check size={14} /> : null}
-          </button>
-          <button
-            className={theme === "dark" ? "selected" : ""}
-            onClick={() => useWorkspaceStore.getState().setTheme("dark")}
-          >
-            <Moon size={16} />
-            Dark{theme === "dark" ? <Check size={14} /> : null}
-          </button>
-          <hr />
-          <div className="popover-label">Windows</div>
-          <div className="link-groups" role="radiogroup" aria-label="Link this window to others">
-            {LINK_GROUPS.map((g) => (
-              <button
-                key={g}
-                role="radio"
-                aria-checked={linkGroup === g}
-                className={`link-chip ${g} ${linkGroup === g ? "active" : ""}`}
-                title={g === "off" ? "Not linked" : `Linked group: ${g}`}
-                onClick={() => setLinkGroup(g)}
-              >
-                {g === "off" ? "Off" : ""}
-              </button>
-            ))}
-          </div>
-          {popout ? null : (
-            <>
-              <button
-                onClick={() => {
-                  // A new window joins a group so it follows this one straight away.
-                  const group = linkGroup === "off" ? "red" : linkGroup;
-                  if (linkGroup === "off") setLinkGroup("red");
-                  if (!openPopout(group))
-                    useChartStore.getState().toast("Pop-up blocked", "Allow pop-ups for this site to open a second window.", "error");
-                  setOpen(false);
-                }}
-              >
-                <ExternalLink size={16} />
-                Open in new window
-              </button>
-              <button
-                onClick={() => {
-                  const group = linkGroup === "off" ? "red" : linkGroup;
-                  if (linkGroup === "off") setLinkGroup("red");
-                  if (!openAffenTerminalWindow("opps", undefined, group))
-                    useChartStore.getState().toast("Pop-up blocked", "Allow pop-ups for this site to open AffenTerminal GUI.", "error");
-                  setOpen(false);
-                }}
-              >
-                <ExternalLink size={16} />
-                Open AffenTerminal GUI ↗
-              </button>
-            </>
-          )}
-          <div className="popover-label">App</div>
-          {pwa.installable ? (
-            <button
-              onClick={() => {
-                void pwa.install();
-                setOpen(false);
-              }}
-            >
-              <Download size={16} />
-              Install as an app
-            </button>
-          ) : null}
-          <button
-            disabled={pwa.busy || pwa.push === "unsupported" || pwa.push === "denied"}
-            title={
-              pwa.push === "unsupported"
-                ? "Needs HTTPS or localhost and a browser with push support"
-                : pwa.push === "denied"
-                  ? "Notifications are blocked in the browser settings"
-                  : "Server-side alerts reach this device even when the tab is closed"
-            }
-            onClick={() => void pwa.togglePush()}
-          >
-            <Check size={16} style={{ opacity: pwa.push === "on" ? 1 : 0.25 }} />
-            Background notifications: {pwa.push === "on" ? "on" : pwa.push === "off" ? "off" : "unavailable"}
-          </button>
-          <hr />
-          <div className="popover-label">Yahoo stocks, ETFs and forex</div>
-          <label className="sync-option">
-            Session
-            <select
-              aria-label="Trading session"
-              value={session}
-              onChange={(e) => {
-                useChartStore.getState().set({ session: e.target.value as "regular" | "extended" });
-                marketService.refreshYahoo();
-              }}
-            >
-              <option value="regular">Regular hours</option>
-              <option value="extended">Extended hours</option>
-            </select>
-          </label>
-          <label className="sync-option">
-            Adjust for dividends
-            <input
-              type="checkbox"
-              aria-label="Adjust for dividends"
-              checked={adjust}
-              onChange={(e) => {
-                useChartStore.getState().set({ adjustDividends: e.target.checked });
-                marketService.refreshYahoo();
-              }}
-            />
-          </label>
-          <hr />
-          <label className="sync-option">
-            Market data
-            <select
-              aria-label="Market data mode"
-              value={mode}
-              onChange={(e) =>
-                useChartStore
-                  .getState()
-                  .set({ feedMode: e.target.value as "auto" | "simulation" })
-              }
-            >
-              <option value="auto">Live / auto</option>
-              <option value="simulation">Simulation</option>
-            </select>
-          </label>
-          <button type="button" disabled={mode === "simulation"} onClick={() => {
-            marketService.reconnect();
-            setOpen(false);
-          }}>Reconnect market data</button>
-          <hr />
-          <div className="popover-label">Rechtliches</div>
-          <button
-            type="button"
-            onClick={() => {
-              setOpen(false);
-              window.location.assign("/impressum");
-            }}
-          >
-            <Scale size={16} />
-            Impressum
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setOpen(false);
-              window.location.assign("/risikohinweis");
-            }}
-          >
-            <ShieldAlert size={16} />
-            Risikohinweis (Keine Anlageberatung)
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setOpen(false);
-              window.location.assign("/datenschutz");
-            }}
-          >
-            <FileText size={16} />
-            Datenschutz
-          </button>
-          <p className="menu-legal-note">Keine Anlageberatung · Marktdaten ohne Gewähr.</p>
-          {footer}
+          <MainMenuContent close={() => setOpen(false)} onExport={onExport} onImport={onImport} footer={footer} />
         </div>
       ) : null}
     </div>

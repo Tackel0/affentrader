@@ -12,6 +12,7 @@ import {
   CheckCircle2,
   Clock3,
   Volume2,
+  X,
 } from "lucide-react";
 import { useAlertStore } from "@/stores/useAlertStore";
 import { editAlerts } from "@/lib/alerts/browserOwnership";
@@ -63,7 +64,7 @@ function RateNotice({ alert, onRestartMembers, disabled }: { alert: AlertRateFie
     </details> : null}
   </>;
 }
-export function AlertsPanel() {
+export function AlertsPanel({ onClose }: { onClose?: () => void } = {}) {
   const { alerts, logs } = useAlertStore();
   const role=useAlertRole();
   const change=(action:Parameters<typeof editAlerts>[0])=>{void editAlerts(action).catch(error=>useChartStore.getState().toast("Alert not saved",String(error),"error"));};
@@ -89,9 +90,16 @@ export function AlertsPanel() {
               rules.filter((r) => r.status === "active").length}
           </span>
         </strong>
-        <IconButton label="Create alert" onClick={create}>
-          <Plus size={18} />
-        </IconButton>
+        <div className="flex items-center">
+          <IconButton label="Create alert" onClick={create}>
+            <Plus size={18} />
+          </IconButton>
+          {onClose ? (
+            <IconButton label="Close sidebar" onClick={onClose}>
+              <X size={18} />
+            </IconButton>
+          ) : null}
+        </div>
       </div>
       <div className="panel-tabs">
         <button

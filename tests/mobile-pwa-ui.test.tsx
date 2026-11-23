@@ -656,4 +656,46 @@ describe("Mobile PWA & Touch UI regressions", () => {
     marketService.stop();
     expect(marketService.resumeFromBackground()).toBe(false);
   });
+
+  it("renders ultra-minimal 5-control PhoneChartActions bar with unified phone hub and MainMenuSheet", async () => {
+    const { PhoneChartActions } = await import("@/components/WorkspaceToolbar");
+    const openAlerts = vi.fn();
+    const openPanel = vi.fn();
+    const toggleWatchlist = vi.fn();
+    const { container } = render(
+      <PhoneChartActions
+        drawingOpen={false}
+        toggleDrawing={vi.fn()}
+        toggleSidebar={vi.fn()}
+        tradingOpen={false}
+        toggleTrading={vi.fn()}
+        watchlistOpen={false}
+        toggleWatchlist={toggleWatchlist}
+        openAlerts={openAlerts}
+        openObjects={vi.fn()}
+        openPanel={openPanel}
+        alertCount={2}
+        onExport={vi.fn()}
+        onImport={vi.fn()}
+        phoneStatus={{ label: "Live", description: "Binance · Live", connected: true }}
+      />,
+    );
+    const bar = container.querySelector(".phone-chart-actions") as HTMLElement;
+    const directControls = bar.querySelectorAll(":scope > button, :scope > .toolbar-popover-host > button, :scope > .toolbar-mobile-overflow > button");
+    expect(directControls.length).toBe(5);
+
+    fireEvent.click(within(bar).getByRole("button", { name: "Watchlists" }));
+    expect(toggleWatchlist).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(within(bar).getByRole("button", { name: "More chart controls" }));
+    expect(within(bar).getByRole("button", { name: "Indicators" })).toBeTruthy();
+    expect(within(bar).getByRole("button", { name: "Alerts" })).toBeTruthy();
+    expect(within(bar).getByRole("button", { name: "Schwebende Objektleiste" })).toBeTruthy();
+    expect(within(bar).getByRole("button", { name: "More workspace panels" })).toBeTruthy();
+    expect(within(bar).getByRole("button", { name: "Terminal" })).toBeTruthy();
+    expect(within(bar).getByRole("button", { name: /Chart type:/i })).toBeTruthy();
+
+    fireEvent.click(within(bar).getByRole("button", { name: "Main menu" }));
+    expect(within(document.body).getByRole("button", { name: "Konto erstellen" })).toBeTruthy();
+  });
 });
