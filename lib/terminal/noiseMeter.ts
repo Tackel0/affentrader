@@ -37,6 +37,14 @@ export interface NoiseObservation {
   priorStreak: number; // >0 green days (C>PrevC) before this bar, <0 red days before this bar
   priorCandleStreak: number; // >0 green candles (C>O) before this bar, <0 red candles before this bar
   atr14Pct: number;
+  rsi14: number; // Wilder RSI(14) at day close (causal, no look-ahead)
+  distEma20Pct: number; // (close - ema20) / ema20 * 100
+  aboveSma200: boolean | null;
+  volumeRatio20: number | null;
+  moveAtrRatio: number; // closeToClosePct / atr14Pct
+  nextDayCloseToClosePct: number | null; // T+1 return
+  nextDayGreen: boolean | null; // T+1 close > today close
+  nextDayGreenCandle: boolean | null; // T+1 close > T+1 open
   fwd3dPct: number | null;
   fwd5dPct: number | null;
 }
@@ -50,9 +58,85 @@ export interface NoiseDataset {
   currentCandleStreak: { direction: "red" | "green"; count: number };
   recentDays: NoiseRecentDay[];
   currentAtr14Pct: number;
+  baseGreenProb: number;
+  lastClose: number;
+  currentRsi14: number;
+  lastAvgGain14: number;
+  lastAvgLoss14: number;
+  currentEma20: number;
+  currentDistEma20Pct: number;
+  currentSma200: number | null;
+  currentAboveSma200: boolean | null;
   gapMean: number;
   gapStd: number;
   absGapsSorted: number[];
+}
+
+export interface NextDayForecastInput {
+  priorStreakDays: number;
+  priorStreakDirection: "red" | "green";
+  streakBasis?: NoiseStreakBasis;
+  todayMovePct: number;
+  useExtraFactors?: boolean;
+}
+
+export interface NextDayFactor {
+  id: string;
+  label: string;
+  condition: string;
+  greenProb: number;
+  redProb: number;
+  edgeVsBasePct: number;
+  sampleSize: number;
+  avgNextDayPct: number;
+  stance: "bullish" | "bearish" | "neutral";
+}
+
+export interface NextDayTwin {
+  session: string;
+  priorStreak: number;
+  dayMovePct: number;
+  rsi14: number;
+  nextDayPct: number;
+  nextDayGreen: boolean;
+  similarityPct: number;
+}
+
+export interface NextDayForecast {
+  greenProb: number;
+  redProb: number;
+  greenCandleProb: number;
+  baseGreenProb: number;
+  edgeVsBasePct: number;
+  avgNextDayPct: number;
+  medianNextDayPct: number;
+  fwd3dWinRate: number | null;
+  fwd3dAvgPct: number | null;
+  fwd5dWinRate: number | null;
+  fwd5dAvgPct: number | null;
+  effectiveSampleSize: number;
+  confidence: "hoch" | "mittel" | "gering";
+  scenarioLabel: string;
+  summary: string;
+  useExtraFactors: boolean;
+  projected: {
+    todayMovePct: number;
+    rsi14: number;
+    moveAtrRatio: number;
+    distEma20Pct: number;
+    aboveSma200: boolean | null;
+  };
+  sequenceCohort: {
+    label: string;
+    sampleSize: number;
+    greenProb: number;
+    redProb: number;
+    avgNextDayPct: number;
+    effectiveStreakDays: number;
+    usedFallback: boolean;
+  };
+  factors: NextDayFactor[];
+  twins: NextDayTwin[];
 }
 
 export interface NoiseScenarioInput {
@@ -186,10 +270,14 @@ export interface NoiseApiPayload {
     prevClose: number;
     lastPrice: number;
     liveGapPct: number;
+    liveTodayReturnPct?: number;
     priceSource: "premarket" | "afterhours" | "regular" | "last-close";
     currentStreak: { direction: "red" | "green"; count: number };
     currentCandleStreak?: { direction: "red" | "green"; count: number };
     currentAtr14Pct: number;
+    currentRsi14?: number;
+    currentDistEma20Pct?: number;
+    currentAboveSma200?: boolean | null;
     nextWeekday: number;
   };
   bars: NoiseDayBar[];
@@ -275,6 +363,7 @@ export function buildNoiseDataset(rawBars: readonly NoiseDayBar[]): NoiseDataset
   );
 
   if (bars.length < 2) {
+    const close0 = bars[0]?.close ?? 0;
     return {
       observations: [],
       firstSession: bars[0]?.session ?? "",
@@ -284,6 +373,15 @@ export function buildNoiseDataset(rawBars: readonly NoiseDayBar[]): NoiseDataset
       currentCandleStreak: { direction: "green", count: 0 },
       recentDays: [],
       currentAtr14Pct: 0,
+      baseGreenProb: 50,
+      lastClose: close0,
+      currentRsi14: 50,
+      lastAvgGain14: 0,
+      lastAvgLoss14: 0,
+      currentEma20: close0,
+      currentDistEma20Pct: 0,
+      currentSma200: null,
+      currentAboveSma200: null,
       gapMean: 0,
       gapStd: 0,
       absGapsSorted: [],
@@ -295,6 +393,23 @@ export function buildNoiseDataset(rawBars: readonly NoiseDayBar[]): NoiseDataset
   let runningStreak = 0;
   let runningCandleStreak =
     bars[0].close > bars[0].open ? 1 : bars[0].close < bars[0].open ? -1 : 0;
+
+  // Wilder RSI(14), EMA(20), SMA(200), and 20-day rolling volume accumulators (strictly causal)
+  let avgGain14 = 0;
+  let avgLoss14 = 0;
+  let seedGainSum = 0;
+  let seedLossSum = 0;
+  let ema20 = bars[0].close;
+  const emaAlpha = 2 / (20 + 1);
+  let sma200Sum = bars[0].close;
+  let vol20Sum = bars[0].volume;
+
+  const rsiFromAvgs = (g: number, l: number): number => {
+    if (l === 0 && g === 0) return 50;
+    if (l === 0) return 100;
+    const rs = g / l;
+    return 100 - 100 / (1 + rs);
+  };
 
   for (let i = 1; i < bars.length; i++) {
     const prev = bars[i - 1];
@@ -314,9 +429,42 @@ export function buildNoiseDataset(rawBars: readonly NoiseDayBar[]): NoiseDataset
     const atr14 = trSum / Math.max(1, atrEnd - atrStart);
     const atr14Pct = prev.close > 0 ? (atr14 / prev.close) * 100 : 0;
 
+    // Wilder RSI(14) as of day `i` close
+    const delta = curr.close - prev.close;
+    const gain = delta > 0 ? delta : 0;
+    const loss = delta < 0 ? -delta : 0;
+    if (i <= 14) {
+      seedGainSum += gain;
+      seedLossSum += loss;
+      avgGain14 = seedGainSum / i;
+      avgLoss14 = seedLossSum / i;
+    } else {
+      avgGain14 = (avgGain14 * 13 + gain) / 14;
+      avgLoss14 = (avgLoss14 * 13 + loss) / 14;
+    }
+    const rsi14 = round1(rsiFromAvgs(avgGain14, avgLoss14));
+
+    // EMA(20) and SMA(200) as of day `i` close
+    ema20 = curr.close * emaAlpha + ema20 * (1 - emaAlpha);
+    const distEma20Pct = ema20 > 0 ? round2(((curr.close - ema20) / ema20) * 100) : 0;
+
+    sma200Sum += curr.close;
+    if (i >= 200) sma200Sum -= bars[i - 200].close;
+    const sma200 = i >= 199 ? sma200Sum / 200 : null;
+    const aboveSma200 = sma200 !== null ? curr.close >= sma200 : null;
+
+    // 20-day average volume prior to today (causal)
+    const volWindowLen = Math.min(i, 20);
+    const priorAvgVol = volWindowLen > 0 ? vol20Sum / volWindowLen : 0;
+    const volumeRatio20 =
+      priorAvgVol > 0 && curr.volume > 0 ? round2(curr.volume / priorAvgVol) : null;
+    vol20Sum += curr.volume;
+    if (i >= 20) vol20Sum -= bars[i - 20].volume;
+
     const gapPct = ((curr.open - prev.close) / prev.close) * 100;
     const openToClosePct = ((curr.close - curr.open) / curr.open) * 100;
     const closeToClosePct = ((curr.close - prev.close) / prev.close) * 100;
+    const moveAtrRatio = atr14Pct > 0.05 ? round2(closeToClosePct / atr14Pct) : 0;
 
     const isUpGap = gapPct > 0;
     const isDownGap = gapPct < 0;
@@ -337,6 +485,12 @@ export function buildNoiseDataset(rawBars: readonly NoiseDayBar[]): NoiseDataset
     const maePct = isDownGap
       ? ((curr.high - curr.open) / curr.open) * 100
       : ((curr.open - curr.low) / curr.open) * 100;
+
+    const nextBar = i + 1 < bars.length ? bars[i + 1] : null;
+    const nextDayCloseToClosePct =
+      nextBar && curr.close > 0 ? ((nextBar.close - curr.close) / curr.close) * 100 : null;
+    const nextDayGreen = nextBar ? nextBar.close > curr.close : null;
+    const nextDayGreenCandle = nextBar ? nextBar.close > nextBar.open : null;
 
     const fwd3dPct =
       i + 3 < bars.length ? ((bars[i + 3].close - curr.close) / curr.close) * 100 : null;
@@ -363,6 +517,14 @@ export function buildNoiseDataset(rawBars: readonly NoiseDayBar[]): NoiseDataset
       priorStreak: runningStreak,
       priorCandleStreak: runningCandleStreak,
       atr14Pct,
+      rsi14,
+      distEma20Pct,
+      aboveSma200,
+      volumeRatio20,
+      moveAtrRatio,
+      nextDayCloseToClosePct,
+      nextDayGreen,
+      nextDayGreenCandle,
       fwd3dPct,
       fwd5dPct,
     });
@@ -401,6 +563,14 @@ export function buildNoiseDataset(rawBars: readonly NoiseDayBar[]): NoiseDataset
   const gapStd = gaps.length > 1 ? Math.sqrt(varSum / (gaps.length - 1)) : 0;
   const absGapsSorted = observations.map((o) => Math.abs(o.gapPct)).sort((a, b) => a - b);
 
+  const baseGreenProb = observations.length
+    ? pct(observations.filter((o) => o.greenDay).length, observations.length)
+    : 50;
+  const currentRsi14 = round1(rsiFromAvgs(avgGain14, avgLoss14));
+  const currentDistEma20Pct = ema20 > 0 ? round2(((latestClose - ema20) / ema20) * 100) : 0;
+  const currentSma200 = bars.length >= 200 ? sma200Sum / 200 : null;
+  const currentAboveSma200 = currentSma200 !== null ? latestClose >= currentSma200 : null;
+
   const recentDays: NoiseRecentDay[] = observations.slice(-8).map((o) => ({
     session: o.session,
     openToClosePct: round2(o.openToClosePct),
@@ -424,6 +594,15 @@ export function buildNoiseDataset(rawBars: readonly NoiseDayBar[]): NoiseDataset
     },
     recentDays,
     currentAtr14Pct: round2(currentAtr14Pct),
+    baseGreenProb,
+    lastClose: latestClose,
+    currentRsi14,
+    lastAvgGain14: avgGain14,
+    lastAvgLoss14: avgLoss14,
+    currentEma20: ema20,
+    currentDistEma20Pct,
+    currentSma200,
+    currentAboveSma200,
     gapMean: round2(gapMean),
     gapStd: round2(gapStd),
     absGapsSorted,
@@ -799,3 +978,531 @@ export function evaluateNoiseScenario(
     analogues,
   };
 }
+
+function weightedMedian(pairs: ReadonlyArray<{ value: number; weight: number }>): number {
+  if (!pairs.length) return 0;
+  let totalW = 0;
+  for (const p of pairs) totalW += p.weight;
+  if (!(totalW > 0)) return median(pairs.map((p) => p.value));
+  const sorted = [...pairs].sort((a, b) => a.value - b.value);
+  const half = totalW / 2;
+  let acc = 0;
+  for (const p of sorted) {
+    acc += p.weight;
+    if (acc >= half) return p.value;
+  }
+  return sorted[sorted.length - 1].value;
+}
+
+function classifyNextDayScenario(
+  priorDir: "red" | "green",
+  priorDays: number,
+  todayMovePct: number,
+  moveAtrRatio: number,
+): string {
+  if (priorDir === "red" && priorDays >= 3 && (todayMovePct >= 2.5 || moveAtrRatio >= 1.5)) {
+    return "Massive Relief-Rally nach Abverkauf";
+  }
+  if (priorDir === "red" && priorDays >= 2 && todayMovePct >= 0.75) {
+    return "Relief-Rally nach roter Serie";
+  }
+  if (priorDir === "red" && priorDays >= 3 && (todayMovePct <= -2.0 || moveAtrRatio <= -1.3)) {
+    return "Kapitulation / Ausverkauf";
+  }
+  if (priorDir === "red" && todayMovePct <= -0.5) {
+    return "Abverkauf-Fortsetzung";
+  }
+  if (priorDir === "green" && priorDays >= 3 && (todayMovePct <= -2.0 || moveAtrRatio <= -1.3)) {
+    return "Scharfer Rücksetzer nach Rally";
+  }
+  if (priorDir === "green" && priorDays >= 2 && todayMovePct <= -0.75) {
+    return "Rücksetzer nach grüner Serie";
+  }
+  if (priorDir === "green" && (todayMovePct >= 2.0 || moveAtrRatio >= 1.3)) {
+    return "Blow-Off / Momentum-Spitze";
+  }
+  if (priorDir === "green" && todayMovePct >= 0.5) {
+    return "Momentum-Fortsetzung";
+  }
+  return "Seitwärts / Konsolidierung";
+}
+
+function summarizeNextDayFactor(
+  id: string,
+  label: string,
+  condition: string,
+  rows: readonly NoiseObservation[],
+  baseGreenProb: number,
+): NextDayFactor {
+  const n = rows.length;
+  if (n === 0) {
+    return {
+      id,
+      label,
+      condition,
+      greenProb: baseGreenProb,
+      redProb: round1(100 - baseGreenProb),
+      edgeVsBasePct: 0,
+      sampleSize: 0,
+      avgNextDayPct: 0,
+      stance: "neutral",
+    };
+  }
+  const greenCount = rows.filter((o) => o.nextDayGreen === true).length;
+  const greenProb = pct(greenCount, n);
+  const redProb = round1(100 - greenProb);
+  const edgeVsBasePct = round1(greenProb - baseGreenProb);
+  const avgNextDayPct = round2(
+    mean(rows.map((o) => o.nextDayCloseToClosePct ?? 0)),
+  );
+  const stance: NextDayFactor["stance"] =
+    n >= 8 && edgeVsBasePct >= 3
+      ? "bullish"
+      : n >= 8 && edgeVsBasePct <= -3
+        ? "bearish"
+        : "neutral";
+
+  return {
+    id,
+    label,
+    condition,
+    greenProb,
+    redProb,
+    edgeVsBasePct,
+    sampleSize: n,
+    avgNextDayPct,
+    stance,
+  };
+}
+
+/**
+ * Evaluates the empirical probability that TOMORROW (T+1) closes green vs. red
+ * given the exact sequence `[prior N red/green days] + [today's move %]` and
+ * optional causal technical context (Wilder RSI(14), ATR-normalized stretch,
+ * 20-EMA distance, 200-SMA trend regime).
+ */
+export function evaluateNextDayForecast(
+  dataset: NoiseDataset,
+  input: NextDayForecastInput,
+): NextDayForecast {
+  const priorStreakDays = Math.max(1, Math.min(12, Math.round(input.priorStreakDays || 1)));
+  const priorStreakDirection: "red" | "green" =
+    input.priorStreakDirection === "red" ? "red" : "green";
+  const streakBasis: NoiseStreakBasis = input.streakBasis === "candle" ? "candle" : "close";
+  const todayMovePct = Number.isFinite(input.todayMovePct)
+    ? clamp(round2(input.todayMovePct), -25, 25)
+    : 0;
+  const useExtraFactors = input.useExtraFactors !== false;
+
+  // Dynamically project today's causal technical state given `todayMovePct`
+  const baseClose = dataset.lastClose > 0 ? dataset.lastClose : 100;
+  const projectedClose = baseClose * (1 + todayMovePct / 100);
+  const delta = projectedClose - baseClose;
+  const gain = delta > 0 ? delta : 0;
+  const loss = delta < 0 ? -delta : 0;
+  const nextAvgGain = (dataset.lastAvgGain14 * 13 + gain) / 14;
+  const nextAvgLoss = (dataset.lastAvgLoss14 * 13 + loss) / 14;
+  const projectedRsi14 =
+    nextAvgGain === 0 && nextAvgLoss === 0
+      ? dataset.currentRsi14
+      : nextAvgLoss === 0
+        ? 100
+        : round1(100 - 100 / (1 + nextAvgGain / nextAvgLoss));
+
+  const atrBase = Math.max(0.25, dataset.currentAtr14Pct || 1.0);
+  const projectedMoveAtrRatio = round2(todayMovePct / atrBase);
+
+  const emaAlpha = 2 / (20 + 1);
+  const projectedEma20 =
+    dataset.currentEma20 > 0
+      ? projectedClose * emaAlpha + dataset.currentEma20 * (1 - emaAlpha)
+      : projectedClose;
+  const projectedDistEma20Pct =
+    projectedEma20 > 0 ? round2(((projectedClose - projectedEma20) / projectedEma20) * 100) : 0;
+  const projectedAboveSma200 =
+    dataset.currentSma200 !== null ? projectedClose >= dataset.currentSma200 : null;
+
+  const scenarioLabel = classifyNextDayScenario(
+    priorStreakDirection,
+    priorStreakDays,
+    todayMovePct,
+    projectedMoveAtrRatio,
+  );
+
+  const eligible = dataset.observations.filter(
+    (o) => o.nextDayGreen !== null && o.nextDayCloseToClosePct !== null,
+  );
+
+  const baseGreenProb = eligible.length
+    ? pct(eligible.filter((o) => o.nextDayGreen === true).length, eligible.length)
+    : dataset.baseGreenProb;
+  const baseRate = baseGreenProb / 100;
+  const baseCandleRate = eligible.length
+    ? eligible.filter((o) => o.nextDayGreenCandle === true).length / eligible.length
+    : 0.5;
+
+  if (eligible.length === 0) {
+    return {
+      greenProb: baseGreenProb,
+      redProb: round1(100 - baseGreenProb),
+      greenCandleProb: round1(baseCandleRate * 100),
+      baseGreenProb,
+      edgeVsBasePct: 0,
+      avgNextDayPct: 0,
+      medianNextDayPct: 0,
+      fwd3dWinRate: null,
+      fwd3dAvgPct: null,
+      fwd5dWinRate: null,
+      fwd5dAvgPct: null,
+      effectiveSampleSize: 0,
+      confidence: "gering",
+      scenarioLabel,
+      summary: "Zu wenige historische Handelstage für eine T+1-Auswertung.",
+      useExtraFactors,
+      projected: {
+        todayMovePct,
+        rsi14: projectedRsi14,
+        moveAtrRatio: projectedMoveAtrRatio,
+        distEma20Pct: projectedDistEma20Pct,
+        aboveSma200: projectedAboveSma200,
+      },
+      sequenceCohort: {
+        label: "Keine Stichprobe",
+        sampleSize: 0,
+        greenProb: baseGreenProb,
+        redProb: round1(100 - baseGreenProb),
+        avgNextDayPct: 0,
+        effectiveStreakDays: priorStreakDays,
+        usedFallback: true,
+      },
+      factors: [],
+      twins: [],
+    };
+  }
+
+  // 1. Hard-filtered sequence cohort: [prior >= k red/green] + [today's move direction/magnitude]
+  const absMove = Math.abs(todayMovePct);
+  const moveDir: "up" | "down" | "flat" =
+    absMove < 0.35 ? "flat" : todayMovePct > 0 ? "up" : "down";
+  const tightThreshold =
+    absMove >= 3.0 ? 2.0 : absMove >= 1.5 ? 1.0 : 0.4;
+
+  const matchesStreak = (o: NoiseObservation, minDays: number) => {
+    const val = streakValueOf(o, streakBasis);
+    return priorStreakDirection === "red" ? val <= -minDays : val >= minDays;
+  };
+  const matchesMove = (o: NoiseObservation, threshold: number) => {
+    if (moveDir === "flat") return Math.abs(o.closeToClosePct) <= 0.75;
+    return moveDir === "up"
+      ? o.closeToClosePct >= threshold
+      : o.closeToClosePct <= -threshold;
+  };
+
+  let effectiveStreakDays = priorStreakDays;
+  let effectiveThreshold = tightThreshold;
+  let usedFallback = false;
+  let seqRows = eligible.filter(
+    (o) => matchesStreak(o, effectiveStreakDays) && matchesMove(o, effectiveThreshold),
+  );
+
+  const minStreakFloor = priorStreakDays === 1 ? 1 : 2;
+  while (effectiveStreakDays > minStreakFloor && seqRows.length < 8) {
+    effectiveStreakDays -= 1;
+    usedFallback = true;
+    seqRows = eligible.filter(
+      (o) => matchesStreak(o, effectiveStreakDays) && matchesMove(o, effectiveThreshold),
+    );
+  }
+  if (moveDir !== "flat" && seqRows.length < 8 && effectiveThreshold > 0.4) {
+    effectiveThreshold = 0.4;
+    usedFallback = true;
+    seqRows = eligible.filter(
+      (o) => matchesStreak(o, effectiveStreakDays) && matchesMove(o, effectiveThreshold),
+    );
+  }
+  if (seqRows.length < 5) {
+    usedFallback = true;
+    seqRows = eligible.filter((o) => matchesStreak(o, effectiveStreakDays));
+  }
+
+  const basisPlural = streakBasis === "candle" ? "Kerzen" : "Tage";
+  const dirAdj = priorStreakDirection === "red" ? "rote" : "grüne";
+  const moveDesc =
+    moveDir === "flat"
+      ? "flacher Tag (±0,75 %)"
+      : moveDir === "up"
+        ? `heute ≥ +${effectiveThreshold.toFixed(1).replace(".", ",")} %`
+        : `heute ≤ −${effectiveThreshold.toFixed(1).replace(".", ",")} %`;
+  const seqLabel = `≥ ${effectiveStreakDays} ${dirAdj} ${basisPlural} + ${moveDesc}`;
+  const seqGreenProb = seqRows.length
+    ? pct(seqRows.filter((o) => o.nextDayGreen === true).length, seqRows.length)
+    : baseGreenProb;
+
+  const sequenceCohort = {
+    label: seqLabel,
+    sampleSize: seqRows.length,
+    greenProb: seqGreenProb,
+    redProb: round1(100 - seqGreenProb),
+    avgNextDayPct: round2(mean(seqRows.map((o) => o.nextDayCloseToClosePct ?? 0))),
+    effectiveStreakDays,
+    usedFallback,
+  };
+
+  // 2. Multi-factor Gaussian kernel similarity across all eligible historical days
+  const targetSignedStreak =
+    priorStreakDirection === "red" ? -priorStreakDays : priorStreakDays;
+  const tgtStreakCapped = clamp(targetSignedStreak, -8, 8);
+  const tgtMoveAtr = clamp(projectedMoveAtrRatio, -5, 5);
+  const tgtEmaDist = clamp(projectedDistEma20Pct, -25, 25);
+
+  let sumW = 0;
+  let sumW2 = 0;
+  let sumGreenW = 0;
+  let sumCandleW = 0;
+  let sumRetW = 0;
+  let sum3dW = 0;
+  let sum3dRetW = 0;
+  let sum3dWinW = 0;
+  let sum5dW = 0;
+  let sum5dRetW = 0;
+  let sum5dWinW = 0;
+
+  const scored: Array<{ obs: NoiseObservation; weight: number }> = [];
+  const retPairs: Array<{ value: number; weight: number }> = [];
+
+  for (const o of eligible) {
+    const obsStreak = streakValueOf(o, streakBasis);
+    const dStreak = (clamp(obsStreak, -8, 8) - tgtStreakCapped) / 1.8;
+    const oppositeStreak = obsStreak * targetSignedStreak <= 0;
+    const dDirStreak = oppositeStreak ? 1.15 : 0;
+
+    const obsMoveAtr = clamp(o.moveAtrRatio, -5, 5);
+    const dMove = (obsMoveAtr - tgtMoveAtr) / 0.85;
+    const oppositeMove = absMove >= 0.4 && o.closeToClosePct * todayMovePct <= 0;
+    const dDirMove = oppositeMove ? 1.25 : 0;
+
+    let dist2 =
+      dStreak * dStreak +
+      dDirStreak * dDirStreak +
+      dMove * dMove +
+      dDirMove * dDirMove;
+
+    if (useExtraFactors) {
+      const dRsi = (o.rsi14 - projectedRsi14) / 12.0;
+      const dEma = (clamp(o.distEma20Pct, -25, 25) - tgtEmaDist) / 4.5;
+      dist2 += 0.75 * dRsi * dRsi + 0.5 * dEma * dEma;
+      if (
+        o.aboveSma200 !== null &&
+        projectedAboveSma200 !== null &&
+        o.aboveSma200 !== projectedAboveSma200
+      ) {
+        dist2 += 0.65;
+      }
+    }
+
+    const weight = Math.exp(-0.5 * dist2);
+    scored.push({ obs: o, weight });
+
+    const nextRet = o.nextDayCloseToClosePct!;
+    sumW += weight;
+    sumW2 += weight * weight;
+    if (o.nextDayGreen) sumGreenW += weight;
+    if (o.nextDayGreenCandle) sumCandleW += weight;
+    sumRetW += weight * nextRet;
+    retPairs.push({ value: nextRet, weight });
+
+    if (o.fwd3dPct !== null) {
+      sum3dW += weight;
+      sum3dRetW += weight * o.fwd3dPct;
+      if (o.fwd3dPct > 0) sum3dWinW += weight;
+    }
+    if (o.fwd5dPct !== null) {
+      sum5dW += weight;
+      sum5dRetW += weight * o.fwd5dPct;
+      if (o.fwd5dPct > 0) sum5dWinW += weight;
+    }
+  }
+
+  // Kish effective sample size + Empirical Bayes shrinkage toward historical base rate
+  const nEff = sumW2 > 0 ? (sumW * sumW) / sumW2 : 0;
+  const priorWeight = 4;
+  const rawGreenRate = sumW > 0 ? sumGreenW / sumW : baseRate;
+  const rawCandleRate = sumW > 0 ? sumCandleW / sumW : baseCandleRate;
+
+  const shrunkGreen = (nEff * rawGreenRate + priorWeight * baseRate) / (nEff + priorWeight);
+  const shrunkCandle =
+    (nEff * rawCandleRate + priorWeight * baseCandleRate) / (nEff + priorWeight);
+
+  const greenProb = round1(clamp(shrunkGreen * 100, 0, 100));
+  const redProb = round1(100 - greenProb);
+  const greenCandleProb = round1(clamp(shrunkCandle * 100, 0, 100));
+  const edgeVsBasePct = round1(greenProb - baseGreenProb);
+  const avgNextDayPct = sumW > 0 ? round2(sumRetW / sumW) : 0;
+  const medianNextDayPct = round2(weightedMedian(retPairs));
+
+  const fwd3dWinRate = sum3dW > 0 ? round1((sum3dWinW / sum3dW) * 100) : null;
+  const fwd3dAvgPct = sum3dW > 0 ? round2(sum3dRetW / sum3dW) : null;
+  const fwd5dWinRate = sum5dW > 0 ? round1((sum5dWinW / sum5dW) * 100) : null;
+  const fwd5dAvgPct = sum5dW > 0 ? round2(sum5dRetW / sum5dW) : null;
+
+  const confidence: NextDayForecast["confidence"] =
+    nEff >= 25 ? "hoch" : nEff >= 10 ? "mittel" : "gering";
+
+  // 3. Four standalone empirical factors
+  const factorSequence = summarizeNextDayFactor(
+    "sequence",
+    "Serie + Tages-Move",
+    seqLabel,
+    seqRows,
+    baseGreenProb,
+  );
+
+  let rsiCond: string;
+  let rsiRows: NoiseObservation[];
+  if (projectedRsi14 < 30) {
+    rsiCond = "Überverkauft (RSI < 30)";
+    rsiRows = eligible.filter((o) => o.rsi14 < 30);
+  } else if (projectedRsi14 < 40) {
+    rsiCond = "Erholungszone (RSI 30–40)";
+    rsiRows = eligible.filter((o) => o.rsi14 >= 30 && o.rsi14 < 40);
+  } else if (projectedRsi14 < 55) {
+    rsiCond = "Neutral-Unterkante (RSI 40–55)";
+    rsiRows = eligible.filter((o) => o.rsi14 >= 40 && o.rsi14 < 55);
+  } else if (projectedRsi14 <= 70) {
+    rsiCond = "Konstruktiv (RSI 55–70)";
+    rsiRows = eligible.filter((o) => o.rsi14 >= 55 && o.rsi14 <= 70);
+  } else {
+    rsiCond = "Überkauft (RSI > 70)";
+    rsiRows = eligible.filter((o) => o.rsi14 > 70);
+  }
+  const factorRsi = summarizeNextDayFactor(
+    "rsi",
+    "RSI(14)-Regime",
+    rsiCond,
+    rsiRows,
+    baseGreenProb,
+  );
+
+  let atrCond: string;
+  let atrRows: NoiseObservation[];
+  if (projectedMoveAtrRatio >= 1.5) {
+    atrCond = "Starker Ausbruch (≥ +1,5× ATR)";
+    atrRows = eligible.filter((o) => o.moveAtrRatio >= 1.5);
+  } else if (projectedMoveAtrRatio >= 0.6) {
+    atrCond = "Grüner Impuls (+0,6 bis +1,5× ATR)";
+    atrRows = eligible.filter((o) => o.moveAtrRatio >= 0.6 && o.moveAtrRatio < 1.5);
+  } else if (projectedMoveAtrRatio > -0.6) {
+    atrCond = "Normale Range (±0,6× ATR)";
+    atrRows = eligible.filter((o) => o.moveAtrRatio > -0.6 && o.moveAtrRatio < 0.6);
+  } else if (projectedMoveAtrRatio > -1.5) {
+    atrCond = "Abwärtsdruck (−0,6 bis −1,5× ATR)";
+    atrRows = eligible.filter((o) => o.moveAtrRatio <= -0.6 && o.moveAtrRatio > -1.5);
+  } else {
+    atrCond = "Extremer Selloff (≤ −1,5× ATR)";
+    atrRows = eligible.filter((o) => o.moveAtrRatio <= -1.5);
+  }
+  const factorAtr = summarizeNextDayFactor(
+    "move-atr",
+    "Tages-Move × ATR14",
+    atrCond,
+    atrRows,
+    baseGreenProb,
+  );
+
+  let trendCond: string;
+  let trendRows: NoiseObservation[];
+  const emaBucket =
+    projectedDistEma20Pct <= -3 ? "below" : projectedDistEma20Pct >= 3 ? "above" : "near";
+  const emaBucketLabel =
+    emaBucket === "below"
+      ? "unter 20-EMA (≤ −3 %)"
+      : emaBucket === "above"
+        ? "über 20-EMA (≥ +3 %)"
+        : "nahe 20-EMA";
+  if (projectedAboveSma200 !== null) {
+    const smaLabel = projectedAboveSma200 ? "Über 200-SMA" : "Unter 200-SMA";
+    const combined = eligible.filter(
+      (o) =>
+        o.aboveSma200 === projectedAboveSma200 &&
+        (emaBucket === "below"
+          ? o.distEma20Pct <= -3
+          : emaBucket === "above"
+            ? o.distEma20Pct >= 3
+            : o.distEma20Pct > -3 && o.distEma20Pct < 3),
+    );
+    if (combined.length >= 10) {
+      trendCond = `${smaLabel} · ${emaBucketLabel}`;
+      trendRows = combined;
+    } else {
+      trendCond = smaLabel;
+      trendRows = eligible.filter((o) => o.aboveSma200 === projectedAboveSma200);
+    }
+  } else {
+    trendCond = projectedDistEma20Pct >= 0 ? "Über 20-EMA" : "Unter 20-EMA";
+    trendRows = eligible.filter((o) =>
+      projectedDistEma20Pct >= 0 ? o.distEma20Pct >= 0 : o.distEma20Pct < 0,
+    );
+  }
+  const factorTrend = summarizeNextDayFactor(
+    "trend",
+    "Trend & 20-EMA Stretch",
+    trendCond,
+    trendRows,
+    baseGreenProb,
+  );
+
+  // 4. Top 6 closest historical twin days
+  scored.sort((a, b) =>
+    b.weight !== a.weight
+      ? b.weight - a.weight
+      : b.obs.session.localeCompare(a.obs.session),
+  );
+  const twins: NextDayTwin[] = scored.slice(0, 6).map(({ obs, weight }) => ({
+    session: obs.session,
+    priorStreak: streakValueOf(obs, streakBasis),
+    dayMovePct: round2(obs.closeToClosePct),
+    rsi14: obs.rsi14,
+    nextDayPct: round2(obs.nextDayCloseToClosePct!),
+    nextDayGreen: obs.nextDayGreen!,
+    similarityPct: round1(clamp(weight * 100, 0, 100)),
+  }));
+
+  const edgeText =
+    edgeVsBasePct > 0
+      ? `+${edgeVsBasePct.toFixed(1).replace(".", ",")} Pp. über`
+      : edgeVsBasePct < 0
+        ? `${Math.abs(edgeVsBasePct).toFixed(1).replace(".", ",")} Pp. unter`
+        : "auf Niveau der";
+  const streakLabelShort = `${priorStreakDays} ${priorStreakDirection === "red" ? "roten" : "grünen"} ${streakBasis === "candle" ? "Kerzen" : "Tagen"}`;
+  const summary = `Nach ${streakLabelShort} + ${formatSignedDe(todayMovePct)} heute schloss der nächste Handelstag (T+1) historisch zu ${greenProb.toFixed(1).replace(".", ",")} % grün und zu ${redProb.toFixed(1).replace(".", ",")} % rot (${edgeText} Basisrate ${baseGreenProb.toFixed(1).replace(".", ",")} % · Ø T+1 ${formatSignedDe(avgNextDayPct)}).`;
+
+  return {
+    greenProb,
+    redProb,
+    greenCandleProb,
+    baseGreenProb,
+    edgeVsBasePct,
+    avgNextDayPct,
+    medianNextDayPct,
+    fwd3dWinRate,
+    fwd3dAvgPct,
+    fwd5dWinRate,
+    fwd5dAvgPct,
+    effectiveSampleSize: round1(nEff),
+    confidence,
+    scenarioLabel,
+    summary,
+    useExtraFactors,
+    projected: {
+      todayMovePct,
+      rsi14: projectedRsi14,
+      moveAtrRatio: projectedMoveAtrRatio,
+      distEma20Pct: projectedDistEma20Pct,
+      aboveSma200: projectedAboveSma200,
+    },
+    sequenceCohort,
+    factors: [factorSequence, factorRsi, factorAtr, factorTrend],
+    twins,
+  };
+}
+

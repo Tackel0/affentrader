@@ -71,19 +71,30 @@ function resolveLiveQuote(
   prevClose: number;
   lastPrice: number;
   liveGapPct: number;
+  liveTodayReturnPct: number;
   priceSource: "premarket" | "afterhours" | "regular" | "last-close";
 } {
   const lastCompleted = completed.at(-1);
   const prevClose = lastCompleted?.close ?? (Number.isFinite(daily.meta.previousClose) ? daily.meta.previousClose : daily.meta.price);
   if (!(prevClose > 0)) {
-    return { prevClose: 0, lastPrice: 0, liveGapPct: 0, priceSource: "last-close" };
+    return { prevClose: 0, lastPrice: 0, liveGapPct: 0, liveTodayReturnPct: 0, priceSource: "last-close" };
   }
+
+  const latestIntraday = intraday?.bars.at(-1);
+  const computeTodayReturn = (fallbackGap: number): number => {
+    if (todayBar && todayBar.close > 0) {
+      return Math.round(((todayBar.close - prevClose) / prevClose) * 10000) / 100;
+    }
+    if (latestIntraday && Number.isFinite(latestIntraday.close) && latestIntraday.close > 0) {
+      return Math.round(((latestIntraday.close - prevClose) / prevClose) * 10000) / 100;
+    }
+    return fallbackGap;
+  };
 
   const sessions = intraday?.meta.sessions ?? daily.meta.sessions;
   const inTupleWindow = (list?: ReadonlyArray<readonly [number, number]>, t = now) =>
     Boolean(list?.some(([start, end]) => t >= start && t <= end));
 
-  const latestIntraday = intraday?.bars.at(-1);
   if (latestIntraday && Number.isFinite(latestIntraday.close) && latestIntraday.close > 0) {
     const barTime = latestIntraday.time;
     const matchedExtended = sessions?.extended.find(([start, end]) => barTime >= start && barTime <= end);
@@ -92,29 +103,35 @@ function resolveLiveQuote(
       : undefined;
 
     if (matchedExtended && matchingRegular && barTime < matchingRegular[0]) {
+      const gap = Math.round(((latestIntraday.close - prevClose) / prevClose) * 10000) / 100;
       return {
         prevClose: roundPrice(prevClose),
         lastPrice: roundPrice(latestIntraday.close),
-        liveGapPct: Math.round(((latestIntraday.close - prevClose) / prevClose) * 10000) / 100,
+        liveGapPct: gap,
+        liveTodayReturnPct: computeTodayReturn(gap),
         priceSource: "premarket",
       };
     }
     if (matchedExtended && matchingRegular && barTime >= matchingRegular[1]) {
       const anchor = todayBar?.close ?? prevClose;
+      const gap = Math.round(((latestIntraday.close - anchor) / anchor) * 10000) / 100;
       return {
         prevClose: roundPrice(anchor),
         lastPrice: roundPrice(latestIntraday.close),
-        liveGapPct: Math.round(((latestIntraday.close - anchor) / anchor) * 10000) / 100,
+        liveGapPct: gap,
+        liveTodayReturnPct: computeTodayReturn(gap),
         priceSource: "afterhours",
       };
     }
   }
 
   if (todayBar && todayBar.open > 0) {
+    const gap = Math.round(((todayBar.open - prevClose) / prevClose) * 10000) / 100;
     return {
       prevClose: roundPrice(prevClose),
       lastPrice: roundPrice(todayBar.open),
-      liveGapPct: Math.round(((todayBar.open - prevClose) / prevClose) * 10000) / 100,
+      liveGapPct: gap,
+      liveTodayReturnPct: computeTodayReturn(gap),
       priceSource: "regular",
     };
   }
@@ -125,10 +142,12 @@ function resolveLiveQuote(
     latestIntraday.close > 0 &&
     Math.abs(latestIntraday.close - prevClose) / prevClose > 0.0002
   ) {
+    const gap = Math.round(((latestIntraday.close - prevClose) / prevClose) * 10000) / 100;
     return {
       prevClose: roundPrice(prevClose),
       lastPrice: roundPrice(latestIntraday.close),
-      liveGapPct: Math.round(((latestIntraday.close - prevClose) / prevClose) * 10000) / 100,
+      liveGapPct: gap,
+      liveTodayReturnPct: computeTodayReturn(gap),
       priceSource: inTupleWindow(sessions?.regular, latestIntraday.time) ? "regular" : "premarket",
     };
   }
@@ -137,6 +156,7 @@ function resolveLiveQuote(
     prevClose: roundPrice(prevClose),
     lastPrice: roundPrice(prevClose),
     liveGapPct: 0,
+    liveTodayReturnPct: 0,
     priceSource: "last-close",
   };
 }
@@ -222,6 +242,9 @@ export async function GET(request: Request) {
         currentStreak: dataset.currentStreak,
         currentCandleStreak: dataset.currentCandleStreak,
         currentAtr14Pct: dataset.currentAtr14Pct,
+        currentRsi14: dataset.currentRsi14,
+        currentDistEma20Pct: dataset.currentDistEma20Pct,
+        currentAboveSma200: dataset.currentAboveSma200,
         nextWeekday: nextTradingWeekday(now, timezone),
       },
       bars: completed,

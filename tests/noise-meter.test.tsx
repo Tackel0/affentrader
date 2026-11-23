@@ -4,6 +4,7 @@ import React from "react";
 import { render, fireEvent, waitFor, cleanup, within } from "@testing-library/react";
 import {
   buildNoiseDataset,
+  evaluateNextDayForecast,
   evaluateNoiseScenario,
   type NoiseApiPayload,
   type NoiseDayBar,
@@ -207,6 +208,87 @@ describe("NoiseMeter empirical engine", () => {
     expect(dataset.recentDays.every((d) => !d.greenCandle)).toBe(true);
     expect(dataset.recentDays.find((d) => d.session === "2026-11-18")?.greenDay).toBe(true);
   });
+
+  it("computes empirical T+1 green/red probability for 7 red days + massive relief rally with causal RSI/ATR/EMA/SMA factors", () => {
+    const buildReliefRegime = (nextDayOutcome: "green" | "red"): NoiseDayBar[] => {
+      const dates = makeWeekdayDates(260, "2023-01-03");
+      const bars: NoiseDayBar[] = [];
+      let prev = 500;
+      let idx = 0;
+
+      const push = (pctMove: number) => {
+        const open = Number((prev * (1 + (pctMove * 0.2) / 100)).toFixed(4));
+        const close = Number((prev * (1 + pctMove / 100)).toFixed(4));
+        const high = Number((Math.max(open, close) * 1.003).toFixed(4));
+        const low = Number((Math.min(open, close) * 0.997).toFixed(4));
+        bars.push({ session: dates[idx++], open, high, low, close, volume: 25_000_000 });
+        prev = close;
+      };
+
+      // Warmup 120 mixed days so RSI/EMA20/SMA200 are well-seeded
+      for (let i = 0; i < 120; i++) {
+        push(i % 2 === 0 ? 0.45 : -0.35);
+      }
+
+      // 8 clean occurrences of [7 red days] -> [massive +4.5% relief rally] -> [known T+1 outcome]
+      for (let cycle = 0; cycle < 8; cycle++) {
+        for (let r = 0; r < 7; r++) push(-0.85);
+        push(4.5); // Day 0: massive relief rally
+        push(nextDayOutcome === "green" ? 1.6 : -1.8); // Day T+1
+        for (let c = 0; c < 6; c++) push(c % 2 === 0 ? 0.3 : -0.2);
+      }
+
+      // End on 7 red days so dataset.currentRsi14 is depressed before today's simulated +4.5% move
+      for (let r = 0; r < 7 && idx < dates.length; r++) push(-0.9);
+      return bars;
+    };
+
+    const bullFollowDataset = buildNoiseDataset(buildReliefRegime("green"));
+    const bearFadeDataset = buildNoiseDataset(buildReliefRegime("red"));
+
+    expect(bullFollowDataset.currentSma200).not.toBeNull();
+    expect(bullFollowDataset.currentRsi14).toBeLessThan(45);
+    expect(bullFollowDataset.observations.at(-1)?.nextDayGreen).toBeNull();
+
+    const bullForecast = evaluateNextDayForecast(bullFollowDataset, {
+      priorStreakDays: 7,
+      priorStreakDirection: "red",
+      streakBasis: "close",
+      todayMovePct: 4.5,
+      useExtraFactors: true,
+    });
+    const bearForecast = evaluateNextDayForecast(bearFadeDataset, {
+      priorStreakDays: 7,
+      priorStreakDirection: "red",
+      streakBasis: "close",
+      todayMovePct: 4.5,
+      useExtraFactors: true,
+    });
+
+    expect(bullForecast.scenarioLabel).toBe("Massive Relief-Rally nach Abverkauf");
+    expect(bullForecast.greenProb + bullForecast.redProb).toBeCloseTo(100, 1);
+    expect(bearForecast.greenProb + bearForecast.redProb).toBeCloseTo(100, 1);
+    expect(bullForecast.projected.rsi14).toBeGreaterThan(bullFollowDataset.currentRsi14);
+    expect(bullForecast.factors).toHaveLength(4);
+    expect(bullForecast.twins.length).toBeGreaterThan(0);
+
+    // Empirical regime separation: follow-through dataset must strongly favor green T+1 vs fade dataset
+    expect(bullForecast.greenProb).toBeGreaterThan(65);
+    expect(bearForecast.redProb).toBeGreaterThan(60);
+    expect(bullForecast.greenProb).toBeGreaterThan(bearForecast.greenProb + 25);
+    expect(bullForecast.avgNextDayPct).toBeGreaterThan(bearForecast.avgNextDayPct);
+
+    // Extra factors toggle works cleanly without NaN
+    const coreOnly = evaluateNextDayForecast(bullFollowDataset, {
+      priorStreakDays: 7,
+      priorStreakDirection: "red",
+      streakBasis: "close",
+      todayMovePct: 4.5,
+      useExtraFactors: false,
+    });
+    expect(coreOnly.useExtraFactors).toBe(false);
+    expect(coreOnly.greenProb + coreOnly.redProb).toBeCloseTo(100, 1);
+  });
 });
 
 describe("NoiseMeter terminal commands", () => {
@@ -285,16 +367,28 @@ describe("NoiseMeterPanel & ResearchTerminal UI", () => {
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(container.textContent).toContain("SPDR S&P 500 ETF Trust");
+    expect(container.textContent).toContain("Morgen-Wahrscheinlichkeit (T+1)");
     expect(container.textContent).toContain("Gap-Close-Chance (Intraday)");
     expect(container.querySelectorAll(".noise-recent-day").length).toBeGreaterThan(0);
+    expect(container.querySelectorAll(".noise-t1-factor")).toHaveLength(4);
 
-    // Select 7T + Rot in default Kerzen (C vs O) mode
+    // Select 7T + Rot in default Kerzen (C vs O) mode and test +5,0% relief rally today
     const panel = within(container);
     fireEvent.click(panel.getByRole("button", { name: "Rot" }));
     fireEvent.click(panel.getByRole("button", { name: "7T" }));
+    fireEvent.click(panel.getByRole("button", { name: "+5,0%" }));
 
+    expect(container.textContent).toContain("Massive Relief-Rally nach Abverkauf");
     expect(container.textContent).toContain("Nach ≥ 7 roten Kerzen");
     expect(container.textContent).toContain("75,0 %");
+
+    // Toggle Extra-Faktoren (RSI, ATR, Trend) off & back on
+    const factorToggle = panel.getByRole("button", { name: /Extra-Faktoren/i });
+    expect(factorToggle.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(factorToggle);
+    expect(factorToggle.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(factorToggle);
+    expect(factorToggle.getAttribute("aria-pressed")).toBe("true");
     expect(fetchMock).toHaveBeenCalledTimes(1); // Pure client-side recompute
 
     // Switch basis to Close (vs Vortag) and select 7T + Rot
