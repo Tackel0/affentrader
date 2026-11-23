@@ -100,6 +100,9 @@ export function useVelaChart(container: RefObject<HTMLDivElement | null>) {
   const explicitRange=useRef<{symbol:string;timeframe:string}|null>(null);
   const nativeHistory=useRef<{chart:Vela;oldestTime:number;barsLoaded:number;reason:string}|null>(null);
   const feeds = useRef(new WeakMap<Vela, ReturnType<typeof trackChartFeed>>());
+  const isPhoneChartViewport = () =>
+    typeof window !== "undefined" && typeof window.matchMedia === "function"
+    && window.matchMedia("(max-width: 768px) and (pointer: coarse), (max-width: 1024px) and (max-height: 520px) and (pointer: coarse)").matches;
   const navigateRecent = async (target: Vela, serial: number) => {
     const state = useChartStore.getState(), epoch = state.feedEpoch, revision = marketChange.current,
       owner = useWorkspaceStore.getState().activeId, replayRevision = replaySerial.current;
@@ -109,7 +112,7 @@ export function useVelaChart(container: RefObject<HTMLDivElement | null>) {
     setLoading(true);
     try {
       if (!target.replay.state.active && (target.market.symbol !== state.symbol || target.market.timeframe !== state.timeframe))
-        await target.setMarket({ symbol: state.symbol, timeframe: state.timeframe, bars: 600 });
+        await target.setMarket({ symbol: state.symbol, timeframe: state.timeframe, bars: isPhoneChartViewport() ? 300 : 600 });
       const framed = await frameRecentView(target, { valid,
         settled: market => feeds.current.get(target)?.settled(market) ?? Promise.resolve(false),
         read: () => { const current = useChartStore.getState(); return { bars: current.candles, timeframe: current.timeframe,
@@ -153,8 +156,7 @@ export function useVelaChart(container: RefObject<HTMLDivElement | null>) {
         constructedEpoch.current = state.feedEpoch;
         const trackedFeed = trackChartFeed(marketService.velaFeed);
         off.push(trackedFeed.close);
-        const phoneChart = typeof window !== "undefined" && typeof window.matchMedia === "function"
-          && window.matchMedia("(max-width: 768px) and (pointer: coarse)").matches;
+        const phoneChart = isPhoneChartViewport();
         instance = new vela.Vela(
           container.current,
           {

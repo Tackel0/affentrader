@@ -13,6 +13,17 @@ export function bindOrderLineEditor(cell:string,editor:(review:OrderLineReview)=
 export function registerChartOrderLines(){
   registerRendererLayer({id:"af-order-controls",placement:"above-data",create:()=>{
     let canvas:HTMLCanvasElement|undefined,root:HTMLDivElement|undefined,last:RendererLayerArgs|undefined,off:(()=>void)|undefined,frame=0;
+    let parkedSize:{width:number;height:number}|undefined;
+    const setBackingSize=(element:HTMLCanvasElement,width:number,height:number)=>{
+      if(element.width!==width)element.width=width;
+      if(element.height!==height)element.height=height;
+    };
+    const parkBacking=(element:HTMLCanvasElement)=>{
+      if(element.width>0&&element.height>0){
+        parkedSize={width:element.width,height:element.height};
+        setBackingSize(element,0,0);
+      }
+    };
     type Review=OrderLineReview&{line:OrderLinePlacement};
     type Row={element:HTMLDivElement;edit:HTMLButtonElement;cancel:HTMLButtonElement;review:Review;gesture?:{review:Review;pointer:number;start:number;delta:number}};
     const rows=new Map<string,Row>();
@@ -23,11 +34,12 @@ export function registerChartOrderLines(){
       ctx?.clearRect(0, 0, element.width, element.height);
     };
     const hide = (element: HTMLCanvasElement, container: HTMLDivElement) => {
-      if (!rows.size) return;
+      if (!rows.size) { parkBacking(element); return; }
       container.hidden = true;
       for (const row of rows.values()) row.element.remove();
       rows.clear();
       clear(element.getContext("2d"), element);
+      parkBacking(element);
     };
     const render=(args:RendererLayerArgs)=>{
       last=args;if(!canvas||!root)return;
@@ -43,6 +55,10 @@ export function registerChartOrderLines(){
       const lines = placeOrderLines(levels, price => args.coords.priceToY(price, args.scale, args.bounds), args.bounds.top, args.bounds.height);
       if (!lines.length) { hide(canvas, root); return; }
       const host=canvas.closest<HTMLElement>("[data-vela-cell]");if(!host)return;
+      if (parkedSize) {
+        if (canvas.width === 0 && canvas.height === 0) setBackingSize(canvas, parkedSize.width, parkedSize.height);
+        parkedSize = undefined;
+      }
       const ctx = canvas.getContext("2d");
       clear(ctx, canvas);
       if (root.hidden) root.hidden = false;
@@ -74,6 +90,21 @@ export function registerChartOrderLines(){
       }
       ctx?.restore();
     };
-    return{mount:(element:HTMLCanvasElement)=>{canvas=element;const host=element.closest<HTMLElement>("[data-vela-cell]");if(!host)return;root=document.createElement("div");root.className="chart-order-lines";root.hidden=true;(host.parentElement??host).append(root);off=usePaperStore.subscribe((state,previous)=>{if(state.live===previous.live&&state.replay===previous.replay&&state.mode===previous.mode&&state.contextEpoch===previous.contextEpoch)return;if(!frame)frame=requestAnimationFrame(()=>{frame=0;if(last)render(last);});});},render,destroy:()=>{off?.();if(frame)cancelAnimationFrame(frame);root?.remove();rows.clear();cachedOrders=undefined;levels=[];last=undefined;canvas=undefined;root=undefined;}};
+    return{
+      mount:(element:HTMLCanvasElement)=>{
+        canvas=element;
+        parkedSize={width:element.width,height:element.height};
+        setBackingSize(element,0,0);
+        const host=element.closest<HTMLElement>("[data-vela-cell]");if(!host)return;
+        root=document.createElement("div");root.className="chart-order-lines";root.hidden=true;(host.parentElement??host).append(root);
+        off=usePaperStore.subscribe((state,previous)=>{if(state.live===previous.live&&state.replay===previous.replay&&state.mode===previous.mode&&state.contextEpoch===previous.contextEpoch)return;if(!frame)frame=requestAnimationFrame(()=>{frame=0;if(last)render(last);});});
+      },
+      resizeBacking:(width:number,height:number)=>{
+        if(parkedSize)parkedSize={width,height};
+        else if(canvas)setBackingSize(canvas,width,height);
+      },
+      render,
+      destroy:()=>{off?.();if(frame)cancelAnimationFrame(frame);root?.remove();rows.clear();cachedOrders=undefined;levels=[];last=undefined;parkedSize=undefined;canvas=undefined;root=undefined;},
+    };
   }});
 }

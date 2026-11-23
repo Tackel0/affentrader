@@ -488,6 +488,11 @@ export function registerOrderflowSignalPlugins({ studyTrades, subscribeTicks, re
           pill(ctx, x, badgeY, sig.label, "rgba(15,23,42,0.92)", stroke, stroke, placedBadges, minY, maxY);
         }
         ctx.restore();
+      }, (args, cell) => {
+        const next = (args.data as OverlayChannel<{ showAbsorption?: boolean; showExhaustion?: boolean }> | null) ?? null;
+        if (next && args.bars.length > 0 && sameChannelContext(next, cell)) return true;
+        if (channel) { channel.repaint = undefined; channel = null; }
+        return false;
       });
     },
   });
@@ -638,6 +643,11 @@ export function registerOrderflowSignalPlugins({ studyTrades, subscribeTicks, re
           pill(ctx, x2, badgeY, label, "rgba(15,23,42,0.92)", color, color, placedBadges, minY, maxY);
         }
         ctx.restore();
+      }, (args, cell) => {
+        const next = (args.data as OverlayChannel<{ pivotRadius?: number; bullColor?: string; bearColor?: string }> | null) ?? null;
+        if (next && args.bars.length >= 7 && sameChannelContext(next, cell)) return true;
+        if (channel) { channel.repaint = undefined; channel = null; }
+        return false;
       });
     },
   });

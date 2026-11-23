@@ -3,8 +3,8 @@ import type {OrderBook} from "@/types/trading";
 import {setPositionProtection,type PositionExitLevel,type ProtectionResult} from "@/lib/trading/protection";
 import {executableQuote,liquidationPrices,type ExecutableQuote} from "@/lib/trading/quotes";
 import { create } from "zustand";
-import { createJSONStorage,persist } from "zustand/middleware";
-import {assertPaperTransaction,paperRawStorage,PAPER_STORAGE_KEY,validPaperAccount} from "@/lib/trading/paperPersistence";
+import { createJSONStorage,persist,type PersistStorage } from "zustand/middleware";
+import {assertPaperTransaction,isPaperPersistenceBuffering,paperRawStorage,PAPER_STORAGE_KEY,validPaperAccount} from "@/lib/trading/paperPersistence";
 import {readPaperTicket,savePaperTicket} from "@/lib/trading/ticketPreferences";
 import {processReplayUpdate} from "@/lib/trading/replay";
 import {paperSampleSource,type PaperExecutionSource} from "@/lib/trading/executionSource";
@@ -218,7 +218,19 @@ export const usePaperStore = create<PaperState>()(
       name: PAPER_STORAGE_KEY,
       version:1,
       migrate:persisted=>persisted as {live:Account},
-      storage:createJSONStorage(()=>paperRawStorage),
+      storage:(() => {
+        const inner = createJSONStorage<{ live: Account }>(() => paperRawStorage);
+        if (!inner) return undefined;
+        const guarded: PersistStorage<{ live: Account }> = {
+          getItem: (name) => inner.getItem(name),
+          setItem: (name, value) => {
+            if (!isPaperPersistenceBuffering()) return;
+            return inner.setItem(name, value);
+          },
+          removeItem: (name) => inner.removeItem(name),
+        };
+        return guarded;
+      })(),
       partialize: (s) => ({ live: s.live }),
       merge:(persisted,current)=>({...current,...(persisted&&typeof persisted==="object"&&"live" in persisted?{live:persisted.live as Account}:{})}),
     },

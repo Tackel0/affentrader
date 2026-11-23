@@ -226,6 +226,11 @@ export function registerOrderflowPlugins() {
           ctx.globalAlpha = 1; ctx.fillStyle = args.theme.textColor; ctx.font = "10px sans-serif"; ctx.textAlign = "left";
           ctx.fillText(message, 8, args.bounds.top + args.bounds.height - 12, Math.max(10, args.coords.width - 16));
         }
+      }, (args) => {
+        if (args.data) return true;
+        if (channel) { channel.repaint = undefined; channel = undefined; }
+        clearStudyNotice(owner);
+        return false;
       });
       return { ...layer, destroy() { clearStudyNotice(owner); if (channel) channel.repaint = undefined; layer.destroy(); } };
     } });
@@ -253,6 +258,10 @@ export function registerOrderflowPlugins() {
         ctx.globalAlpha = 1; ctx.fillStyle = args.theme.textColor; ctx.font = "10px sans-serif"; ctx.textAlign = "left";
         ctx.fillText(message, 8, args.bounds.top + args.bounds.height - 10, Math.max(10, args.coords.width - 16));
       }
+    }, (args) => {
+      if (args.data) return true;
+      if (channel) { channel.repaint = undefined; clearStudyNotice(channel); channel = undefined; }
+      return false;
     });
     return { ...layer, destroy() { if (channel) { channel.repaint = undefined; clearStudyNotice(channel); } channel = undefined; layer.destroy(); } };
   } });
@@ -289,6 +298,10 @@ export function registerOrderflowPlugins() {
         ctx.globalAlpha = 1; ctx.fillStyle = args.theme.textColor; ctx.font = "10px sans-serif"; ctx.textAlign = "left";
         ctx.fillText(message, 8, args.bounds.top + args.bounds.height - 14, Math.max(10, args.coords.width - 16));
       }
+    }, (args) => {
+      if (args.data) return true;
+      if (channel) { clearStudyNotice(channel); channel.repaint = undefined; channel = undefined; }
+      return false;
     });
     return { ...layer, destroy() { if (channel) { clearStudyNotice(channel); channel.repaint = undefined; } channel = undefined; layer.destroy(); } };
   } });
@@ -329,6 +342,15 @@ export function registerOrderflowPlugins() {
             cells => publishDepthSurface(cell.id, { owner: channel!, identity, cells }));
         else clearStudyNotice(channel);
       }
+    }, (args) => {
+      if (args.data) return true;
+      if (channel) {
+        channel.repaint = undefined;
+        clearStudyNotice(channel);
+        if (cellId) clearDepthSurface(cellId, channel);
+        channel = undefined;
+      }
+      return false;
     });
     return { ...layer, destroy() { if (channel) { channel.repaint = undefined; clearStudyNotice(channel); if (cellId) clearDepthSurface(cellId, channel); } channel = undefined; layer.destroy(); } };
   } });
@@ -349,6 +371,11 @@ export function registerOrderflowPlugins() {
         epoch: useChartStore.getState().marketEpochs[current.symbol] ?? 0, sourceStamp: rangeProfileSourceStamp(current.symbol, current.timeframe),
         viewport: to >= from ? { from: args.coords.logicalToTime(from), to: args.coords.logicalToTime(to) } : null });
       publishedCell = current.id;
+    }, (args) => {
+      if (args.data) return true;
+      clear();
+      clearExecutionRangeWatch(cache);
+      return false;
     });
     return { ...layer, mount(element) { canvas = element; layer.mount(element); }, destroy() { clear(); clearExecutionRangeWatch(cache); canvas = undefined; layer.destroy(); } };
   } });
@@ -727,6 +754,13 @@ export function registerOrderflowPlugins() {
             publishSessionProfileSurface(cell.id, token, { context: channel.context, payload: {...channel.current,pocExtensions} });
           } else routeStudyNotice(noticeOwner, cell, profileTitle, "Waiting for the profile of the current market and source. No stale profile is displayed.");
         } else routeStudyNotice(noticeOwner, cell, profileTitle, "Waiting for the profile at the current source and Replay boundary. Load recorded executions for Replay; gaps remain unknown."); } else clearStudyNotice(noticeOwner);
+      }, (args) => {
+        if (args.data) return true;
+        if (cellId) clearSessionProfileSurface(cellId, token);
+        if (channel?.repaint === repaint) channel.repaint = undefined;
+        channel = undefined;
+        clearStudyNotice(noticeOwner);
+        return false;
       });
       return { ...layer, destroy() { clearStudyNotice(noticeOwner); if (cellId) clearSessionProfileSurface(cellId, token); if (channel?.repaint === repaint) channel.repaint = undefined; layer.destroy(); } };
     },

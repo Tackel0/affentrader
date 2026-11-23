@@ -10,7 +10,7 @@ import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
 export function useReplayDepthCapture() {
   useEffect(() => {
     const isPhone = typeof window !== "undefined" && typeof window.matchMedia === "function"
-      && window.matchMedia("(max-width: 768px) and (pointer: coarse)").matches;
+      && window.matchMedia("(max-width: 768px) and (pointer: coarse), (max-width: 1024px) and (max-height: 520px) and (pointer: coarse)").matches;
     let mounted = true;
     let writing = false;
     let active = !isPhone || Boolean(replayDepth.recording);

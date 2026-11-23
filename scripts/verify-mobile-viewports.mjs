@@ -1590,11 +1590,14 @@ async function run() {
           const tools = document.querySelector('.phone-chart-actions')?.getBoundingClientRect();
           const controls = [...document.querySelectorAll('.phone-chart-actions > button, .phone-chart-actions > .toolbar-popover-host > button, .phone-chart-actions > .toolbar-mobile-overflow > button')]
             .filter(button => button.getClientRects().length > 0);
+          const sizedCanvases = [...document.querySelectorAll('.vela-container canvas')]
+            .filter(canvas => canvas.width > 0 && canvas.height > 0);
           return chart?.top <= 1 && chart?.height >= innerHeight * .88
             && tools?.top >= chart.bottom - 1 && Math.abs(tools.bottom - innerHeight) <= 1
             && controls.length === 5
+            && sizedCanvases.length >= 1 && sizedCanvases.length <= 7
             && !document.querySelector('.phone-workspace-header, nav.utility-rail, .bottom-panel, .range-toolbar, .chart-trading-controls');
-        })()`, `${vp.name} starts edge-to-edge at top with a single minimal 5-control bottom bar`);
+        })()`, `${vp.name} starts edge-to-edge at top with a single minimal 5-control bottom bar and parked idle canvases`);
       }
       if (vp.width === 390 && !opts.liveApis && strategyChunks.length) {
         activeLabel = "strategy tester on-demand loading";

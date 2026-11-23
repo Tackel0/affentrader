@@ -28,6 +28,7 @@ export const paperRawStorage:StateStorage={
   removeItem(name){if(!buffering)throw new Error("Paper account removal requires a write transaction.");backing()?.removeItem(name);observed=null;},
 };
 export const paperSnapshotChanged=()=>(backing()?.getItem(PAPER_STORAGE_KEY)??null)!==observed;
+export const isPaperPersistenceBuffering=()=>buffering;
 export const assertPaperTransaction=()=>{if(!buffering)throw new Error("Shared paper account changes require a serialized command.");};
 export function beginPaperPersistence(){
   if(buffering)throw new Error("Nested paper account transactions are not supported.");buffering=true;pending=undefined;

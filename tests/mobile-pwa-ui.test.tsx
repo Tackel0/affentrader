@@ -698,4 +698,19 @@ describe("Mobile PWA & Touch UI regressions", () => {
     fireEvent.click(within(bar).getByRole("button", { name: "Main menu" }));
     expect(within(document.body).getByRole("button", { name: "Konto erstellen" })).toBeTruthy();
   });
+
+  it("skips JSON serialization in usePaperStore during live observePrice and observeBook ticks", async () => {
+    const { isPaperPersistenceBuffering } = await import("@/lib/trading/paperPersistence");
+    expect(isPaperPersistenceBuffering()).toBe(false);
+    const stringifySpy = vi.spyOn(JSON, "stringify");
+    usePaperStore.getState().observePrice("BTCUSDT", 91_500, false);
+    usePaperStore.getState().observeBook({
+      symbol: "BTCUSDT",
+      bids: [{ price: 91_499, quantity: 1.5 }],
+      asks: [{ price: 91_501, quantity: 1.2 }],
+      time: Date.now(),
+      simulated: false,
+    });
+    expect(stringifySpy).not.toHaveBeenCalled();
+  });
 });

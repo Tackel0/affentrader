@@ -76,14 +76,18 @@ type CloseListener = (
 /** Above this many quote-only symbols one all-market ticker stream is cheaper. */
 const INDIVIDUAL_TICKER_LIMIT = 150;
 const TRADE_WINDOW_SIZE = 5000;
-const MOBILE_TRADE_WINDOW_SIZE = 600;
+const MOBILE_TRADE_WINDOW_SIZE = 400;
 const MOBILE_TRADE_DISPLAY_MS = 250;
 const MOBILE_QUOTE_FLUSH_MS = 350;
+const MOBILE_SELECTED_QUOTE_FLUSH_MS = 120;
 const MOBILE_BOOK_FLUSH_MS = 250;
+const MOBILE_SEEN_LIMIT = 2000;
+const MOBILE_HISTORY_CACHE_LIMIT = 6;
+const MOBILE_TAPE_CACHE_LIMIT = 4;
 
 function isCompactTouchRuntime(): boolean {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
-  return window.matchMedia("(max-width: 768px) and (pointer: coarse)").matches;
+  return window.matchMedia("(max-width: 768px) and (pointer: coarse), (max-width: 1024px) and (max-height: 520px) and (pointer: coarse)").matches;
 }
 
 function isDocumentHidden(): boolean {
@@ -310,9 +314,76 @@ export class MarketService {
   private lastTradeDisplayAt = 0;
   private deferredQuotes = new Map<string, Quote>();
   private deferredQuoteTimer: ReturnType<typeof setTimeout> | null = null;
+  private deferredSelectedQuote: { quote: Quote; markLive: boolean } | null = null;
+  private deferredSelectedQuoteTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastSelectedQuoteFlushAt = 0;
+  private deferredBars = new Map<string, OHLCV>();
+  private deferredBarFrame: number | null = null;
   private deferredBook: OrderBook | null = null;
   private deferredBookTimer: ReturnType<typeof setTimeout> | null = null;
   private lastBookFlushAt = 0;
+
+  private flushDeferredSelectedQuote(epoch: number) {
+    this.deferredSelectedQuoteTimer = null;
+    const queued = this.deferredSelectedQuote;
+    this.deferredSelectedQuote = null;
+    if (!queued || epoch !== this.generation) return;
+    if (typeof document !== "undefined" && document.hidden) return;
+    const state = useChartStore.getState();
+    this.lastSelectedQuoteFlushAt = Date.now();
+    state.set({
+      quotes: { ...state.quotes, [queued.quote.symbol]: queued.quote },
+      ...(queued.markLive && state.feedStatus !== "live" ? { feedStatus: "live" as const } : {}),
+    });
+    if (epoch !== this.generation) return;
+    this.publish("quote", this.quoteListeners, queued.quote);
+  }
+
+  private scheduleBarPublish(key: string, bar: OHLCV, epoch: number) {
+    if (!this.barListeners.get(key)?.size) return;
+    this.deferredBars.set(key, bar);
+    if (this.deferredBarFrame !== null) return;
+    this.deferredBarFrame = requestAnimationFrame(() => {
+      this.deferredBarFrame = null;
+      if (epoch !== this.generation || !this.deferredBars.size) {
+        this.deferredBars.clear();
+        return;
+      }
+      if (typeof document !== "undefined" && document.hidden) {
+        this.deferredBars.clear();
+        return;
+      }
+      const batch = [...this.deferredBars.entries()];
+      this.deferredBars.clear();
+      for (const [seriesKey, latest] of batch) {
+        if (epoch !== this.generation) break;
+        this.publish("bar", this.barListeners.get(seriesKey), latest);
+      }
+    });
+  }
+
+  private pruneMobileCaches() {
+    if (!isCompactTouchRuntime()) return;
+    const activeSymbol = useChartStore.getState().symbol;
+    const activeTimeframe = useChartStore.getState().timeframe;
+    const activeKey = `${activeSymbol}:${activeTimeframe}`;
+    if (this.histories.size > MOBILE_HISTORY_CACHE_LIMIT) {
+      for (const key of this.histories.keys()) {
+        if (this.histories.size <= MOBILE_HISTORY_CACHE_LIMIT) break;
+        if (key === activeKey || (this.barListeners.get(key)?.size ?? 0) > 0) continue;
+        this.histories.delete(key);
+        this.liveHistory.delete(key);
+        this.historySources.delete(key);
+      }
+    }
+    if (this.tradesBySymbol.size > MOBILE_TAPE_CACHE_LIMIT) {
+      for (const sym of this.tradesBySymbol.keys()) {
+        if (this.tradesBySymbol.size <= MOBILE_TAPE_CACHE_LIMIT) break;
+        if (sym === activeSymbol || this.symbols.includes(sym)) continue;
+        this.tradesBySymbol.delete(sym);
+      }
+    }
+  }
 
   private flushDeferredQuotes(epoch: number) {
     this.deferredQuoteTimer = null;
@@ -1143,7 +1214,8 @@ export class MarketService {
         this.lastTraffic = now;
         if (this.seen.has(tick.id)) return;
         this.seen.set(tick.id, tick.time);
-        if (this.seen.size > 10000) this.seen.delete(this.seen.keys().next().value!);
+        const seenLimit = isCompactTouchRuntime() ? MOBILE_SEEN_LIMIT : 10000;
+        if (this.seen.size > seenLimit) this.seen.delete(this.seen.keys().next().value!);
         this.live.set(symbol, now);
         const state = useChartStore.getState();
         if (symbol === state.symbol && state.feedStatus !== "live") state.set({ feedStatus: "live" });
@@ -1866,6 +1938,22 @@ export class MarketService {
       if (!this.deferredQuoteTimer) {
         this.deferredQuoteTimer = setTimeout(() => this.flushDeferredQuotes(epoch), MOBILE_QUOTE_FLUSH_MS);
       }
+    } else if (isCompactTouchRuntime() && !simulated && prev && prev.simulated === simulated) {
+      const now = Date.now();
+      if (now - this.lastSelectedQuoteFlushAt >= MOBILE_SELECTED_QUOTE_FLUSH_MS && !this.deferredSelectedQuoteTimer) {
+        this.lastSelectedQuoteFlushAt = now;
+        state.set({
+          quotes: { ...state.quotes, [symbol]: quote },
+          ...(markLive ? { feedStatus: "live" as const } : {}),
+        });
+        if (epoch !== this.generation) return;
+        if (!this.publish("quote", this.quoteListeners, quote)) return;
+      } else {
+        this.deferredSelectedQuote = { quote, markLive: markLive || Boolean(this.deferredSelectedQuote?.markLive) };
+        if (!this.deferredSelectedQuoteTimer) {
+          this.deferredSelectedQuoteTimer = setTimeout(() => this.flushDeferredSelectedQuote(epoch), MOBILE_SELECTED_QUOTE_FLUSH_MS);
+        }
+      }
     } else {
       state.set({
         quotes: { ...state.quotes, [symbol]: quote },
@@ -1921,12 +2009,14 @@ export class MarketService {
       !tick.simulated && (provider === "hyperliquid" || provider === "kraken" || provider === "bybit") ? { basis: "trade", time: tick.time } : undefined,
     );
     if (epoch !== this.generation) return;
+    const compactTouch = isCompactTouchRuntime();
     let tape = this.tradesBySymbol.get(tick.symbol);
     if (!tape) {
       tape = new RecentTrades();
       const fallback = this.tradesBySymbol.get(stripVenue(tick.symbol))?.snapshot();
       if (fallback) for (let index = fallback.length - 1; index >= 0; index--) tape.push(fallback[index]);
       this.tradesBySymbol.set(tick.symbol, tape);
+      if (compactTouch) this.pruneMobileCaches();
     }
     tape.push(tick);
     const source = tick.simulated ? "simulation" : "exchange";
@@ -1956,6 +2046,15 @@ export class MarketService {
     const krakenLiveFrom = this.krakenLiveFrom.get(tick.symbol);
     for (const timeframe of this.frames()) {
       const key = `${tick.symbol}:${timeframe}`;
+      if (
+        compactTouch &&
+        !tick.simulated &&
+        !(selected && timeframe === sourceState.timeframe) &&
+        !(this.barListeners.get(key)?.size) &&
+        !this.histories.has(key)
+      ) {
+        continue;
+      }
       if (!tick.simulated && (this.hlCandleSeries.has(key) ||
         tick.time < (this.krakenClosedThrough.get(key) ?? -Infinity))) continue;
       const bars = this.histories.get(key) ?? [];
@@ -1964,11 +2063,18 @@ export class MarketService {
       this.historySources.set(key, tick.simulated);
       if (!tick.simulated && this.krakenGaps.has(key)) continue;
       const bar = next.bars.at(-1);
-      if (bar && !this.publish("bar", this.barListeners.get(key), bar)) {
-        if (Object.keys(pendingPatch).length > 0 && epoch === this.generation) {
-          useChartStore.getState().set(pendingPatch);
+      if (bar) {
+        if (compactTouch && !tick.simulated && !next.closed && typeof requestAnimationFrame === "function") {
+          this.scheduleBarPublish(key, bar, epoch);
+        } else {
+          this.deferredBars.delete(key);
+          if (!this.publish("bar", this.barListeners.get(key), bar)) {
+            if (Object.keys(pendingPatch).length > 0 && epoch === this.generation) {
+              useChartStore.getState().set(pendingPatch);
+            }
+            return;
+          }
         }
-        return;
       }
       // Unrequested Kraken intervals also aggregate trades. Only buckets observed
       // from their start may close live after a reconnect, even without REST repair.
@@ -2174,6 +2280,7 @@ export class MarketService {
     end?: number,
   ): Promise<OHLCV[]> {
     this.track(timeframe);
+    this.pruneMobileCaches();
     if (this.mode !== "simulation" && providerOf(symbol) === "alpaca") return this.iexHistory(symbol, timeframe, count, end);
     count = Math.max(1, Math.min(MAX_HISTORY_BARS, Math.floor(count)));
     if (this.mode !== "simulation" && providerOf(symbol) === "kraken") {
