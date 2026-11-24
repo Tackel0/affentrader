@@ -25,6 +25,7 @@ export function DrawingRail({
   closeRef.current = onRequestClose;
   const phoneRef = useRef(phone);
   phoneRef.current = phone;
+  const stayExplicitRef = useRef(false);
   const [owner, setOwner] = useState<Vela | null>(null), [ready, setReady] = useState(false), [error, setError] = useState("");
   const [collapsed, setCollapsed] = useState(false);
   const preferences = useChartStore(s => s.drawingPreferences), drawing = useChartStore(s => s.drawing);
@@ -38,9 +39,27 @@ export function DrawingRail({
       const rail = new vela.DrawingToolbar(host.current, chartTheme(useWorkspaceStore.getState().theme),
         type => {
           const state = useChartStore.getState();
-          if (type === null) getPrimaryChart()?.drawings.setMode(null);
-          state.set({ drawing: type ?? "cursor" });
-          if (phoneRef.current && type !== null) closeRef.current?.();
+          if (type === null) {
+            getPrimaryChart()?.drawings.setMode(null);
+            getPrimaryChart()?.drawings.setTool(null);
+            state.set({
+              drawing: "cursor",
+              ...(state.drawingPreferences.stay
+                ? { drawingPreferences: { ...state.drawingPreferences, stay: false } }
+                : {}),
+            });
+            if (phoneRef.current) closeRef.current?.();
+            return;
+          }
+          const clearStaleStay =
+            phoneRef.current && !stayExplicitRef.current && state.drawingPreferences.stay;
+          state.set({
+            drawing: type,
+            ...(clearStaleStay
+              ? { drawingPreferences: { ...state.drawingPreferences, stay: false } }
+              : {}),
+          });
+          if (phoneRef.current) closeRef.current?.();
         },
         snap => useChartStore.getState().set({ drawingPreferences: { ...useChartStore.getState().drawingPreferences, snap } }),
         () => {
@@ -60,7 +79,10 @@ export function DrawingRail({
           if (on) favorites.push(type);
           state.set({ drawingPreferences: { ...state.drawingPreferences, favorites } });
         },
-        stay => useChartStore.getState().set({ drawingPreferences: { ...useChartStore.getState().drawingPreferences, stay } }),
+        stay => {
+          stayExplicitRef.current = stay;
+          useChartStore.getState().set({ drawingPreferences: { ...useChartStore.getState().drawingPreferences, stay } });
+        },
         { dock: "static", width: phoneRef.current ? 48 : 52, onCollapse: setCollapsed },
       );
       rail.setDefinition(definition);

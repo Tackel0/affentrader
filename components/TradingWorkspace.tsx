@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { createWorkspaceBackup, restoreWorkspaceText } from "@/lib/workspaceBackup";
 import { useMarketData } from "@/hooks/useMarketData";
+import { getPrimaryChart } from "@/hooks/useVelaChart";
 import { useChartStore } from "@/stores/useChartStore";
 
 import { useAlertStore } from "@/stores/useAlertStore";
@@ -99,7 +100,9 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
     status = useChartStore((s) => s.feedStatus),
     sidebar = useChartStore((s) => s.sidebarTab),
     bottomOpen = useChartStore((s) => s.bottomOpen),
-    bottomTab = useChartStore((s) => s.bottomTab);
+    bottomTab = useChartStore((s) => s.bottomTab),
+    activeDrawing = useChartStore((s) => s.drawing),
+    stayDrawing = useChartStore((s) => s.drawingPreferences.stay);
   const activeAlertCount = useAlertStore((s) => s.alerts.filter((a) => a.status === "active").length);
   const theme = useWorkspaceStore((s) => s.theme);
   useEffect(() => {
@@ -318,6 +321,28 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
             onRequestClose={phoneChart ? () => setDrawingToolsOpen(false) : undefined}
           />
         )}
+        {phoneChart && (activeDrawing !== "cursor" || stayDrawing) ? (
+          <button
+            type="button"
+            className="phone-active-tool-pill"
+            aria-label="Zeichenmodus beenden"
+            onClick={() => {
+              const chart = getPrimaryChart();
+              chart?.drawings.setTool(null);
+              chart?.drawings.setMode(null);
+              const state = useChartStore.getState();
+              state.set({
+                drawing: "cursor",
+                ...(state.drawingPreferences.stay
+                  ? { drawingPreferences: { ...state.drawingPreferences, stay: false } }
+                  : {}),
+              });
+            }}
+          >
+            <span>{stayDrawing ? "Dauer-Zeichnen · Aus" : "Zeichnen aktiv · Fertig"}</span>
+            <X size={14} aria-hidden="true" />
+          </button>
+        ) : null}
         <div className="center-workspace">
           <ModuleErrorBoundary moduleName="Chart Grid">
             <ChartGrid tradingControls={!phoneChart || phoneTradingOpen} compactLayout={compactLayout ? {

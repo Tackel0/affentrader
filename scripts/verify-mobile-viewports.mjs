@@ -1861,6 +1861,9 @@ async function run() {
         recordAudit(vp, "/ drawing tools flyout open", await inspectViewportDom(cdp, true));
         await tapWorkspaceTarget(cdp, '#workspace-drawing-tools .vela-dtb-flyout .vela-dtb-item', 36);
         await waitForPagePredicate(cdp, '!document.querySelector("#workspace-drawing-tools")', "selecting tool from phone flyout closes rail for unobstructed drawing");
+        await waitForPagePredicate(cdp, '!!document.querySelector(".phone-active-tool-pill")', "active drawing disarm pill appears while tool is armed");
+        await tapWorkspaceTarget(cdp, ".phone-active-tool-pill", 36);
+        await waitForPagePredicate(cdp, '!document.querySelector(".phone-active-tool-pill")', "tapping active drawing pill disarms tool cleanly");
         await tapWorkspaceTarget(cdp, ".phone-drawing-toggle", 36);
         await waitForPagePredicate(cdp, '!!document.querySelector("#workspace-drawing-tools")', "phone drawing tools reopen via dock toggle");
         await tapWorkspaceTarget(cdp, ".phone-drawing-toggle", 36);

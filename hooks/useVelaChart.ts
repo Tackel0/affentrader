@@ -295,6 +295,20 @@ export function useVelaChart(container: RefObject<HTMLDivElement | null>) {
           }),
         );
         off.push(
+          instance.on("drawing:created", () => {
+            if (restoringDrawings.current) return;
+            queueMicrotask(() => {
+              if (disposed || !instance) return;
+              const state = useChartStore.getState();
+              if (state.drawingPreferences.stay) return;
+              if (instance.drawings.getTool() !== null) instance.drawings.setTool(null);
+              if (useChartStore.getState().drawing !== "cursor") {
+                useChartStore.getState().set({ drawing: "cursor" });
+              }
+            });
+          }),
+        );
+        off.push(
           instance.on("indicator:error", (e) => {
             const id = [...indicatorHandles].find(
               ([, h]) => h.id === e.id,
@@ -378,7 +392,16 @@ export function useVelaChart(container: RefObject<HTMLDivElement | null>) {
         if (saved) instance.drawings.fromJSON(saved);
         restoringDrawings.current = false;
         const current = useChartStore.getState();
-        current.set({ drawingsVersion: current.drawingsVersion + 1 });
+        const isPhoneTouch =
+          typeof window !== "undefined" &&
+          window.innerWidth <= 768 &&
+          window.matchMedia?.("(pointer: coarse)").matches;
+        current.set({
+          drawingsVersion: current.drawingsVersion + 1,
+          ...(isPhoneTouch && current.drawingPreferences.stay
+            ? { drawingPreferences: { ...current.drawingPreferences, stay: false } }
+            : {}),
+        });
         off.push(bindDrawingPreferences(instance, {
           read: () => useChartStore.getState().drawingPreferences,
           write: drawingPreferences => useChartStore.getState().set({ drawingPreferences }),
