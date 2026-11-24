@@ -290,6 +290,65 @@ describe("NoiseMeter empirical engine", () => {
     });
     expect(coreOnly.useExtraFactors).toBe(false);
     expect(coreOnly.greenProb + coreOnly.redProb).toBeCloseTo(100, 1);
+
+    // Expected next-day volatility sanity checks
+    const vol = bullForecast.expectedVolatility;
+    expect(vol.expectedAbsMovePct).toBeGreaterThan(0);
+    expect(vol.expectedRangePct).toBeGreaterThan(0);
+    expect(vol.expectedTrueRangePct).toBeGreaterThanOrEqual(vol.expectedAbsMovePct);
+    expect(vol.expectedTrueRangePct).toBeGreaterThanOrEqual(vol.expectedRangePct);
+    expect(vol.expectedRangeP80Pct).toBeGreaterThanOrEqual(vol.expectedRangePct);
+    expect(vol.expectedPriceLow).toBeLessThan(vol.projectedPrice);
+    expect(vol.expectedPriceHigh).toBeGreaterThan(vol.projectedPrice);
+    expect(vol.probMoveOver1Pct).toBeGreaterThanOrEqual(vol.probMoveOver2Pct);
+    expect(vol.probMoveOver2Pct).toBeGreaterThanOrEqual(vol.probMoveOver3Pct);
+    expect(vol.volRatioVsAtr).toBeGreaterThan(0);
+  });
+
+  it("scales expected next-day volatility accurately between calm and high-volatility regimes", () => {
+    const buildVolBars = (amplitudePct: number): NoiseDayBar[] => {
+      const dates = makeWeekdayDates(120, "2024-01-02");
+      const bars: NoiseDayBar[] = [];
+      let prev = 300;
+      for (let i = 0; i < dates.length; i++) {
+        const dir = i % 2 === 0 ? 1 : -1;
+        const pctMove = dir * amplitudePct;
+        const open = Number((prev * (1 + (pctMove * 0.25) / 100)).toFixed(4));
+        const close = Number((prev * (1 + pctMove / 100)).toFixed(4));
+        const span = Math.max(0.2, amplitudePct * 0.45);
+        const high = Number((Math.max(open, close) * (1 + span / 100)).toFixed(4));
+        const low = Number((Math.min(open, close) * (1 - span / 100)).toFixed(4));
+        bars.push({ session: dates[i], open, high, low, close, volume: 20_000_000 });
+        prev = close;
+      }
+      return bars;
+    };
+
+    const calmDs = buildNoiseDataset(buildVolBars(0.45));
+    const wildDs = buildNoiseDataset(buildVolBars(3.2));
+
+    const calmFc = evaluateNextDayForecast(calmDs, {
+      priorStreakDays: 2,
+      priorStreakDirection: "red",
+      streakBasis: "close",
+      todayMovePct: 0.5,
+    });
+    const wildFc = evaluateNextDayForecast(wildDs, {
+      priorStreakDays: 2,
+      priorStreakDirection: "red",
+      streakBasis: "close",
+      todayMovePct: 3.5,
+    });
+
+    expect(wildFc.expectedVolatility.expectedAbsMovePct).toBeGreaterThan(
+      calmFc.expectedVolatility.expectedAbsMovePct * 3,
+    );
+    expect(wildFc.expectedVolatility.expectedRangePct).toBeGreaterThan(
+      calmFc.expectedVolatility.expectedRangePct * 3,
+    );
+    expect(wildFc.expectedVolatility.probMoveOver2Pct).toBeGreaterThan(
+      calmFc.expectedVolatility.probMoveOver2Pct + 40,
+    );
   });
 
   it("evaluates OddStats-style -5% -> +5% shock patterns with 100% bear-market incidence and further drop to bottom", () => {
@@ -342,6 +401,9 @@ describe("NoiseMeter empirical engine", () => {
     expect(study.minFurtherDropPct).not.toBeNull();
     expect(study.minFurtherDropPct!).toBeLessThanOrEqual(-10);
     expect(study.worstFurtherDropPct!).toBeLessThan(study.minFurtherDropPct!);
+    expect(study.nextDayVol.sampleSize).toBe(2);
+    expect(study.nextDayVol.avgAbsMovePct).toBeGreaterThan(0);
+    expect(study.nextDayVol.avgRangePct).toBeGreaterThan(0);
     expect(study.horizons).toHaveLength(6);
     expect(study.headline).toContain("QQQ");
     expect(study.headline).toContain("genau 2-mal");
@@ -431,7 +493,7 @@ describe("NoiseMeterPanel & ResearchTerminal UI", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders KPIs and recomputes live on 7-red-candle, Close-basis toggle, and tab interactions without refetching", async () => {
+  it("renders executive overview, expected next-day volatility, and 3 primary tabs with zero refetches", async () => {
     const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
     const { container } = render(<NoiseMeterPanel initialTicker="SPY" />);
 
@@ -440,24 +502,22 @@ describe("NoiseMeterPanel & ResearchTerminal UI", () => {
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(container.textContent).toContain("SPDR S&P 500 ETF Trust");
-    expect(container.textContent).toContain("Historischer Muster-Scanner");
+    expect(container.querySelectorAll(".noise-exec-tile")).toHaveLength(3);
+
+    // Default active primary view: Morgen & Vola (T+1 + Expected Volatility)
     expect(container.textContent).toContain("Morgen-Wahrscheinlichkeit (T+1)");
-    expect(container.textContent).toContain("Gap-Close-Chance (Intraday)");
+    expect(container.textContent).toContain("Erwartete Volatilität morgen (T+1)");
+    expect(container.querySelector(".noise-vol-box")).not.toBeNull();
     expect(container.querySelectorAll(".noise-recent-day").length).toBeGreaterThan(0);
     expect(container.querySelectorAll(".noise-t1-factor")).toHaveLength(4);
 
     // Select 7T + Rot in default Kerzen (C vs O) mode and test +5,0% relief rally today
     const panel = within(container);
     expect(panel.getByRole("button", { name: "Max" }).getAttribute("aria-pressed")).toBe("true");
-    fireEvent.click(panel.getByRole("button", { name: "−5 % → +5 %" }));
-    expect(container.textContent).toContain("Tag −1 ≤ −5,0 % → Tag 0 ≥ +5,0 %");
     fireEvent.click(panel.getByRole("button", { name: "Rot" }));
     fireEvent.click(panel.getByRole("button", { name: "7T" }));
     fireEvent.click(panel.getByRole("button", { name: "+5,0%" }));
-
     expect(container.textContent).toContain("Massive Relief-Rally nach Abverkauf");
-    expect(container.textContent).toContain("Nach ≥ 7 roten Kerzen");
-    expect(container.textContent).toContain("75,0 %");
 
     // Toggle Extra-Faktoren (RSI, ATR, Trend) off & back on
     const factorToggle = panel.getByRole("button", { name: /Extra-Faktoren/i });
@@ -466,13 +526,23 @@ describe("NoiseMeterPanel & ResearchTerminal UI", () => {
     expect(factorToggle.getAttribute("aria-pressed")).toBe("false");
     fireEvent.click(factorToggle);
     expect(factorToggle.getAttribute("aria-pressed")).toBe("true");
-    expect(fetchMock).toHaveBeenCalledTimes(1); // Pure client-side recompute
 
     // Switch basis to Close (vs Vortag) and select 7T + Rot
     fireEvent.click(panel.getByRole("button", { name: /Close \(vs Vortag\)/i }));
     fireEvent.click(panel.getByRole("button", { name: "Rot" }));
     fireEvent.click(panel.getByRole("button", { name: "7T" }));
+
+    // Switch primary tab to Muster-Scanner and test -5% -> +5% preset
+    fireEvent.click(panel.getByRole("tab", { name: /Muster-Scanner/i }));
+    expect(container.textContent).toContain("Historischer Muster-Scanner");
+    fireEvent.click(panel.getByRole("button", { name: "−5 % → +5 %" }));
+    expect(container.textContent).toContain("Tag −1 ≤ −5,0 % → Tag 0 ≥ +5,0 %");
+
+    // Switch primary tab to Premarket & Gaps and verify KPIs + sub-tabs
+    fireEvent.click(panel.getByRole("tab", { name: /Premarket & Gaps/i }));
+    expect(container.textContent).toContain("Gap-Close-Chance (Intraday)");
     expect(container.textContent).toContain("Nach ≥ 7 roten Tagen");
+    expect(container.textContent).toContain("75,0 %");
 
     // Switch detail tabs: Streak-Tabelle & Wochentage, then Historische Analogien
     fireEvent.click(panel.getByRole("tab", { name: /Streak-Tabelle/i }));
@@ -481,6 +551,9 @@ describe("NoiseMeterPanel & ResearchTerminal UI", () => {
 
     fireEvent.click(panel.getByRole("tab", { name: /Historische Analogien/i }));
     expect(container.textContent).toContain("Vorserie");
+
+    // Pure client-side recompute across all tabs and controls
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("opens NoiseMeter from ResearchTerminal command bar via SPY NOISE", async () => {

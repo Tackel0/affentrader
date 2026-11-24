@@ -43,6 +43,9 @@ export interface NoiseObservation {
   volumeRatio20: number | null;
   moveAtrRatio: number; // closeToClosePct / atr14Pct
   nextDayCloseToClosePct: number | null; // T+1 return
+  nextDayAbsMovePct: number | null; // |T+1 close-to-close return| (%)
+  nextDayRangePct: number | null; // T+1 intraday (High - Low) / today close (%)
+  nextDayTrueRangePct: number | null; // T+1 True Range (incl. overnight gap) / today close (%)
   nextDayGreen: boolean | null; // T+1 close > today close
   nextDayGreenCandle: boolean | null; // T+1 close > T+1 open
   prevDayCloseToClosePct: number | null; // T-1 return (causal)
@@ -153,6 +156,13 @@ export interface PatternStudyResult {
   worstFurtherDropPct: number | null;
   medianDaysToBottom: number | null;
   maxDrop63dMedianPct: number | null;
+  nextDayVol: {
+    sampleSize: number;
+    avgAbsMovePct: number;
+    medianAbsMovePct: number;
+    avgRangePct: number;
+    medianRangePct: number;
+  };
   horizons: PatternHorizonStat[];
   matches: PatternMatch[];
 }
@@ -163,6 +173,24 @@ export interface NextDayForecastInput {
   streakBasis?: NoiseStreakBasis;
   todayMovePct: number;
   useExtraFactors?: boolean;
+}
+
+export interface NextDayVolatility {
+  expectedAbsMovePct: number;
+  expectedRangePct: number;
+  expectedTrueRangePct: number;
+  expectedRangeP80Pct: number;
+  volRatioVsAtr: number;
+  regime: "stark erhöht" | "erhöht" | "normal" | "beruhigt";
+  regimeTone: "high" | "elevated" | "normal" | "calm";
+  projectedPrice: number;
+  expectedPriceLow: number;
+  expectedPriceHigh: number;
+  probMoveOver1Pct: number;
+  probMoveOver2Pct: number;
+  probMoveOver3Pct: number;
+  historicalMedianAbsMovePct: number;
+  historicalMedianRangePct: number;
 }
 
 export interface NextDayFactor {
@@ -204,6 +232,7 @@ export interface NextDayForecast {
   scenarioLabel: string;
   summary: string;
   useExtraFactors: boolean;
+  expectedVolatility: NextDayVolatility;
   projected: {
     todayMovePct: number;
     rsi14: number;
@@ -737,6 +766,25 @@ export function buildNoiseDataset(rawBars: readonly NoiseDayBar[]): NoiseDataset
     const nextBar = i + 1 < bars.length ? bars[i + 1] : null;
     const nextDayCloseToClosePct =
       nextBar && curr.close > 0 ? ((nextBar.close - curr.close) / curr.close) * 100 : null;
+    const nextDayAbsMovePct =
+      nextDayCloseToClosePct !== null ? Math.abs(nextDayCloseToClosePct) : null;
+    const nextDayRangePct =
+      nextBar && curr.close > 0
+        ? Math.max(0, ((nextBar.high - nextBar.low) / curr.close) * 100)
+        : null;
+    const nextDayTrueRangePct =
+      nextBar && curr.close > 0
+        ? Math.max(
+            0,
+            (Math.max(
+              nextBar.high - nextBar.low,
+              Math.abs(nextBar.high - curr.close),
+              Math.abs(nextBar.low - curr.close),
+            ) /
+              curr.close) *
+              100,
+          )
+        : null;
     const nextDayGreen = nextBar ? nextBar.close > curr.close : null;
     const nextDayGreenCandle = nextBar ? nextBar.close > nextBar.open : null;
 
@@ -802,6 +850,9 @@ export function buildNoiseDataset(rawBars: readonly NoiseDayBar[]): NoiseDataset
       volumeRatio20,
       moveAtrRatio,
       nextDayCloseToClosePct,
+      nextDayAbsMovePct,
+      nextDayRangePct,
+      nextDayTrueRangePct,
       nextDayGreen,
       nextDayGreenCandle,
       prevDayCloseToClosePct: prevCloseToClosePct,
@@ -1277,19 +1328,34 @@ export function evaluateNoiseScenario(
   };
 }
 
-function weightedMedian(pairs: ReadonlyArray<{ value: number; weight: number }>): number {
+function weightedQuantile(
+  pairs: ReadonlyArray<{ value: number; weight: number }>,
+  q: number,
+): number {
   if (!pairs.length) return 0;
+  const targetQ = clamp(q, 0, 1);
   let totalW = 0;
   for (const p of pairs) totalW += p.weight;
-  if (!(totalW > 0)) return median(pairs.map((p) => p.value));
+  if (!(totalW > 0)) {
+    const sortedVals = pairs.map((p) => p.value).sort((a, b) => a - b);
+    const idx = Math.min(
+      sortedVals.length - 1,
+      Math.max(0, Math.floor(targetQ * (sortedVals.length - 1))),
+    );
+    return sortedVals[idx];
+  }
   const sorted = [...pairs].sort((a, b) => a.value - b.value);
-  const half = totalW / 2;
+  const threshold = totalW * targetQ;
   let acc = 0;
   for (const p of sorted) {
     acc += p.weight;
-    if (acc >= half) return p.value;
+    if (acc >= threshold) return p.value;
   }
   return sorted[sorted.length - 1].value;
+}
+
+function weightedMedian(pairs: ReadonlyArray<{ value: number; weight: number }>): number {
+  return weightedQuantile(pairs, 0.5);
 }
 
 function classifyNextDayScenario(
@@ -1440,6 +1506,9 @@ export function evaluateNextDayForecast(
     : 0.5;
 
   if (eligible.length === 0) {
+    const fallbackAbs = round2(atrBase * 0.65);
+    const fallbackRange = round2(atrBase * 0.9);
+    const fallbackTr = round2(atrBase);
     return {
       greenProb: baseGreenProb,
       redProb: round1(100 - baseGreenProb),
@@ -1457,6 +1526,23 @@ export function evaluateNextDayForecast(
       scenarioLabel,
       summary: "Zu wenige historische Handelstage für eine T+1-Auswertung.",
       useExtraFactors,
+      expectedVolatility: {
+        expectedAbsMovePct: fallbackAbs,
+        expectedRangePct: fallbackRange,
+        expectedTrueRangePct: fallbackTr,
+        expectedRangeP80Pct: round2(atrBase * 1.3),
+        volRatioVsAtr: 1,
+        regime: "normal",
+        regimeTone: "normal",
+        projectedPrice: round2(projectedClose),
+        expectedPriceLow: round2(Math.max(0.01, projectedClose * (1 - fallbackAbs / 100))),
+        expectedPriceHigh: round2(projectedClose * (1 + fallbackAbs / 100)),
+        probMoveOver1Pct: 0,
+        probMoveOver2Pct: 0,
+        probMoveOver3Pct: 0,
+        historicalMedianAbsMovePct: fallbackAbs,
+        historicalMedianRangePct: fallbackRange,
+      },
       projected: {
         todayMovePct,
         rsi14: projectedRsi14,
@@ -1565,8 +1651,27 @@ export function evaluateNextDayForecast(
   let sum5dRetW = 0;
   let sum5dWinW = 0;
 
+  // Regime-scaled next-day volatility accumulators (weighted + dataset empirical prior)
+  let sumScaledAbsW = 0;
+  let sumScaledRangeW = 0;
+  let sumScaledTrW = 0;
+  let sumP1W = 0;
+  let sumP2W = 0;
+  let sumP3W = 0;
+
+  let baseSumScaledAbs = 0;
+  let baseSumScaledRange = 0;
+  let baseSumScaledTr = 0;
+  let baseCountP1 = 0;
+  let baseCountP2 = 0;
+  let baseCountP3 = 0;
+
   const scored: Array<{ obs: NoiseObservation; weight: number }> = [];
   const retPairs: Array<{ value: number; weight: number }> = [];
+  const scaledRangePairs: Array<{ value: number; weight: number }> = [];
+  const baseScaledRangePairs: Array<{ value: number; weight: number }> = [];
+  const rawAbsPairs: Array<{ value: number; weight: number }> = [];
+  const rawRangePairs: Array<{ value: number; weight: number }> = [];
 
   for (const o of eligible) {
     const obsStreak = streakValueOf(o, streakBasis);
@@ -1602,12 +1707,41 @@ export function evaluateNextDayForecast(
     scored.push({ obs: o, weight });
 
     const nextRet = o.nextDayCloseToClosePct!;
+    const obsAbs = o.nextDayAbsMovePct ?? Math.abs(nextRet);
+    const obsRange = o.nextDayRangePct ?? obsAbs;
+    const obsTr = o.nextDayTrueRangePct ?? Math.max(obsRange, obsAbs);
+    const obsAtr = Math.max(0.25, o.atr14Pct || atrBase);
+
+    // Express historical T+1 realized volatility as ATR multiples, then scale to today's live ATR regime
+    const scaledAbs = clamp(obsAbs / obsAtr, 0, 6) * atrBase;
+    const scaledRange = clamp(obsRange / obsAtr, 0, 8) * atrBase;
+    const scaledTr = clamp(obsTr / obsAtr, 0, 8) * atrBase;
+
     sumW += weight;
     sumW2 += weight * weight;
     if (o.nextDayGreen) sumGreenW += weight;
     if (o.nextDayGreenCandle) sumCandleW += weight;
     sumRetW += weight * nextRet;
     retPairs.push({ value: nextRet, weight });
+
+    sumScaledAbsW += weight * scaledAbs;
+    sumScaledRangeW += weight * scaledRange;
+    sumScaledTrW += weight * scaledTr;
+    if (scaledAbs >= 1.0) sumP1W += weight;
+    if (scaledAbs >= 2.0) sumP2W += weight;
+    if (scaledAbs >= 3.0) sumP3W += weight;
+
+    baseSumScaledAbs += scaledAbs;
+    baseSumScaledRange += scaledRange;
+    baseSumScaledTr += scaledTr;
+    if (scaledAbs >= 1.0) baseCountP1 += 1;
+    if (scaledAbs >= 2.0) baseCountP2 += 1;
+    if (scaledAbs >= 3.0) baseCountP3 += 1;
+
+    scaledRangePairs.push({ value: scaledRange, weight });
+    baseScaledRangePairs.push({ value: scaledRange, weight: 1 });
+    rawAbsPairs.push({ value: obsAbs, weight });
+    rawRangePairs.push({ value: obsRange, weight });
 
     if (o.fwd3dPct !== null) {
       sum3dW += weight;
@@ -1637,6 +1771,77 @@ export function evaluateNextDayForecast(
   const edgeVsBasePct = round1(greenProb - baseGreenProb);
   const avgNextDayPct = sumW > 0 ? round2(sumRetW / sumW) : 0;
   const medianNextDayPct = round2(weightedMedian(retPairs));
+
+  // Empirical Bayes shrunk expected next-day volatility in today's ATR regime
+  const nEligible = eligible.length;
+  const baseAbsPct = baseSumScaledAbs / nEligible;
+  const baseRangePct = baseSumScaledRange / nEligible;
+  const baseTrPct = baseSumScaledTr / nEligible;
+  const baseP1 = baseCountP1 / nEligible;
+  const baseP2 = baseCountP2 / nEligible;
+  const baseP3 = baseCountP3 / nEligible;
+
+  const rawAbsPct = sumW > 0 ? sumScaledAbsW / sumW : baseAbsPct;
+  const rawRangePct = sumW > 0 ? sumScaledRangeW / sumW : baseRangePct;
+  const rawTrPct = sumW > 0 ? sumScaledTrW / sumW : baseTrPct;
+  const rawP1 = sumW > 0 ? sumP1W / sumW : baseP1;
+  const rawP2 = sumW > 0 ? sumP2W / sumW : baseP2;
+  const rawP3 = sumW > 0 ? sumP3W / sumW : baseP3;
+
+  const shrinkVal = (val: number, prior: number) =>
+    (nEff * val + priorWeight * prior) / (nEff + priorWeight);
+
+  const expectedAbsMovePct = round2(Math.max(0.05, shrinkVal(rawAbsPct, baseAbsPct)));
+  const expectedRangePct = round2(Math.max(0.05, shrinkVal(rawRangePct, baseRangePct)));
+  const expectedTrueRangePct = round2(
+    Math.max(expectedAbsMovePct, expectedRangePct, shrinkVal(rawTrPct, baseTrPct)),
+  );
+
+  const rawRangeP80 = weightedQuantile(scaledRangePairs, 0.8);
+  const baseRangeP80 = weightedQuantile(baseScaledRangePairs, 0.8);
+  const expectedRangeP80Pct = round2(
+    Math.max(expectedRangePct, shrinkVal(rawRangeP80, baseRangeP80)),
+  );
+
+  const probMoveOver1Pct = round1(clamp(shrinkVal(rawP1, baseP1) * 100, 0, 100));
+  const probMoveOver2Pct = round1(clamp(shrinkVal(rawP2, baseP2) * 100, 0, probMoveOver1Pct));
+  const probMoveOver3Pct = round1(clamp(shrinkVal(rawP3, baseP3) * 100, 0, probMoveOver2Pct));
+
+  const volRatioVsAtr = round2(expectedTrueRangePct / atrBase);
+  const regime: NextDayVolatility["regime"] =
+    volRatioVsAtr >= 1.25
+      ? "stark erhöht"
+      : volRatioVsAtr >= 1.08
+        ? "erhöht"
+        : volRatioVsAtr <= 0.85
+          ? "beruhigt"
+          : "normal";
+  const regimeTone: NextDayVolatility["regimeTone"] =
+    volRatioVsAtr >= 1.25
+      ? "high"
+      : volRatioVsAtr >= 1.08
+        ? "elevated"
+        : volRatioVsAtr <= 0.85
+          ? "calm"
+          : "normal";
+
+  const expectedVolatility: NextDayVolatility = {
+    expectedAbsMovePct,
+    expectedRangePct,
+    expectedTrueRangePct,
+    expectedRangeP80Pct,
+    volRatioVsAtr,
+    regime,
+    regimeTone,
+    projectedPrice: round2(projectedClose),
+    expectedPriceLow: round2(Math.max(0.01, projectedClose * (1 - expectedAbsMovePct / 100))),
+    expectedPriceHigh: round2(projectedClose * (1 + expectedAbsMovePct / 100)),
+    probMoveOver1Pct,
+    probMoveOver2Pct,
+    probMoveOver3Pct,
+    historicalMedianAbsMovePct: round2(weightedMedian(rawAbsPairs)),
+    historicalMedianRangePct: round2(weightedMedian(rawRangePairs)),
+  };
 
   const fwd3dWinRate = sum3dW > 0 ? round1((sum3dWinW / sum3dW) * 100) : null;
   const fwd3dAvgPct = sum3dW > 0 ? round2(sum3dRetW / sum3dW) : null;
@@ -1791,6 +1996,7 @@ export function evaluateNextDayForecast(
     scenarioLabel,
     summary,
     useExtraFactors,
+    expectedVolatility,
     projected: {
       todayMovePct,
       rsi14: projectedRsi14,
@@ -1983,6 +2189,16 @@ export function evaluatePatternStudy(
   const collect = (fn: (o: NoiseObservation) => number | null): number[] =>
     matchedObs.map(fn).filter((v): v is number => v !== null && Number.isFinite(v));
 
+  const nextAbsVals = collect((o) => o.nextDayAbsMovePct);
+  const nextRangeVals = collect((o) => o.nextDayRangePct);
+  const nextDayVol = {
+    sampleSize: nextAbsVals.length,
+    avgAbsMovePct: nextAbsVals.length ? round2(mean(nextAbsVals)) : 0,
+    medianAbsMovePct: nextAbsVals.length ? round2(median(nextAbsVals)) : 0,
+    avgRangePct: nextRangeVals.length ? round2(mean(nextRangeVals)) : 0,
+    medianRangePct: nextRangeVals.length ? round2(median(nextRangeVals)) : 0,
+  };
+
   const horizons: PatternHorizonStat[] = [
     summarizeHorizon("1d", "Morgen (T+1)", collect((o) => o.nextDayCloseToClosePct)),
     summarizeHorizon("5d", "1 Woche (5T)", collect((o) => o.fwd5dPct)),
@@ -2040,8 +2256,12 @@ export function evaluatePatternStudy(
     const h63 = horizons[3];
     const parts: string[] = [];
     if (h1.sampleSize > 0) {
+      const volSuffix =
+        nextDayVol.sampleSize > 0
+          ? `, Ø Vola ±${nextDayVol.avgAbsMovePct.toFixed(1).replace(".", ",")} % / Range ${nextDayVol.avgRangePct.toFixed(1).replace(".", ",")} %`
+          : "";
       parts.push(
-        `Folgetag (T+1): ${h1.winRate.toFixed(1).replace(".", ",")} % Grün vs. ${round1(100 - h1.winRate).toFixed(1).replace(".", ",")} % Rot (Ø ${formatSignedDe(h1.avgPct)})`,
+        `Folgetag (T+1): ${h1.winRate.toFixed(1).replace(".", ",")} % Grün vs. ${round1(100 - h1.winRate).toFixed(1).replace(".", ",")} % Rot (Ø ${formatSignedDe(h1.avgPct)}${volSuffix})`,
       );
     }
     if (h21.sampleSize > 0) {
@@ -2097,6 +2317,7 @@ export function evaluatePatternStudy(
     worstFurtherDropPct,
     medianDaysToBottom,
     maxDrop63dMedianPct,
+    nextDayVol,
     horizons,
     matches,
   };

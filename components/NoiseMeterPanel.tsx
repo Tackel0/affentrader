@@ -1,6 +1,20 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import { Activity, AlertTriangle, BarChart3, Calendar, Gauge, History, RefreshCw, SlidersHorizontal, Sparkles, Target, TrendingDown, TrendingUp } from "lucide-react";
+import {
+  Activity,
+  AlertTriangle,
+  BarChart3,
+  Calendar,
+  Gauge,
+  History,
+  RefreshCw,
+  SlidersHorizontal,
+  Sparkles,
+  Target,
+  TrendingDown,
+  TrendingUp,
+  Zap,
+} from "lucide-react";
 import { isYahooTicker } from "@/lib/symbolId";
 import {
   buildNoiseDataset,
@@ -52,6 +66,7 @@ const PATTERN_PRESETS: ReadonlyArray<{
   { id: "day-p5", label: "Tag ≥ +5 %", prev: { op: "any", thresholdPct: -3 }, day0: { op: "gte", thresholdPct: 5 } },
 ];
 
+type PrimaryView = "forecast" | "pattern" | "gaps";
 type DetailTab = "gaps" | "streaks" | "analogues";
 
 function fmtPct(v: number | null | undefined, signed = false): string {
@@ -60,10 +75,24 @@ function fmtPct(v: number | null | undefined, signed = false): string {
   return `${sign}${Math.abs(v).toFixed(1).replace(".", ",")} %`;
 }
 
+function fmtPct2(v: number | null | undefined): string {
+  if (v === null || v === undefined || !Number.isFinite(v)) return "—";
+  return `${Math.abs(v).toFixed(2).replace(".", ",")} %`;
+}
+
 function fmtSigned2(v: number | null | undefined): string {
   if (v === null || v === undefined || !Number.isFinite(v)) return "—";
   const sign = v > 0 ? "+" : v < 0 ? "−" : "";
   return `${sign}${Math.abs(v).toFixed(2).replace(".", ",")} %`;
+}
+
+function fmtPrice(v: number | null | undefined, currency?: string): string {
+  if (v === null || v === undefined || !Number.isFinite(v)) return "—";
+  const formatted = v.toLocaleString("de-DE", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  return currency ? `${formatted} ${currency}` : formatted;
 }
 
 function fmtShortDate(iso: string): string {
@@ -87,7 +116,6 @@ function sourceLabel(src: NoiseApiPayload["live"]["priceSource"]): string {
 
 function NoiseGauge({ score, tone }: { score: number; tone: NoiseVerdictTone }) {
   const clamped = Math.max(0, Math.min(100, score));
-  // Semi-circle arc from 180deg (left) to 0deg (right), radius 66, center (80, 78)
   const angleRad = Math.PI * (1 - clamped / 100);
   const cx = 80;
   const cy = 78;
@@ -169,6 +197,9 @@ export function NoiseMeterPanel({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [reloadNonce, setReloadNonce] = useState(0);
+
+  // Clean 3-tab primary navigation for uncluttered overview
+  const [activeView, setActiveView] = useState<PrimaryView>("forecast");
 
   // Interactive scenario controls (defaults to live premarket gap + live candle streak, editable for What-If)
   const [gapPct, setGapPct] = useState<number>(1.0);
@@ -252,7 +283,8 @@ export function NoiseMeterPanel({
 
   const dataset = useMemo(() => (data ? buildNoiseDataset(data.bars) : null), [data]);
 
-  const liveCloseStreak = dataset?.currentStreak ?? data?.live.currentStreak ?? { direction: "red" as const, count: 1 };
+  const liveCloseStreak =
+    dataset?.currentStreak ?? data?.live.currentStreak ?? { direction: "red" as const, count: 1 };
   const liveCandleStreak =
     dataset?.currentCandleStreak ?? data?.live.currentCandleStreak ?? liveCloseStreak;
   const activeLiveStreak = streakBasis === "candle" ? liveCandleStreak : liveCloseStreak;
@@ -346,8 +378,126 @@ export function NoiseMeterPanel({
     setShowAllPatternMatches(false);
   };
 
+  const renderStreakCard = (titleLabel: string) => {
+    if (!data || !evaluation) return null;
+    return (
+      <div className="noise-sim-card">
+        <div className="noise-sim-head">
+          <span>
+            <Activity size={14} /> {titleLabel}
+          </span>
+          <div className="noise-sim-actions">
+            <button
+              type="button"
+              className={`noise-mini-btn${!streakTouched ? " active" : ""}`}
+              onClick={() => {
+                setStreakDirection(activeLiveStreak.direction);
+                setStreakDays(Math.max(1, activeLiveStreak.count || 1));
+                setStreakTouched(false);
+              }}
+            >
+              Aktuell ({activeLiveStreak.count}{" "}
+              {activeLiveStreak.direction === "red" ? "rot" : "grün"})
+            </button>
+            <button
+              type="button"
+              className={`noise-mini-btn dir-red${streakDirection === "red" ? " active" : ""}`}
+              aria-pressed={streakDirection === "red"}
+              onClick={() => {
+                setStreakDirection("red");
+                setStreakTouched(true);
+              }}
+            >
+              Rot
+            </button>
+            <button
+              type="button"
+              className={`noise-mini-btn dir-green${streakDirection === "green" ? " active" : ""}`}
+              aria-pressed={streakDirection === "green"}
+              onClick={() => {
+                setStreakDirection("green");
+                setStreakTouched(true);
+              }}
+            >
+              Grün
+            </button>
+          </div>
+        </div>
+        <div className="noise-basis-row" role="group" aria-label="Streak-Berechnungsbasis">
+          <button
+            type="button"
+            className={`noise-mini-btn${streakBasis === "candle" ? " active" : ""}`}
+            aria-pressed={streakBasis === "candle"}
+            title="Tageskerzen-Farbe im Chart (Close vs. Open)"
+            onClick={() => switchStreakBasis("candle")}
+          >
+            Kerzen (C vs O): {liveCandleStreak.count}{" "}
+            {liveCandleStreak.direction === "red" ? "rot" : "grün"}
+          </button>
+          <button
+            type="button"
+            className={`noise-mini-btn${streakBasis === "close" ? " active" : ""}`}
+            aria-pressed={streakBasis === "close"}
+            title="Schlusskurs gegenüber Vortags-Close (Close vs. PrevClose)"
+            onClick={() => switchStreakBasis("close")}
+          >
+            Close (vs Vortag): {liveCloseStreak.count}{" "}
+            {liveCloseStreak.direction === "red" ? "rot" : "grün"}
+          </button>
+        </div>
+        <div className="noise-quick-row noise-streak-nums" role="group" aria-label="Anzahl Tage in Folge">
+          {QUICK_STREAKS.map((d) => (
+            <button
+              key={d}
+              type="button"
+              className={`noise-mini-btn${streakDays === d ? " active" : ""}`}
+              aria-pressed={streakDays === d}
+              onClick={() => {
+                setStreakDays(d);
+                setStreakTouched(true);
+              }}
+            >
+              {d}T
+            </button>
+          ))}
+        </div>
+        {dataset && dataset.recentDays.length > 0 ? (
+          <div className="noise-recent-strip" aria-label="Letzte Handelstage">
+            {dataset.recentDays.map((day) => {
+              const isGreen = streakBasis === "candle" ? day.greenCandle : day.greenDay;
+              const primaryDelta = streakBasis === "candle" ? day.openToClosePct : day.closeToClosePct;
+              const differs = day.greenCandle !== day.greenDay;
+              return (
+                <div
+                  key={day.session}
+                  className={`noise-recent-day ${isGreen ? "is-green" : "is-red"}${differs ? " is-mixed" : ""}`}
+                  title={`${day.session}: Kerze (C vs O) ${fmtSigned2(day.openToClosePct)} · Close vs Vortag ${fmtSigned2(day.closeToClosePct)}`}
+                >
+                  <span className="noise-recent-date">{fmtShortDate(day.session)}</span>
+                  <span className="noise-recent-val mono">
+                    {primaryDelta > 0
+                      ? `+${primaryDelta.toFixed(1).replace(".", ",")}`
+                      : `${primaryDelta.toFixed(1).replace(".", ",")}`}
+                    %
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+        <p className="noise-sim-hint">
+          {evaluation.streakExact.label}: n = {evaluation.streakExact.sampleSize} ·{" "}
+          {evaluation.streakAtLeast.label}: n = {evaluation.streakAtLeast.sampleSize}
+        </p>
+      </div>
+    );
+  };
+
+  const vol = nextDayForecast?.expectedVolatility ?? null;
+
   return (
     <section className="noise-meter-panel" aria-label="NoiseMeter Statistik">
+      {/* Compact Top Toolbar */}
       <div className="noise-toolbar">
         <form
           className="noise-search-form"
@@ -397,6 +547,7 @@ export function NoiseMeterPanel({
         </div>
       </div>
 
+      {/* Quick Ticker Presets */}
       <div className="noise-preset-strip" role="group" aria-label="Schnellwahl Indizes und Aktien">
         {PRESET_TICKERS.map((p) => (
           <button
@@ -430,6 +581,7 @@ export function NoiseMeterPanel({
 
       {data && evaluation ? (
         <>
+          {/* Compact Executive Hero: Gauge + Verdict + 3 Clickable Overview Tiles */}
           <div className="noise-hero">
             <NoiseGauge score={evaluation.score} tone={evaluation.tone} />
 
@@ -443,10 +595,12 @@ export function NoiseMeterPanel({
                   <div className="noise-meta-row">
                     <span className={`noise-pill tone-${evaluation.tone}`}>{evaluation.verdictLabel}</span>
                     <span className="noise-meta-chip">
-                      {sourceLabel(data.live.priceSource)}: <strong className="mono">{fmtSigned2(data.live.liveGapPct)}</strong>
+                      {sourceLabel(data.live.priceSource)}:{" "}
+                      <strong className="mono">{fmtSigned2(data.live.liveGapPct)}</strong>
                     </span>
                     <span className="noise-meta-chip">
-                      {data.totalDays.toLocaleString("de-DE")} Tage ({data.bars[0]?.session.slice(0, 4)}–{data.asOf.slice(0, 4)})
+                      {data.totalDays.toLocaleString("de-DE")} Tage ({data.bars[0]?.session.slice(0, 4)}–
+                      {data.asOf.slice(0, 4)})
                     </span>
                   </div>
                 </div>
@@ -454,16 +608,465 @@ export function NoiseMeterPanel({
 
               <p className="noise-verdict-sub">{evaluation.verdictSubtitle}</p>
 
-              <ul className="noise-insights">
-                {evaluation.insights.map((line, i) => (
-                  <li key={i}>{line}</li>
-                ))}
-              </ul>
+              {/* 3 Executive At-A-Glance Tiles */}
+              <div className="noise-exec-grid" role="group" aria-label="Schnellübersicht">
+                {nextDayForecast ? (
+                  <button
+                    type="button"
+                    className={`noise-exec-tile${activeView === "forecast" ? " is-active" : ""}`}
+                    onClick={() => setActiveView("forecast")}
+                  >
+                    <span className="noise-exec-label">
+                      <Target size={12} /> Morgen (T+1)
+                    </span>
+                    <div className="noise-exec-split mono">
+                      <strong className="positive">{fmtPct(nextDayForecast.greenProb)}</strong>
+                      <span className="muted">/</span>
+                      <strong className="negative">{fmtPct(nextDayForecast.redProb)}</strong>
+                    </div>
+                    <div className="noise-split-bar noise-exec-bar" aria-hidden="true">
+                      <div className="noise-split-green" style={{ width: `${nextDayForecast.greenProb}%` }} />
+                      <div className="noise-split-red" style={{ width: `${nextDayForecast.redProb}%` }} />
+                    </div>
+                    <small className="noise-exec-sub">
+                      Edge{" "}
+                      <b className="mono">
+                        {nextDayForecast.edgeVsBasePct > 0
+                          ? "+"
+                          : nextDayForecast.edgeVsBasePct < 0
+                            ? "−"
+                            : ""}
+                        {Math.abs(nextDayForecast.edgeVsBasePct).toFixed(1).replace(".", ",")} Pp.
+                      </b>{" "}
+                      · Ø <b className="mono">{fmtSigned2(nextDayForecast.avgNextDayPct)}</b>
+                    </small>
+                  </button>
+                ) : null}
+
+                {vol ? (
+                  <button
+                    type="button"
+                    className={`noise-exec-tile${activeView === "forecast" ? " is-active" : ""}`}
+                    onClick={() => setActiveView("forecast")}
+                  >
+                    <div className="noise-exec-head-row">
+                      <span className="noise-exec-label">
+                        <Zap size={12} /> Erwartete Vola (T+1)
+                      </span>
+                      <span className={`noise-vol-regime tone-${vol.regimeTone}`}>{vol.regime}</span>
+                    </div>
+                    <div className="noise-exec-big mono">±{fmtPct2(vol.expectedAbsMovePct)}</div>
+                    <small className="noise-exec-sub">
+                      Range <b className="mono">{fmtPct2(vol.expectedRangePct)}</b> ·{" "}
+                      <b className="mono">{vol.volRatioVsAtr.toFixed(2).replace(".", ",")}× ATR14</b>
+                    </small>
+                  </button>
+                ) : null}
+
+                {patternStudy ? (
+                  <button
+                    type="button"
+                    className={`noise-exec-tile${activeView === "pattern" ? " is-active" : ""}`}
+                    onClick={() => setActiveView("pattern")}
+                  >
+                    <div className="noise-exec-head-row">
+                      <span className="noise-exec-label">
+                        <History size={12} /> Muster-Scanner
+                      </span>
+                      <span className="noise-exec-tag mono">{patternStudy.sampleSize}×</span>
+                    </div>
+                    <div className="noise-exec-big mono">
+                      {patternStudy.sampleSize > 0
+                        ? `${fmtPct(patternStudy.bearCycleRate)} Bär`
+                        : "0 Treffer"}
+                    </div>
+                    <small className="noise-exec-sub">
+                      {patternStudy.sampleSize > 0 && patternStudy.medianFurtherDropPct !== null ? (
+                        <>
+                          Drop bis Tief:{" "}
+                          <b className="mono negative">
+                            {patternStudy.minFurtherDropPct !== null && patternStudy.droppedFurtherRate === 100
+                              ? `min. ${fmtPct(patternStudy.minFurtherDropPct, true)}`
+                              : fmtPct(patternStudy.medianFurtherDropPct, true)}
+                          </b>
+                        </>
+                      ) : (
+                        patternStudy.ruleDescription
+                      )}
+                    </small>
+                  </button>
+                ) : null}
+              </div>
             </div>
           </div>
 
-          {/* Historischer Muster-Scanner (OddStats-Analyse: Schock-Sequenzen, Bärenmarkt-Quote & Weg bis zum Tief) */}
-          {patternStudy ? (
+          {/* Primary 3-Tab Segmented Navigation */}
+          <div className="noise-view-tabs" role="tablist" aria-label="NoiseMeter Ansichten">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeView === "forecast"}
+              className={activeView === "forecast" ? "active" : ""}
+              onClick={() => setActiveView("forecast")}
+            >
+              <Target size={14} />
+              <span>Morgen &amp; Vola</span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeView === "pattern"}
+              className={activeView === "pattern" ? "active" : ""}
+              onClick={() => setActiveView("pattern")}
+            >
+              <History size={14} />
+              <span>Muster-Scanner</span>
+              {patternStudy ? <em className="mono">{patternStudy.sampleSize}×</em> : null}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeView === "gaps"}
+              className={activeView === "gaps" ? "active" : ""}
+              onClick={() => setActiveView("gaps")}
+            >
+              <Sparkles size={14} />
+              <span>Premarket &amp; Gaps</span>
+            </button>
+          </div>
+
+          {/* ================================================================ */}
+          {/* VIEW 1: MORGEN & ERWARTETE VOLATILITÄT (T+1)                      */}
+          {/* ================================================================ */}
+          {activeView === "forecast" && nextDayForecast ? (
+            <section className="noise-t1-card" aria-label="Morgen-Wahrscheinlichkeit T+1 Szenario">
+              <div className="noise-t1-header">
+                <div className="noise-t1-title-group">
+                  <h4>
+                    <Target size={15} /> Morgen-Wahrscheinlichkeit (T+1)
+                  </h4>
+                  <span className="noise-t1-scenario-badge">{nextDayForecast.scenarioLabel}</span>
+                </div>
+                <div className="noise-t1-meta">
+                  <span className={`noise-t1-conf conf-${nextDayForecast.confidence}`}>
+                    Konfidenz: {nextDayForecast.confidence} (n<sub>eff</sub> ={" "}
+                    <b className="mono">{nextDayForecast.effectiveSampleSize.toFixed(1).replace(".", ",")}</b>)
+                  </span>
+                  <button
+                    type="button"
+                    className={`noise-mini-btn noise-t1-factor-toggle${useExtraFactors ? " active" : ""}`}
+                    aria-pressed={useExtraFactors}
+                    onClick={() => setUseExtraFactors((prev) => !prev)}
+                  >
+                    <SlidersHorizontal size={12} />
+                    <span>Extra-Faktoren (RSI, ATR, Trend): {useExtraFactors ? "Aktiv" : "Aus"}</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="noise-t1-headline">
+                <div className="noise-t1-prob-side is-green">
+                  <span className="noise-t1-prob-label">Morgen Grün (Close &gt; Heute)</span>
+                  <strong className="mono positive">{fmtPct(nextDayForecast.greenProb)}</strong>
+                </div>
+                <div className="noise-t1-edge-badge">
+                  <span>Edge vs. Basisrate ({fmtPct(nextDayForecast.baseGreenProb)})</span>
+                  <strong
+                    className={`mono ${
+                      nextDayForecast.edgeVsBasePct > 0
+                        ? "positive"
+                        : nextDayForecast.edgeVsBasePct < 0
+                          ? "negative"
+                          : ""
+                    }`}
+                  >
+                    {nextDayForecast.edgeVsBasePct > 0
+                      ? "+"
+                      : nextDayForecast.edgeVsBasePct < 0
+                        ? "−"
+                        : ""}
+                    {Math.abs(nextDayForecast.edgeVsBasePct).toFixed(1).replace(".", ",")} Pp.
+                  </strong>
+                </div>
+                <div className="noise-t1-prob-side is-red">
+                  <span className="noise-t1-prob-label">Morgen Rot (Close &lt; Heute)</span>
+                  <strong className="mono negative">{fmtPct(nextDayForecast.redProb)}</strong>
+                </div>
+              </div>
+
+              <div className="noise-split-bar noise-t1-bar" aria-label="Wahrscheinlichkeit morgen grün gegen rot">
+                <div className="noise-split-green" style={{ width: `${nextDayForecast.greenProb}%` }} />
+                <div className="noise-split-red" style={{ width: `${nextDayForecast.redProb}%` }} />
+              </div>
+
+              <p className="noise-t1-summary">{nextDayForecast.summary}</p>
+
+              {/* Dedicated Expected Next-Day Volatility Panel */}
+              {vol ? (
+                <div className="noise-vol-box" aria-label="Erwartete Volatilität morgen (T+1)">
+                  <div className="noise-vol-head">
+                    <div className="noise-t1-title-group">
+                      <h5>
+                        <Zap size={14} /> Erwartete Volatilität morgen (T+1)
+                      </h5>
+                      <span className={`noise-vol-regime tone-${vol.regimeTone}`}>
+                        Vola {vol.regime} · {vol.volRatioVsAtr.toFixed(2).replace(".", ",")}× ATR14
+                      </span>
+                    </div>
+                    <span className="noise-vol-atr-note mono">
+                      Basis ATR(14): {data.live.currentAtr14Pct.toFixed(2).replace(".", ",")} %
+                    </span>
+                  </div>
+
+                  <div className="noise-vol-grid">
+                    <div className="noise-vol-cell">
+                      <span>Erwarteter Tages-Move (|C→C|)</span>
+                      <strong className="mono">±{fmtPct2(vol.expectedAbsMovePct)}</strong>
+                      <small>
+                        Kursspanne:{" "}
+                        <b className="mono">
+                          {fmtPrice(vol.expectedPriceLow)} – {fmtPrice(vol.expectedPriceHigh, data.currency)}
+                        </b>
+                      </small>
+                    </div>
+
+                    <div className="noise-vol-cell">
+                      <span>Erwartete Handelsspanne (High–Low)</span>
+                      <strong className="mono">{fmtPct2(vol.expectedRangePct)}</strong>
+                      <small>
+                        True Range (inkl. Gap): <b className="mono">{fmtPct2(vol.expectedTrueRangePct)}</b> ·
+                        80 %-Stress: <b className="mono">{fmtPct2(vol.expectedRangeP80Pct)}</b>
+                      </small>
+                    </div>
+
+                    <div className="noise-vol-cell">
+                      <span>Schwankungs-Wahrscheinlichkeiten</span>
+                      <div className="noise-vol-tails mono">
+                        <span>
+                          ≥ 1 %: <b>{fmtPct(vol.probMoveOver1Pct)}</b>
+                        </span>
+                        <span>
+                          ≥ 2 %: <b>{fmtPct(vol.probMoveOver2Pct)}</b>
+                        </span>
+                        <span>
+                          ≥ 3 %: <b>{fmtPct(vol.probMoveOver3Pct)}</b>
+                        </span>
+                      </div>
+                      <small>
+                        Hist. Median (unskaliert):{" "}
+                        <b className="mono">±{fmtPct2(vol.historicalMedianAbsMovePct)}</b> · Range{" "}
+                        <b className="mono">{fmtPct2(vol.historicalMedianRangePct)}</b>
+                      </small>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {/* Compact 2-Column Scenario Simulator (Vor-Serie + Heutiger Move side-by-side) */}
+              <div className="noise-t1-controls-grid">
+                {renderStreakCard(`Vor-Serie im ${data.ticker}`)}
+
+                <div className="noise-sim-card">
+                  <div className="noise-sim-head">
+                    <label htmlFor="noise-today-move-input">
+                      <TrendingUp size={14} /> Heutiger Move (%) nach {streakDays}{" "}
+                      {streakDirection === "red" ? "roten" : "grünen"}{" "}
+                      {streakBasis === "candle" ? "Kerzen" : "Tagen"}
+                    </label>
+                    <div className="noise-sim-actions">
+                      <button
+                        type="button"
+                        className={`noise-mini-btn${!todayMoveTouched ? " active" : ""}`}
+                        onClick={() => {
+                          setTodayMovePct(liveTodayReturn);
+                          setTodayMoveTouched(false);
+                        }}
+                      >
+                        Live ({fmtPct(liveTodayReturn, true)})
+                      </button>
+                      <input
+                        id="noise-today-move-input"
+                        type="number"
+                        step="0.1"
+                        min="-25"
+                        max="25"
+                        aria-label="Heutiger Tages-Move Prozent"
+                        value={Number.isFinite(todayMovePct) ? todayMovePct : 0}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          setTodayMovePct(Number.isFinite(val) ? val : 0);
+                          setTodayMoveTouched(true);
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <input
+                    type="range"
+                    aria-label="Heutiger Tages-Move Regler"
+                    className="noise-slider"
+                    min="-10"
+                    max="10"
+                    step="0.1"
+                    value={Math.max(-10, Math.min(10, todayMovePct))}
+                    onChange={(e) => {
+                      setTodayMovePct(Number(e.target.value));
+                      setTodayMoveTouched(true);
+                    }}
+                  />
+                  <div className="noise-quick-row">
+                    {QUICK_TODAY_MOVES.map((m) => (
+                      <button
+                        key={m}
+                        type="button"
+                        className={`noise-mini-btn${Math.abs(todayMovePct - m) < 0.05 ? " active" : ""}`}
+                        onClick={() => {
+                          setTodayMovePct(m);
+                          setTodayMoveTouched(true);
+                        }}
+                      >
+                        {m > 0
+                          ? `+${m.toFixed(1).replace(".", ",")}%`
+                          : `−${Math.abs(m).toFixed(1).replace(".", ",")}%`}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="noise-sim-hint">
+                    Projizierter Kurs: <b className="mono">{fmtPrice(vol?.projectedPrice, data.currency)}</b> ·
+                    Move: <b className="mono">{nextDayForecast.projected.moveAtrRatio.toFixed(2).replace(".", ",")}× ATR14</b>
+                  </p>
+                </div>
+              </div>
+
+              {/* Compact 4-Metric Context Strip */}
+              <div className="noise-t1-metrics">
+                <div className="noise-t1-metric">
+                  <span>Ø Morgen (T+1)</span>
+                  <strong className={`mono ${nextDayForecast.avgNextDayPct >= 0 ? "positive" : "negative"}`}>
+                    {fmtSigned2(nextDayForecast.avgNextDayPct)}
+                  </strong>
+                  <small>
+                    Median: <b className="mono">{fmtSigned2(nextDayForecast.medianNextDayPct)}</b>
+                  </small>
+                </div>
+                <div className="noise-t1-metric">
+                  <span>Grüne Kerze T+1 (C&gt;O)</span>
+                  <strong className="mono">{fmtPct(nextDayForecast.greenCandleProb)}</strong>
+                  <small>
+                    3T / 5T Ø:{" "}
+                    <b className="mono">{fmtSigned2(nextDayForecast.fwd3dAvgPct)}</b> /{" "}
+                    <b className="mono">{fmtSigned2(nextDayForecast.fwd5dAvgPct)}</b>
+                  </small>
+                </div>
+                <div className="noise-t1-metric">
+                  <span>Projizierter RSI(14)</span>
+                  <strong className="mono">{nextDayForecast.projected.rsi14.toFixed(1).replace(".", ",")}</strong>
+                  <small>
+                    Move:{" "}
+                    <b className="mono">
+                      {nextDayForecast.projected.moveAtrRatio > 0
+                        ? "+"
+                        : nextDayForecast.projected.moveAtrRatio < 0
+                          ? "−"
+                          : ""}
+                      {Math.abs(nextDayForecast.projected.moveAtrRatio).toFixed(2).replace(".", ",")}× ATR14
+                    </b>
+                  </small>
+                </div>
+                <div className="noise-t1-metric">
+                  <span>Trend-Kontext</span>
+                  <strong className="mono">
+                    {nextDayForecast.projected.aboveSma200 === null
+                      ? "—"
+                      : nextDayForecast.projected.aboveSma200
+                        ? "Über 200-SMA"
+                        : "Unter 200-SMA"}
+                  </strong>
+                  <small>
+                    20-EMA Distanz: <b className="mono">{fmtSigned2(nextDayForecast.projected.distEma20Pct)}</b>
+                  </small>
+                </div>
+              </div>
+
+              {/* 4 Empirical Factor Breakdown */}
+              {nextDayForecast.factors.length > 0 ? (
+                <div className="noise-t1-factors" aria-label="Faktor-Aufschlüsselung für T+1">
+                  {nextDayForecast.factors.map((f) => (
+                    <article key={f.id} className={`noise-t1-factor stance-${f.stance}`}>
+                      <div className="noise-t1-factor-head">
+                        <span>{f.label}</span>
+                        <em className="mono">n = {f.sampleSize}</em>
+                      </div>
+                      <div className="noise-t1-factor-cond">{f.condition}</div>
+                      <div className="noise-t1-factor-nums mono">
+                        <span className="positive">Grün {fmtPct(f.greenProb)}</span>
+                        <span className="negative">Rot {fmtPct(f.redProb)}</span>
+                      </div>
+                      <small>
+                        Edge:{" "}
+                        <b
+                          className={`mono ${
+                            f.edgeVsBasePct > 0 ? "positive" : f.edgeVsBasePct < 0 ? "negative" : ""
+                          }`}
+                        >
+                          {f.edgeVsBasePct > 0 ? "+" : f.edgeVsBasePct < 0 ? "−" : ""}
+                          {Math.abs(f.edgeVsBasePct).toFixed(1).replace(".", ",")} Pp.
+                        </b>{" "}
+                        · Ø T+1 <b className="mono">{fmtSigned2(f.avgNextDayPct)}</b>
+                      </small>
+                    </article>
+                  ))}
+                </div>
+              ) : null}
+
+              {/* Top 6 Historical Twin Days */}
+              {nextDayForecast.twins.length > 0 ? (
+                <div className="noise-table-wrap noise-t1-twins">
+                  <h4>Historische Zwillingstage (ähnlichste Setups → Ergebnis am Folgetag T+1)</h4>
+                  <table className="noise-table">
+                    <thead>
+                      <tr>
+                        <th>Datum (Tag 0)</th>
+                        <th>Vor-Serie</th>
+                        <th>Tag 0 Move</th>
+                        <th>RSI(14)</th>
+                        <th>Morgen (T+1)</th>
+                        <th>Match</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {nextDayForecast.twins.map((twin) => (
+                        <tr key={twin.session}>
+                          <td className="mono">{twin.session}</td>
+                          <td className={`mono ${twin.priorStreak < 0 ? "negative" : "positive"}`}>
+                            {twin.priorStreak < 0
+                              ? `${Math.abs(twin.priorStreak)} rot`
+                              : twin.priorStreak > 0
+                                ? `${twin.priorStreak} grün`
+                                : "0"}
+                          </td>
+                          <td className={`mono ${twin.dayMovePct >= 0 ? "positive" : "negative"}`}>
+                            {fmtSigned2(twin.dayMovePct)}
+                          </td>
+                          <td className="mono">{twin.rsi14.toFixed(1).replace(".", ",")}</td>
+                          <td className={`mono ${twin.nextDayGreen ? "positive" : "negative"}`}>
+                            <span className={`noise-tag ${twin.nextDayGreen ? "open" : "filled"}`}>
+                              {twin.nextDayGreen ? "Grün" : "Rot"} {fmtSigned2(twin.nextDayPct)}
+                            </span>
+                          </td>
+                          <td className="mono">{fmtPct(twin.similarityPct)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
+            </section>
+          ) : null}
+
+          {/* ================================================================ */}
+          {/* VIEW 2: HISTORISCHER MUSTER-SCANNER (OddStats-Analyse)            */}
+          {/* ================================================================ */}
+          {activeView === "pattern" && patternStudy ? (
             <section className="noise-pattern-card" aria-label="Historischer Muster-Scanner">
               <div className="noise-pattern-head">
                 <div className="noise-t1-title-group">
@@ -473,7 +1076,8 @@ export function NoiseMeterPanel({
                   <span className="noise-t1-scenario-badge">{patternStudy.ruleDescription}</span>
                 </div>
                 <span className="noise-meta-chip">
-                  <strong className="mono">{patternStudy.sampleSize}×</strong> seit {patternStudy.firstYear} ({patternStudy.totalDays.toLocaleString("de-DE")} Tage)
+                  <strong className="mono">{patternStudy.sampleSize}×</strong> seit {patternStudy.firstYear} (
+                  {patternStudy.totalDays.toLocaleString("de-DE")} Tage)
                 </span>
               </div>
 
@@ -500,8 +1104,10 @@ export function NoiseMeterPanel({
                   const isActive =
                     prevDayRule.op === preset.prev.op &&
                     day0Rule.op === preset.day0.op &&
-                    (prevDayRule.op === "any" || Math.abs(prevDayRule.thresholdPct - preset.prev.thresholdPct) < 0.05) &&
-                    (day0Rule.op === "any" || Math.abs(day0Rule.thresholdPct - preset.day0.thresholdPct) < 0.05);
+                    (prevDayRule.op === "any" ||
+                      Math.abs(prevDayRule.thresholdPct - preset.prev.thresholdPct) < 0.05) &&
+                    (day0Rule.op === "any" ||
+                      Math.abs(day0Rule.thresholdPct - preset.day0.thresholdPct) < 0.05);
                   return (
                     <button
                       key={preset.id}
@@ -549,7 +1155,10 @@ export function NoiseMeterPanel({
                           value={prevDayRule.thresholdPct}
                           onChange={(e) => {
                             const val = Number(e.target.value);
-                            setPrevDayRule((cur) => ({ ...cur, thresholdPct: Number.isFinite(val) ? val : 0 }));
+                            setPrevDayRule((cur) => ({
+                              ...cur,
+                              thresholdPct: Number.isFinite(val) ? val : 0,
+                            }));
                             setPatternTouched(true);
                           }}
                         />
@@ -586,7 +1195,10 @@ export function NoiseMeterPanel({
                           value={day0Rule.thresholdPct}
                           onChange={(e) => {
                             const val = Number(e.target.value);
-                            setDay0Rule((cur) => ({ ...cur, thresholdPct: Number.isFinite(val) ? val : 0 }));
+                            setDay0Rule((cur) => ({
+                              ...cur,
+                              thresholdPct: Number.isFinite(val) ? val : 0,
+                            }));
                             setPatternTouched(true);
                           }}
                         />
@@ -599,11 +1211,13 @@ export function NoiseMeterPanel({
                 <div className="noise-pattern-rule">
                   <span className="noise-pattern-rule-label">Marktregime</span>
                   <div className="noise-pattern-ops" role="group" aria-label="Marktregime Filter">
-                    {([
-                      ["all", "Alle"],
-                      ["bear", "Bärenmarkt"],
-                      ["bull", "Bullenmarkt"],
-                    ] as const).map(([val, label]) => (
+                    {(
+                      [
+                        ["all", "Alle"],
+                        ["bear", "Bärenmarkt"],
+                        ["bull", "Bullenmarkt"],
+                      ] as const
+                    ).map(([val, label]) => (
                       <button
                         key={val}
                         type="button"
@@ -621,15 +1235,21 @@ export function NoiseMeterPanel({
                 </div>
               </div>
 
-              {/* 4 OddStats KPI Cards */}
               {patternStudy.sampleSize > 0 ? (
                 <>
                   <div className="noise-t1-metrics">
                     <div className="noise-t1-metric">
-                      <span>Treffer seit {patternStudy.firstYear}</span>
+                      <span>Treffer &amp; T+1 Vola</span>
                       <strong className="mono">{patternStudy.sampleSize}×</strong>
                       <small>
-                        Aus {patternStudy.totalDays.toLocaleString("de-DE")} Handelstagen
+                        {patternStudy.nextDayVol.sampleSize > 0 ? (
+                          <>
+                            Ø T+1: <b className="mono">±{fmtPct2(patternStudy.nextDayVol.avgAbsMovePct)}</b> ·
+                            Range <b className="mono">{fmtPct2(patternStudy.nextDayVol.avgRangePct)}</b>
+                          </>
+                        ) : (
+                          <>Aus {patternStudy.totalDays.toLocaleString("de-DE")} Handelstagen</>
+                        )}
                       </small>
                     </div>
                     <div className="noise-t1-metric">
@@ -658,7 +1278,9 @@ export function NoiseMeterPanel({
                     </div>
                     <div className="noise-t1-metric">
                       <span>Tiefer geschlossen danach</span>
-                      <strong className={`mono ${patternStudy.droppedFurtherRate >= 70 ? "negative" : "positive"}`}>
+                      <strong
+                        className={`mono ${patternStudy.droppedFurtherRate >= 70 ? "negative" : "positive"}`}
+                      >
                         {fmtPct(patternStudy.droppedFurtherRate)}
                       </strong>
                       <small>
@@ -776,773 +1398,466 @@ export function NoiseMeterPanel({
             </section>
           ) : null}
 
-          {/* Morgen-Wahrscheinlichkeit (T+1 Multi-Factor Scenario Forecast) */}
-          {nextDayForecast ? (
-            <section className="noise-t1-card" aria-label="Morgen-Wahrscheinlichkeit T+1 Szenario">
-              <div className="noise-t1-header">
-                <div className="noise-t1-title-group">
-                  <h4>
-                    <Target size={15} /> Morgen-Wahrscheinlichkeit (T+1)
-                  </h4>
-                  <span className="noise-t1-scenario-badge">{nextDayForecast.scenarioLabel}</span>
+          {/* ================================================================ */}
+          {/* VIEW 3: PREMARKET, GAPS & STREAKS                                 */}
+          {/* ================================================================ */}
+          {activeView === "gaps" ? (
+            <div className="noise-gaps-section" aria-label="Premarket und Gap-Statistik">
+              {evaluation.insights.length > 0 ? (
+                <div className="noise-insights-card">
+                  <ul className="noise-insights">
+                    {evaluation.insights.map((line, i) => (
+                      <li key={i}>{line}</li>
+                    ))}
+                  </ul>
                 </div>
-                <div className="noise-t1-meta">
-                  <span className={`noise-t1-conf conf-${nextDayForecast.confidence}`}>
-                    Konfidenz: {nextDayForecast.confidence} (n<sub>eff</sub> ={" "}
-                    <b className="mono">{nextDayForecast.effectiveSampleSize.toFixed(1).replace(".", ",")}</b>)
-                  </span>
-                  <button
-                    type="button"
-                    className={`noise-mini-btn noise-t1-factor-toggle${useExtraFactors ? " active" : ""}`}
-                    aria-pressed={useExtraFactors}
-                    onClick={() => setUseExtraFactors((prev) => !prev)}
-                  >
-                    <SlidersHorizontal size={12} />
-                    <span>Extra-Faktoren (RSI, ATR, Trend): {useExtraFactors ? "Aktiv" : "Aus"}</span>
-                  </button>
-                </div>
-              </div>
+              ) : null}
 
-              <div className="noise-t1-headline">
-                <div className="noise-t1-prob-side is-green">
-                  <span className="noise-t1-prob-label">Morgen Grün (Close &gt; Heute)</span>
-                  <strong className="mono positive">{fmtPct(nextDayForecast.greenProb)}</strong>
-                </div>
-                <div className="noise-t1-edge-badge">
-                  <span>Edge vs. Basisrate ({fmtPct(nextDayForecast.baseGreenProb)})</span>
-                  <strong
-                    className={`mono ${
-                      nextDayForecast.edgeVsBasePct > 0
-                        ? "positive"
-                        : nextDayForecast.edgeVsBasePct < 0
-                          ? "negative"
-                          : ""
-                    }`}
-                  >
-                    {nextDayForecast.edgeVsBasePct > 0 ? "+" : nextDayForecast.edgeVsBasePct < 0 ? "−" : ""}
-                    {Math.abs(nextDayForecast.edgeVsBasePct).toFixed(1).replace(".", ",")} Pp.
-                  </strong>
-                </div>
-                <div className="noise-t1-prob-side is-red">
-                  <span className="noise-t1-prob-label">Morgen Rot (Close &lt; Heute)</span>
-                  <strong className="mono negative">{fmtPct(nextDayForecast.redProb)}</strong>
-                </div>
-              </div>
-
-              <div className="noise-split-bar noise-t1-bar" aria-label="Wahrscheinlichkeit morgen grün gegen rot">
-                <div className="noise-split-green" style={{ width: `${nextDayForecast.greenProb}%` }} />
-                <div className="noise-split-red" style={{ width: `${nextDayForecast.redProb}%` }} />
-              </div>
-
-              <p className="noise-t1-summary">{nextDayForecast.summary}</p>
-
-              {/* Heutiger Tages-Move (%) Interactive Control */}
-              <div className="noise-t1-control">
-                <div className="noise-sim-head">
-                  <label htmlFor="noise-today-move-input">
-                    <TrendingUp size={14} /> Heutiger Move (%) nach {streakDays}{" "}
-                    {streakDirection === "red" ? "roten" : "grünen"}{" "}
-                    {streakBasis === "candle" ? "Kerzen" : "Tagen"}
-                  </label>
-                  <div className="noise-sim-actions">
-                    <button
-                      type="button"
-                      className={`noise-mini-btn${!todayMoveTouched ? " active" : ""}`}
-                      onClick={() => {
-                        setTodayMovePct(liveTodayReturn);
-                        setTodayMoveTouched(false);
-                      }}
-                    >
-                      Live ({fmtPct(liveTodayReturn, true)})
-                    </button>
-                    <input
-                      id="noise-today-move-input"
-                      type="number"
-                      step="0.1"
-                      min="-25"
-                      max="25"
-                      aria-label="Heutiger Tages-Move Prozent"
-                      value={Number.isFinite(todayMovePct) ? todayMovePct : 0}
-                      onChange={(e) => {
-                        const val = Number(e.target.value);
-                        setTodayMovePct(Number.isFinite(val) ? val : 0);
-                        setTodayMoveTouched(true);
-                      }}
-                    />
+              {/* Interactive Premarket & Streak Simulator */}
+              <div className="noise-simulator">
+                <div className="noise-sim-card">
+                  <div className="noise-sim-head">
+                    <label htmlFor="noise-gap-input">
+                      <Sparkles size={14} /> Premarket / Gap-Szenario (%)
+                    </label>
+                    <div className="noise-sim-actions">
+                      <button
+                        type="button"
+                        className={`noise-mini-btn${!gapTouched ? " active" : ""}`}
+                        onClick={() => {
+                          setGapPct(data.live.liveGapPct);
+                          setGapTouched(false);
+                        }}
+                      >
+                        Live ({fmtPct(data.live.liveGapPct, true)})
+                      </button>
+                      <input
+                        id="noise-gap-input"
+                        type="number"
+                        step="0.1"
+                        min="-20"
+                        max="20"
+                        aria-label="Premarket Gap Prozent"
+                        value={Number.isFinite(gapPct) ? gapPct : 0}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          setGapPct(Number.isFinite(val) ? val : 0);
+                          setGapTouched(true);
+                        }}
+                      />
+                    </div>
                   </div>
-                </div>
-                <input
-                  type="range"
-                  aria-label="Heutiger Tages-Move Regler"
-                  className="noise-slider"
-                  min="-10"
-                  max="10"
-                  step="0.1"
-                  value={Math.max(-10, Math.min(10, todayMovePct))}
-                  onChange={(e) => {
-                    setTodayMovePct(Number(e.target.value));
-                    setTodayMoveTouched(true);
-                  }}
-                />
-                <div className="noise-quick-row">
-                  {QUICK_TODAY_MOVES.map((m) => (
-                    <button
-                      key={m}
-                      type="button"
-                      className={`noise-mini-btn${Math.abs(todayMovePct - m) < 0.05 ? " active" : ""}`}
-                      onClick={() => {
-                        setTodayMovePct(m);
-                        setTodayMoveTouched(true);
-                      }}
-                    >
-                      {m > 0 ? `+${m.toFixed(1).replace(".", ",")}%` : `−${Math.abs(m).toFixed(1).replace(".", ",")}%`}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Projected Context & Outcome Strip */}
-              <div className="noise-t1-metrics">
-                <div className="noise-t1-metric">
-                  <span>Ø Morgen (T+1)</span>
-                  <strong className={`mono ${nextDayForecast.avgNextDayPct >= 0 ? "positive" : "negative"}`}>
-                    {fmtSigned2(nextDayForecast.avgNextDayPct)}
-                  </strong>
-                  <small>Median: <b className="mono">{fmtSigned2(nextDayForecast.medianNextDayPct)}</b></small>
-                </div>
-                <div className="noise-t1-metric">
-                  <span>Grüne Kerze T+1 (C&gt;O)</span>
-                  <strong className="mono">{fmtPct(nextDayForecast.greenCandleProb)}</strong>
-                  <small>
-                    3T / 5T Ø:{" "}
-                    <b className="mono">{fmtSigned2(nextDayForecast.fwd3dAvgPct)}</b> /{" "}
-                    <b className="mono">{fmtSigned2(nextDayForecast.fwd5dAvgPct)}</b>
-                  </small>
-                </div>
-                <div className="noise-t1-metric">
-                  <span>Projizierter RSI(14)</span>
-                  <strong className="mono">{nextDayForecast.projected.rsi14.toFixed(1).replace(".", ",")}</strong>
-                  <small>
-                    Move:{" "}
-                    <b className="mono">
-                      {nextDayForecast.projected.moveAtrRatio > 0 ? "+" : nextDayForecast.projected.moveAtrRatio < 0 ? "−" : ""}
-                      {Math.abs(nextDayForecast.projected.moveAtrRatio).toFixed(2).replace(".", ",")}× ATR14
-                    </b>
-                  </small>
-                </div>
-                <div className="noise-t1-metric">
-                  <span>Trend-Kontext</span>
-                  <strong className="mono">
-                    {nextDayForecast.projected.aboveSma200 === null
-                      ? "—"
-                      : nextDayForecast.projected.aboveSma200
-                        ? "Über 200-SMA"
-                        : "Unter 200-SMA"}
-                  </strong>
-                  <small>
-                    20-EMA Distanz: <b className="mono">{fmtSigned2(nextDayForecast.projected.distEma20Pct)}</b>
-                  </small>
-                </div>
-              </div>
-
-              {/* 4 Empirical Factor Breakdown */}
-              {nextDayForecast.factors.length > 0 ? (
-                <div className="noise-t1-factors" aria-label="Faktor-Aufschlüsselung für T+1">
-                  {nextDayForecast.factors.map((f) => (
-                    <article key={f.id} className={`noise-t1-factor stance-${f.stance}`}>
-                      <div className="noise-t1-factor-head">
-                        <span>{f.label}</span>
-                        <em className="mono">n = {f.sampleSize}</em>
-                      </div>
-                      <div className="noise-t1-factor-cond">{f.condition}</div>
-                      <div className="noise-t1-factor-nums mono">
-                        <span className="positive">Grün {fmtPct(f.greenProb)}</span>
-                        <span className="negative">Rot {fmtPct(f.redProb)}</span>
-                      </div>
-                      <small>
-                        Edge:{" "}
-                        <b className={`mono ${f.edgeVsBasePct > 0 ? "positive" : f.edgeVsBasePct < 0 ? "negative" : ""}`}>
-                          {f.edgeVsBasePct > 0 ? "+" : f.edgeVsBasePct < 0 ? "−" : ""}
-                          {Math.abs(f.edgeVsBasePct).toFixed(1).replace(".", ",")} Pp.
-                        </b>{" "}
-                        · Ø T+1 <b className="mono">{fmtSigned2(f.avgNextDayPct)}</b>
-                      </small>
-                    </article>
-                  ))}
-                </div>
-              ) : null}
-
-              {/* Top 6 Historical Twin Days */}
-              {nextDayForecast.twins.length > 0 ? (
-                <div className="noise-table-wrap noise-t1-twins">
-                  <h4>Historische Zwillingstage (ähnlichste Setups → Ergebnis am Folgetag T+1)</h4>
-                  <table className="noise-table">
-                    <thead>
-                      <tr>
-                        <th>Datum (Tag 0)</th>
-                        <th>Vor-Serie</th>
-                        <th>Tag 0 Move</th>
-                        <th>RSI(14)</th>
-                        <th>Morgen (T+1)</th>
-                        <th>Match</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {nextDayForecast.twins.map((twin) => (
-                        <tr key={twin.session}>
-                          <td className="mono">{twin.session}</td>
-                          <td className={`mono ${twin.priorStreak < 0 ? "negative" : "positive"}`}>
-                            {twin.priorStreak < 0
-                              ? `${Math.abs(twin.priorStreak)} rot`
-                              : twin.priorStreak > 0
-                                ? `${twin.priorStreak} grün`
-                                : "0"}
-                          </td>
-                          <td className={`mono ${twin.dayMovePct >= 0 ? "positive" : "negative"}`}>
-                            {fmtSigned2(twin.dayMovePct)}
-                          </td>
-                          <td className="mono">{twin.rsi14.toFixed(1).replace(".", ",")}</td>
-                          <td className={`mono ${twin.nextDayGreen ? "positive" : "negative"}`}>
-                            <span className={`noise-tag ${twin.nextDayGreen ? "open" : "filled"}`}>
-                              {twin.nextDayGreen ? "Grün" : "Rot"} {fmtSigned2(twin.nextDayPct)}
-                            </span>
-                          </td>
-                          <td className="mono">{fmtPct(twin.similarityPct)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : null}
-            </section>
-          ) : null}
-
-          {/* Interactive Premarket & Streak Simulator */}
-          <div className="noise-simulator">
-            <div className="noise-sim-card">
-              <div className="noise-sim-head">
-                <label htmlFor="noise-gap-input">
-                  <Sparkles size={14} /> Premarket / Gap-Szenario (%)
-                </label>
-                <div className="noise-sim-actions">
-                  <button
-                    type="button"
-                    className={`noise-mini-btn${!gapTouched ? " active" : ""}`}
-                    onClick={() => {
-                      setGapPct(data.live.liveGapPct);
-                      setGapTouched(false);
-                    }}
-                  >
-                    Live ({fmtPct(data.live.liveGapPct, true)})
-                  </button>
                   <input
-                    id="noise-gap-input"
-                    type="number"
+                    type="range"
+                    aria-label="Premarket Gap Regler"
+                    className="noise-slider"
+                    min="-5"
+                    max="5"
                     step="0.1"
-                    min="-20"
-                    max="20"
-                    aria-label="Premarket Gap Prozent"
-                    value={Number.isFinite(gapPct) ? gapPct : 0}
+                    value={Math.max(-5, Math.min(5, gapPct))}
                     onChange={(e) => {
-                      const val = Number(e.target.value);
-                      setGapPct(Number.isFinite(val) ? val : 0);
+                      setGapPct(Number(e.target.value));
                       setGapTouched(true);
                     }}
                   />
-                </div>
-              </div>
-              <input
-                type="range"
-                aria-label="Premarket Gap Regler"
-                className="noise-slider"
-                min="-5"
-                max="5"
-                step="0.1"
-                value={Math.max(-5, Math.min(5, gapPct))}
-                onChange={(e) => {
-                  setGapPct(Number(e.target.value));
-                  setGapTouched(true);
-                }}
-              />
-              <div className="noise-quick-row">
-                {QUICK_GAPS.map((g) => (
-                  <button
-                    key={g}
-                    type="button"
-                    className={`noise-mini-btn${Math.abs(gapPct - g) < 0.05 ? " active" : ""}`}
-                    onClick={() => {
-                      setGapPct(g);
-                      setGapTouched(true);
-                    }}
-                  >
-                    {g > 0 ? `+${g.toFixed(1).replace(".", ",")}%` : `${g.toFixed(1).replace(".", ",")}%`}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="noise-sim-card">
-              <div className="noise-sim-head">
-                <span>
-                  <Activity size={14} /> Serie / Streak im {data.ticker}
-                </span>
-                <div className="noise-sim-actions">
-                  <button
-                    type="button"
-                    className={`noise-mini-btn${!streakTouched ? " active" : ""}`}
-                    onClick={() => {
-                      setStreakDirection(activeLiveStreak.direction);
-                      setStreakDays(Math.max(1, activeLiveStreak.count || 1));
-                      setStreakTouched(false);
-                    }}
-                  >
-                    Aktuell ({activeLiveStreak.count}{" "}
-                    {activeLiveStreak.direction === "red" ? "rot" : "grün"})
-                  </button>
-                  <button
-                    type="button"
-                    className={`noise-mini-btn dir-red${streakDirection === "red" ? " active" : ""}`}
-                    aria-pressed={streakDirection === "red"}
-                    onClick={() => {
-                      setStreakDirection("red");
-                      setStreakTouched(true);
-                    }}
-                  >
-                    Rot
-                  </button>
-                  <button
-                    type="button"
-                    className={`noise-mini-btn dir-green${streakDirection === "green" ? " active" : ""}`}
-                    aria-pressed={streakDirection === "green"}
-                    onClick={() => {
-                      setStreakDirection("green");
-                      setStreakTouched(true);
-                    }}
-                  >
-                    Grün
-                  </button>
-                </div>
-              </div>
-              <div className="noise-basis-row" role="group" aria-label="Streak-Berechnungsbasis">
-                <button
-                  type="button"
-                  className={`noise-mini-btn${streakBasis === "candle" ? " active" : ""}`}
-                  aria-pressed={streakBasis === "candle"}
-                  title="Tageskerzen-Farbe im Chart (Close vs. Open)"
-                  onClick={() => switchStreakBasis("candle")}
-                >
-                  Kerzen (C vs O): {liveCandleStreak.count} {liveCandleStreak.direction === "red" ? "rot" : "grün"}
-                </button>
-                <button
-                  type="button"
-                  className={`noise-mini-btn${streakBasis === "close" ? " active" : ""}`}
-                  aria-pressed={streakBasis === "close"}
-                  title="Schlusskurs gegenüber Vortags-Close (Close vs. PrevClose)"
-                  onClick={() => switchStreakBasis("close")}
-                >
-                  Close (vs Vortag): {liveCloseStreak.count} {liveCloseStreak.direction === "red" ? "rot" : "grün"}
-                </button>
-              </div>
-              <div className="noise-quick-row noise-streak-nums" role="group" aria-label="Anzahl Tage in Folge">
-                {QUICK_STREAKS.map((d) => (
-                  <button
-                    key={d}
-                    type="button"
-                    className={`noise-mini-btn${streakDays === d ? " active" : ""}`}
-                    aria-pressed={streakDays === d}
-                    onClick={() => {
-                      setStreakDays(d);
-                      setStreakTouched(true);
-                    }}
-                  >
-                    {d}T
-                  </button>
-                ))}
-              </div>
-              {dataset && dataset.recentDays.length > 0 ? (
-                <div className="noise-recent-strip" aria-label="Letzte Handelstage">
-                  {dataset.recentDays.map((day) => {
-                    const isGreen = streakBasis === "candle" ? day.greenCandle : day.greenDay;
-                    const primaryDelta = streakBasis === "candle" ? day.openToClosePct : day.closeToClosePct;
-                    const differs = day.greenCandle !== day.greenDay;
-                    return (
-                      <div
-                        key={day.session}
-                        className={`noise-recent-day ${isGreen ? "is-green" : "is-red"}${differs ? " is-mixed" : ""}`}
-                        title={`${day.session}: Kerze (C vs O) ${fmtSigned2(day.openToClosePct)} · Close vs Vortag ${fmtSigned2(day.closeToClosePct)}`}
+                  <div className="noise-quick-row">
+                    {QUICK_GAPS.map((g) => (
+                      <button
+                        key={g}
+                        type="button"
+                        className={`noise-mini-btn${Math.abs(gapPct - g) < 0.05 ? " active" : ""}`}
+                        onClick={() => {
+                          setGapPct(g);
+                          setGapTouched(true);
+                        }}
                       >
-                        <span className="noise-recent-date">{fmtShortDate(day.session)}</span>
-                        <span className="noise-recent-val mono">
-                          {primaryDelta > 0 ? `+${primaryDelta.toFixed(1).replace(".", ",")}` : `${primaryDelta.toFixed(1).replace(".", ",")}`}%
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : null}
-              <p className="noise-sim-hint">
-                {evaluation.streakExact.label}: n = {evaluation.streakExact.sampleSize} ·{" "}
-                {evaluation.streakAtLeast.label}: n = {evaluation.streakAtLeast.sampleSize}
-              </p>
-            </div>
-          </div>
-
-          {/* 4 Core KPI Cards */}
-          <div className="noise-kpi-grid">
-            <article className="noise-kpi">
-              <span className="noise-kpi-label">Gap-Close-Chance (Intraday)</span>
-              <strong className={`mono ${evaluation.gapStats.gapFillProb >= 60 ? "negative" : "positive"}`}>
-                {evaluation.gapStats.sampleSize ? fmtPct(evaluation.gapStats.gapFillProb) : "—"}
-              </strong>
-              <small>
-                Band: {evaluation.gapStats.bandLabel} (n = {evaluation.gapStats.sampleSize})
-              </small>
-              <small>
-                Kompletter Fade (Close vs. Vortag): <b className="mono">{fmtPct(evaluation.gapStats.fullFadeProb)}</b>
-              </small>
-            </article>
-
-            <article className="noise-kpi">
-              <span className="noise-kpi-label">Follow-Through (Open → Close)</span>
-              <strong className={`mono ${evaluation.gapStats.continuationProb >= 55 ? "positive" : "negative"}`}>
-                {evaluation.gapStats.sampleSize ? fmtPct(evaluation.gapStats.continuationProb) : "—"}
-              </strong>
-              <small>
-                Ø Open→Close: <b className="mono">{fmtSigned2(evaluation.gapStats.avgOpenToClosePct)}</b> · Median:{" "}
-                <b className="mono">{fmtSigned2(evaluation.gapStats.medianOpenToClosePct)}</b>
-              </small>
-              <small>
-                Ø MFE / MAE: <b className="mono">+{evaluation.gapStats.avgMfePct.toFixed(2).replace(".", ",")}%</b> /{" "}
-                <b className="mono">−{evaluation.gapStats.avgMaePct.toFixed(2).replace(".", ",")}%</b>
-              </small>
-            </article>
-
-            <article className="noise-kpi">
-              <span className="noise-kpi-label">{evaluation.streakPrimary.label}</span>
-              <div className="noise-split-bar" aria-label="Grüner vs. Roter Close Wahrscheinlichkeit">
-                <div
-                  className="noise-split-green"
-                  style={{ width: `${evaluation.streakPrimary.greenCloseProb}%` }}
-                />
-                <div
-                  className="noise-split-red"
-                  style={{ width: `${evaluation.streakPrimary.redCloseProb}%` }}
-                />
-              </div>
-              <div className="noise-split-legend mono">
-                <span className="positive">Grün {fmtPct(evaluation.streakPrimary.greenCloseProb)}</span>
-                <span className="negative">Rot {fmtPct(evaluation.streakPrimary.redCloseProb)}</span>
-              </div>
-              <small>
-                Grüne Kerze (C&gt;O): <b className="mono">{fmtPct(evaluation.streakPrimary.greenIntradayProb)}</b> · Ø 1T:{" "}
-                <b className="mono">{fmtSigned2(evaluation.streakPrimary.avgNextDayPct)}</b>
-              </small>
-              <small>
-                Ø 5T Folgerendite: <b className="mono">{fmtSigned2(evaluation.streakPrimary.fwd5dAvgPct)}</b> (n ={" "}
-                {evaluation.streakPrimary.sampleSize})
-              </small>
-            </article>
-
-            <article className="noise-kpi">
-              <span className="noise-kpi-label">Gap-Stretch &amp; Volatilität</span>
-              <strong className="mono">
-                {evaluation.gapStats.gapToAtrRatio.toFixed(2).replace(".", ",")}× ATR14
-              </strong>
-              <small>
-                Z-Score: <b className="mono">{evaluation.gapStats.gapZScore.toFixed(2).replace(".", ",")} σ</b> ·
-                Perzentil: <b className="mono">{evaluation.gapStats.gapPercentile.toFixed(0)}.</b>
-              </small>
-              <small>
-                Aktuelle ATR14: <b className="mono">{data.live.currentAtr14Pct.toFixed(2).replace(".", ",")} %</b> · 3T Ø:{" "}
-                <b className="mono">{fmtSigned2(evaluation.gapStats.fwd3dAvgPct)}</b>
-              </small>
-            </article>
-          </div>
-
-          {/* Streak x Premarket Gap Combination Insight */}
-          <div className="noise-combo-card">
-            <div className="noise-combo-title">
-              <strong>
-                Kombi-Statistik: Nach ≥ {evaluation.combo.effectiveStreakDays}{" "}
-                {evaluation.combo.streakDirection === "red" ? "roten" : "grünen"}{" "}
-                {streakBasis === "candle" ? "Kerzen" : "Tagen"} + Premarket-Gap
-              </strong>
-              {evaluation.combo.usedFallbackThreshold ? (
-                <span className="noise-meta-chip">Auf ≥ {evaluation.combo.effectiveStreakDays}T erweitert für Stichprobe</span>
-              ) : null}
-            </div>
-            <div className="noise-combo-grid">
-              <div className="noise-combo-branch">
-                <div className="noise-combo-branch-head positive">
-                  <TrendingUp size={15} />
-                  <span>Premarket-Pump (Up-Gap ≥ +0,2 %)</span>
-                  <em className="mono">n = {evaluation.combo.upGap.sampleSize}</em>
-                </div>
-                {evaluation.combo.upGap.sampleSize > 0 ? (
-                  <p>
-                    Gap-Close: <b className="mono">{fmtPct(evaluation.combo.upGap.gapFillProb)}</b> · Grüner Tag:{" "}
-                    <b className="mono">{fmtPct(evaluation.combo.upGap.greenDayProb)}</b> · Grüne Kerze (vs Open):{" "}
-                    <b className="mono">{fmtPct(evaluation.combo.upGap.greenIntradayProb)}</b> · Ø Open→Close:{" "}
-                    <b className="mono">{fmtSigned2(evaluation.combo.upGap.avgOpenToClosePct)}</b>
-                  </p>
-                ) : (
-                  <p className="muted">Keine historischen Tage mit dieser Kombination im Zeitraum.</p>
-                )}
-              </div>
-
-              <div className="noise-combo-branch">
-                <div className="noise-combo-branch-head negative">
-                  <TrendingDown size={15} />
-                  <span>Premarket-Drop (Down-Gap ≤ −0,2 %)</span>
-                  <em className="mono">n = {evaluation.combo.downGap.sampleSize}</em>
-                </div>
-                {evaluation.combo.downGap.sampleSize > 0 ? (
-                  <p>
-                    Gap-Close: <b className="mono">{fmtPct(evaluation.combo.downGap.gapFillProb)}</b> · Grüner Tag:{" "}
-                    <b className="mono">{fmtPct(evaluation.combo.downGap.greenDayProb)}</b> · Grüne Kerze (vs Open):{" "}
-                    <b className="mono">{fmtPct(evaluation.combo.downGap.greenIntradayProb)}</b> · Ø Open→Close:{" "}
-                    <b className="mono">{fmtSigned2(evaluation.combo.downGap.avgOpenToClosePct)}</b>
-                  </p>
-                ) : (
-                  <p className="muted">Keine historischen Tage mit dieser Kombination im Zeitraum.</p>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Detail Tabs */}
-          <div className="noise-detail-tabs" role="tablist" aria-label="NoiseMeter Detailtabellen">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={detailTab === "gaps"}
-              className={detailTab === "gaps" ? "active" : ""}
-              onClick={() => setDetailTab("gaps")}
-            >
-              <BarChart3 size={14} /> Gap-Matrix
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={detailTab === "streaks"}
-              className={detailTab === "streaks" ? "active" : ""}
-              onClick={() => setDetailTab("streaks")}
-            >
-              <Activity size={14} /> Streak-Tabelle &amp; Wochentage
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={detailTab === "analogues"}
-              className={detailTab === "analogues" ? "active" : ""}
-              onClick={() => setDetailTab("analogues")}
-            >
-              <Calendar size={14} /> Historische Analogien ({evaluation.analogues.length})
-            </button>
-          </div>
-
-          {detailTab === "gaps" ? (
-            <div className="noise-table-wrap">
-              <table className="noise-table">
-                <thead>
-                  <tr>
-                    <th>Gap-Größe</th>
-                    <th>n</th>
-                    <th>Gap-Close</th>
-                    <th>Full Fade</th>
-                    <th>Grün (vs Open)</th>
-                    <th>Grün (vs Vortag)</th>
-                    <th>Ø Open→Close</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {evaluation.gapBuckets.map((row) => (
-                    <tr
-                      key={row.id}
-                      className={row.active ? "active-row" : ""}
-                      onClick={() => {
-                        const target =
-                          row.id === "lt-2"
-                            ? -2.5
-                            : row.id === "gt-2"
-                              ? 2.5
-                              : Math.round(((row.min + row.max) / 2) * 10) / 10;
-                        setGapPct(target);
-                        setGapTouched(true);
-                      }}
-                    >
-                      <td>{row.label}</td>
-                      <td className="mono">{row.sampleSize}</td>
-                      <td className="mono">{row.sampleSize ? fmtPct(row.gapFillProb) : "—"}</td>
-                      <td className="mono">{row.sampleSize ? fmtPct(row.fullFadeProb) : "—"}</td>
-                      <td className="mono">{row.sampleSize ? fmtPct(row.greenIntradayProb) : "—"}</td>
-                      <td className="mono">{row.sampleSize ? fmtPct(row.greenDayProb) : "—"}</td>
-                      <td className={`mono ${row.avgOpenToClosePct >= 0 ? "positive" : "negative"}`}>
-                        {row.sampleSize ? fmtSigned2(row.avgOpenToClosePct) : "—"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : null}
-
-          {detailTab === "streaks" ? (
-            <div className="noise-streaks-layout">
-              <div className="noise-streak-tables">
-                <div className="noise-table-wrap">
-                  <h4>Nach roten {streakBasis === "candle" ? "Kerzen" : "Tagen"} in Folge</h4>
-                  <table className="noise-table">
-                    <thead>
-                      <tr>
-                        <th>Serie</th>
-                        <th>n</th>
-                        <th>Grün %</th>
-                        <th>Rot %</th>
-                        <th>Ø 1T</th>
-                        <th>Ø 5T</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {evaluation.redStreaks.map((row) => (
-                        <tr
-                          key={`red-${row.days}`}
-                          className={
-                            streakDirection === "red" &&
-                            (streakDays === row.days || (row.mode === "atLeast" && streakDays >= row.days))
-                              ? "active-row"
-                              : ""
-                          }
-                          onClick={() => applyStreakRow(row)}
-                        >
-                          <td>{row.mode === "atLeast" ? `≥ ${row.days} rot` : `${row.days} rot`}</td>
-                          <td className="mono">{row.sampleSize}</td>
-                          <td className="mono positive">{row.sampleSize ? fmtPct(row.greenCloseProb) : "—"}</td>
-                          <td className="mono negative">{row.sampleSize ? fmtPct(row.redCloseProb) : "—"}</td>
-                          <td className={`mono ${row.avgNextDayPct >= 0 ? "positive" : "negative"}`}>
-                            {row.sampleSize ? fmtSigned2(row.avgNextDayPct) : "—"}
-                          </td>
-                          <td className={`mono ${(row.fwd5dAvgPct ?? 0) >= 0 ? "positive" : "negative"}`}>
-                            {fmtSigned2(row.fwd5dAvgPct)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="noise-table-wrap">
-                  <h4>Nach grünen {streakBasis === "candle" ? "Kerzen" : "Tagen"} in Folge</h4>
-                  <table className="noise-table">
-                    <thead>
-                      <tr>
-                        <th>Serie</th>
-                        <th>n</th>
-                        <th>Grün %</th>
-                        <th>Rot %</th>
-                        <th>Ø 1T</th>
-                        <th>Ø 5T</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {evaluation.greenStreaks.map((row) => (
-                        <tr
-                          key={`green-${row.days}`}
-                          className={
-                            streakDirection === "green" &&
-                            (streakDays === row.days || (row.mode === "atLeast" && streakDays >= row.days))
-                              ? "active-row"
-                              : ""
-                          }
-                          onClick={() => applyStreakRow(row)}
-                        >
-                          <td>{row.mode === "atLeast" ? `≥ ${row.days} grün` : `${row.days} grün`}</td>
-                          <td className="mono">{row.sampleSize}</td>
-                          <td className="mono positive">{row.sampleSize ? fmtPct(row.greenCloseProb) : "—"}</td>
-                          <td className="mono negative">{row.sampleSize ? fmtPct(row.redCloseProb) : "—"}</td>
-                          <td className={`mono ${row.avgNextDayPct >= 0 ? "positive" : "negative"}`}>
-                            {row.sampleSize ? fmtSigned2(row.avgNextDayPct) : "—"}
-                          </td>
-                          <td className={`mono ${(row.fwd5dAvgPct ?? 0) >= 0 ? "positive" : "negative"}`}>
-                            {fmtSigned2(row.fwd5dAvgPct)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              <div className="noise-weekday-strip" aria-label="Wochentags-Statistik">
-                {evaluation.weekdays.map((wd) => (
-                  <div
-                    key={wd.weekday}
-                    className={`noise-weekday-card${wd.weekday === data.live.nextWeekday ? " active" : ""}`}
-                  >
-                    <strong>{wd.label}</strong>
-                    <span className={`mono ${wd.greenDayProb >= 52 ? "positive" : wd.greenDayProb <= 48 ? "negative" : ""}`}>
-                      {fmtPct(wd.greenDayProb)} grün
-                    </span>
-                    <small className="mono">Ø {fmtSigned2(wd.avgReturnPct)}</small>
+                        {g > 0 ? `+${g.toFixed(1).replace(".", ",")}%` : `${g.toFixed(1).replace(".", ",")}%`}
+                      </button>
+                    ))}
                   </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
+                </div>
 
-          {detailTab === "analogues" ? (
-            <div className="noise-table-wrap">
-              <table className="noise-table">
-                <thead>
-                  <tr>
-                    <th>Datum</th>
-                    <th>Gap</th>
-                    <th>Open→Close</th>
-                    <th>Tag</th>
-                    <th>Vorserie</th>
-                    <th>Gap-Close</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {evaluation.analogues.length ? (
-                    evaluation.analogues.map((row) => (
-                      <tr key={row.session}>
-                        <td className="mono">{row.session}</td>
-                        <td className={`mono ${row.gapPct >= 0 ? "positive" : "negative"}`}>{fmtSigned2(row.gapPct)}</td>
-                        <td className={`mono ${row.openToClosePct >= 0 ? "positive" : "negative"}`}>
-                          {fmtSigned2(row.openToClosePct)}
-                        </td>
-                        <td className={`mono ${row.closeToClosePct >= 0 ? "positive" : "negative"}`}>
-                          {fmtSigned2(row.closeToClosePct)}
-                        </td>
-                        <td className="mono">
-                          {row.priorStreak === 0
-                            ? "0"
-                            : row.priorStreak > 0
-                              ? `+${row.priorStreak} grün`
-                              : `${Math.abs(row.priorStreak)} rot`}
-                        </td>
-                        <td>
-                          <span className={`noise-tag ${row.gapFilled ? "filled" : "open"}`}>
-                            {row.gapFilled ? (row.fullFade ? "Full Fade" : "Gefüllt") : "Offen"}
-                          </span>
-                        </td>
+                {renderStreakCard(`Serie / Streak im ${data.ticker}`)}
+              </div>
+
+              {/* 4 Core KPI Cards */}
+              <div className="noise-kpi-grid">
+                <article className="noise-kpi">
+                  <span className="noise-kpi-label">Gap-Close-Chance (Intraday)</span>
+                  <strong className={`mono ${evaluation.gapStats.gapFillProb >= 60 ? "negative" : "positive"}`}>
+                    {evaluation.gapStats.sampleSize ? fmtPct(evaluation.gapStats.gapFillProb) : "—"}
+                  </strong>
+                  <small>
+                    Band: {evaluation.gapStats.bandLabel} (n = {evaluation.gapStats.sampleSize})
+                  </small>
+                  <small>
+                    Kompletter Fade (Close vs. Vortag):{" "}
+                    <b className="mono">{fmtPct(evaluation.gapStats.fullFadeProb)}</b>
+                  </small>
+                </article>
+
+                <article className="noise-kpi">
+                  <span className="noise-kpi-label">Follow-Through (Open → Close)</span>
+                  <strong className={`mono ${evaluation.gapStats.continuationProb >= 55 ? "positive" : "negative"}`}>
+                    {evaluation.gapStats.sampleSize ? fmtPct(evaluation.gapStats.continuationProb) : "—"}
+                  </strong>
+                  <small>
+                    Ø Open→Close: <b className="mono">{fmtSigned2(evaluation.gapStats.avgOpenToClosePct)}</b> · Median:{" "}
+                    <b className="mono">{fmtSigned2(evaluation.gapStats.medianOpenToClosePct)}</b>
+                  </small>
+                  <small>
+                    Ø MFE / MAE: <b className="mono">+{evaluation.gapStats.avgMfePct.toFixed(2).replace(".", ",")}%</b>{" "}
+                    / <b className="mono">−{evaluation.gapStats.avgMaePct.toFixed(2).replace(".", ",")}%</b>
+                  </small>
+                </article>
+
+                <article className="noise-kpi">
+                  <span className="noise-kpi-label">{evaluation.streakPrimary.label}</span>
+                  <div className="noise-split-bar" aria-label="Grüner vs. Roter Close Wahrscheinlichkeit">
+                    <div
+                      className="noise-split-green"
+                      style={{ width: `${evaluation.streakPrimary.greenCloseProb}%` }}
+                    />
+                    <div
+                      className="noise-split-red"
+                      style={{ width: `${evaluation.streakPrimary.redCloseProb}%` }}
+                    />
+                  </div>
+                  <div className="noise-split-legend mono">
+                    <span className="positive">Grün {fmtPct(evaluation.streakPrimary.greenCloseProb)}</span>
+                    <span className="negative">Rot {fmtPct(evaluation.streakPrimary.redCloseProb)}</span>
+                  </div>
+                  <small>
+                    Grüne Kerze (C&gt;O): <b className="mono">{fmtPct(evaluation.streakPrimary.greenIntradayProb)}</b> ·
+                    Ø 1T: <b className="mono">{fmtSigned2(evaluation.streakPrimary.avgNextDayPct)}</b>
+                  </small>
+                  <small>
+                    Ø 5T Folgerendite: <b className="mono">{fmtSigned2(evaluation.streakPrimary.fwd5dAvgPct)}</b> (n ={" "}
+                    {evaluation.streakPrimary.sampleSize})
+                  </small>
+                </article>
+
+                <article className="noise-kpi">
+                  <span className="noise-kpi-label">Gap-Stretch &amp; Volatilität</span>
+                  <strong className="mono">
+                    {evaluation.gapStats.gapToAtrRatio.toFixed(2).replace(".", ",")}× ATR14
+                  </strong>
+                  <small>
+                    Z-Score: <b className="mono">{evaluation.gapStats.gapZScore.toFixed(2).replace(".", ",")} σ</b> ·
+                    Perzentil: <b className="mono">{evaluation.gapStats.gapPercentile.toFixed(0)}.</b>
+                  </small>
+                  <small>
+                    Aktuelle ATR14: <b className="mono">{data.live.currentAtr14Pct.toFixed(2).replace(".", ",")} %</b> ·
+                    3T Ø: <b className="mono">{fmtSigned2(evaluation.gapStats.fwd3dAvgPct)}</b>
+                  </small>
+                </article>
+              </div>
+
+              {/* Streak x Premarket Gap Combination Insight */}
+              <div className="noise-combo-card">
+                <div className="noise-combo-title">
+                  <strong>
+                    Kombi-Statistik: Nach ≥ {evaluation.combo.effectiveStreakDays}{" "}
+                    {evaluation.combo.streakDirection === "red" ? "roten" : "grünen"}{" "}
+                    {streakBasis === "candle" ? "Kerzen" : "Tagen"} + Premarket-Gap
+                  </strong>
+                  {evaluation.combo.usedFallbackThreshold ? (
+                    <span className="noise-meta-chip">
+                      Auf ≥ {evaluation.combo.effectiveStreakDays}T erweitert für Stichprobe
+                    </span>
+                  ) : null}
+                </div>
+                <div className="noise-combo-grid">
+                  <div className="noise-combo-branch">
+                    <div className="noise-combo-branch-head positive">
+                      <TrendingUp size={15} />
+                      <span>Premarket-Pump (Up-Gap ≥ +0,2 %)</span>
+                      <em className="mono">n = {evaluation.combo.upGap.sampleSize}</em>
+                    </div>
+                    {evaluation.combo.upGap.sampleSize > 0 ? (
+                      <p>
+                        Gap-Close: <b className="mono">{fmtPct(evaluation.combo.upGap.gapFillProb)}</b> · Grüner Tag:{" "}
+                        <b className="mono">{fmtPct(evaluation.combo.upGap.greenDayProb)}</b> · Grüne Kerze (vs Open):{" "}
+                        <b className="mono">{fmtPct(evaluation.combo.upGap.greenIntradayProb)}</b> · Ø Open→Close:{" "}
+                        <b className="mono">{fmtSigned2(evaluation.combo.upGap.avgOpenToClosePct)}</b>
+                      </p>
+                    ) : (
+                      <p className="muted">Keine historischen Tage mit dieser Kombination im Zeitraum.</p>
+                    )}
+                  </div>
+
+                  <div className="noise-combo-branch">
+                    <div className="noise-combo-branch-head negative">
+                      <TrendingDown size={15} />
+                      <span>Premarket-Drop (Down-Gap ≤ −0,2 %)</span>
+                      <em className="mono">n = {evaluation.combo.downGap.sampleSize}</em>
+                    </div>
+                    {evaluation.combo.downGap.sampleSize > 0 ? (
+                      <p>
+                        Gap-Close: <b className="mono">{fmtPct(evaluation.combo.downGap.gapFillProb)}</b> · Grüner Tag:{" "}
+                        <b className="mono">{fmtPct(evaluation.combo.downGap.greenDayProb)}</b> · Grüne Kerze (vs Open):{" "}
+                        <b className="mono">{fmtPct(evaluation.combo.downGap.greenIntradayProb)}</b> · Ø Open→Close:{" "}
+                        <b className="mono">{fmtSigned2(evaluation.combo.downGap.avgOpenToClosePct)}</b>
+                      </p>
+                    ) : (
+                      <p className="muted">Keine historischen Tage mit dieser Kombination im Zeitraum.</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Detail Tabs */}
+              <div className="noise-detail-tabs" role="tablist" aria-label="NoiseMeter Detailtabellen">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={detailTab === "gaps"}
+                  className={detailTab === "gaps" ? "active" : ""}
+                  onClick={() => setDetailTab("gaps")}
+                >
+                  <BarChart3 size={14} /> Gap-Matrix
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={detailTab === "streaks"}
+                  className={detailTab === "streaks" ? "active" : ""}
+                  onClick={() => setDetailTab("streaks")}
+                >
+                  <Activity size={14} /> Streak-Tabelle &amp; Wochentage
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={detailTab === "analogues"}
+                  className={detailTab === "analogues" ? "active" : ""}
+                  onClick={() => setDetailTab("analogues")}
+                >
+                  <Calendar size={14} /> Historische Analogien ({evaluation.analogues.length})
+                </button>
+              </div>
+
+              {detailTab === "gaps" ? (
+                <div className="noise-table-wrap">
+                  <table className="noise-table">
+                    <thead>
+                      <tr>
+                        <th>Gap-Größe</th>
+                        <th>n</th>
+                        <th>Gap-Close</th>
+                        <th>Full Fade</th>
+                        <th>Grün (vs Open)</th>
+                        <th>Grün (vs Vortag)</th>
+                        <th>Ø Open→Close</th>
                       </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={6} className="muted">
-                        Keine historischen Analogien für dieses Band vorhanden.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+                    </thead>
+                    <tbody>
+                      {evaluation.gapBuckets.map((row) => (
+                        <tr
+                          key={row.id}
+                          className={row.active ? "active-row" : ""}
+                          onClick={() => {
+                            const target =
+                              row.id === "lt-2"
+                                ? -2.5
+                                : row.id === "gt-2"
+                                  ? 2.5
+                                  : Math.round(((row.min + row.max) / 2) * 10) / 10;
+                            setGapPct(target);
+                            setGapTouched(true);
+                          }}
+                        >
+                          <td>{row.label}</td>
+                          <td className="mono">{row.sampleSize}</td>
+                          <td className="mono">{row.sampleSize ? fmtPct(row.gapFillProb) : "—"}</td>
+                          <td className="mono">{row.sampleSize ? fmtPct(row.fullFadeProb) : "—"}</td>
+                          <td className="mono">{row.sampleSize ? fmtPct(row.greenIntradayProb) : "—"}</td>
+                          <td className="mono">{row.sampleSize ? fmtPct(row.greenDayProb) : "—"}</td>
+                          <td className={`mono ${row.avgOpenToClosePct >= 0 ? "positive" : "negative"}`}>
+                            {row.sampleSize ? fmtSigned2(row.avgOpenToClosePct) : "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
+
+              {detailTab === "streaks" ? (
+                <div className="noise-streaks-layout">
+                  <div className="noise-streak-tables">
+                    <div className="noise-table-wrap">
+                      <h4>Nach roten {streakBasis === "candle" ? "Kerzen" : "Tagen"} in Folge</h4>
+                      <table className="noise-table">
+                        <thead>
+                          <tr>
+                            <th>Serie</th>
+                            <th>n</th>
+                            <th>Grün %</th>
+                            <th>Rot %</th>
+                            <th>Ø 1T</th>
+                            <th>Ø 5T</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {evaluation.redStreaks.map((row) => (
+                            <tr
+                              key={`red-${row.days}`}
+                              className={
+                                streakDirection === "red" &&
+                                (streakDays === row.days ||
+                                  (row.mode === "atLeast" && streakDays >= row.days))
+                                  ? "active-row"
+                                  : ""
+                              }
+                              onClick={() => applyStreakRow(row)}
+                            >
+                              <td>{row.mode === "atLeast" ? `≥ ${row.days} rot` : `${row.days} rot`}</td>
+                              <td className="mono">{row.sampleSize}</td>
+                              <td className="mono positive">
+                                {row.sampleSize ? fmtPct(row.greenCloseProb) : "—"}
+                              </td>
+                              <td className="mono negative">
+                                {row.sampleSize ? fmtPct(row.redCloseProb) : "—"}
+                              </td>
+                              <td className={`mono ${row.avgNextDayPct >= 0 ? "positive" : "negative"}`}>
+                                {row.sampleSize ? fmtSigned2(row.avgNextDayPct) : "—"}
+                              </td>
+                              <td className={`mono ${(row.fwd5dAvgPct ?? 0) >= 0 ? "positive" : "negative"}`}>
+                                {fmtSigned2(row.fwd5dAvgPct)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div className="noise-table-wrap">
+                      <h4>Nach grünen {streakBasis === "candle" ? "Kerzen" : "Tagen"} in Folge</h4>
+                      <table className="noise-table">
+                        <thead>
+                          <tr>
+                            <th>Serie</th>
+                            <th>n</th>
+                            <th>Grün %</th>
+                            <th>Rot %</th>
+                            <th>Ø 1T</th>
+                            <th>Ø 5T</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {evaluation.greenStreaks.map((row) => (
+                            <tr
+                              key={`green-${row.days}`}
+                              className={
+                                streakDirection === "green" &&
+                                (streakDays === row.days ||
+                                  (row.mode === "atLeast" && streakDays >= row.days))
+                                  ? "active-row"
+                                  : ""
+                              }
+                              onClick={() => applyStreakRow(row)}
+                            >
+                              <td>{row.mode === "atLeast" ? `≥ ${row.days} grün` : `${row.days} grün`}</td>
+                              <td className="mono">{row.sampleSize}</td>
+                              <td className="mono positive">
+                                {row.sampleSize ? fmtPct(row.greenCloseProb) : "—"}
+                              </td>
+                              <td className="mono negative">
+                                {row.sampleSize ? fmtPct(row.redCloseProb) : "—"}
+                              </td>
+                              <td className={`mono ${row.avgNextDayPct >= 0 ? "positive" : "negative"}`}>
+                                {row.sampleSize ? fmtSigned2(row.avgNextDayPct) : "—"}
+                              </td>
+                              <td className={`mono ${(row.fwd5dAvgPct ?? 0) >= 0 ? "positive" : "negative"}`}>
+                                {fmtSigned2(row.fwd5dAvgPct)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <div className="noise-weekday-strip" aria-label="Wochentags-Statistik">
+                    {evaluation.weekdays.map((wd) => (
+                      <div
+                        key={wd.weekday}
+                        className={`noise-weekday-card${wd.weekday === data.live.nextWeekday ? " active" : ""}`}
+                      >
+                        <strong>{wd.label}</strong>
+                        <span
+                          className={`mono ${
+                            wd.greenDayProb >= 52 ? "positive" : wd.greenDayProb <= 48 ? "negative" : ""
+                          }`}
+                        >
+                          {fmtPct(wd.greenDayProb)} grün
+                        </span>
+                        <small className="mono">Ø {fmtSigned2(wd.avgReturnPct)}</small>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {detailTab === "analogues" ? (
+                <div className="noise-table-wrap">
+                  <table className="noise-table">
+                    <thead>
+                      <tr>
+                        <th>Datum</th>
+                        <th>Gap</th>
+                        <th>Open→Close</th>
+                        <th>Tag</th>
+                        <th>Vorserie</th>
+                        <th>Gap-Close</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {evaluation.analogues.length ? (
+                        evaluation.analogues.map((row) => (
+                          <tr key={row.session}>
+                            <td className="mono">{row.session}</td>
+                            <td className={`mono ${row.gapPct >= 0 ? "positive" : "negative"}`}>
+                              {fmtSigned2(row.gapPct)}
+                            </td>
+                            <td className={`mono ${row.openToClosePct >= 0 ? "positive" : "negative"}`}>
+                              {fmtSigned2(row.openToClosePct)}
+                            </td>
+                            <td className={`mono ${row.closeToClosePct >= 0 ? "positive" : "negative"}`}>
+                              {fmtSigned2(row.closeToClosePct)}
+                            </td>
+                            <td className="mono">
+                              {row.priorStreak === 0
+                                ? "0"
+                                : row.priorStreak > 0
+                                  ? `+${row.priorStreak} grün`
+                                  : `${Math.abs(row.priorStreak)} rot`}
+                            </td>
+                            <td>
+                              <span className={`noise-tag ${row.gapFilled ? "filled" : "open"}`}>
+                                {row.gapFilled ? (row.fullFade ? "Full Fade" : "Gefüllt") : "Offen"}
+                              </span>
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={6} className="muted">
+                            Keine historischen Analogien für dieses Band vorhanden.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
             </div>
           ) : null}
 
           <p className="noise-disclaimer">
-            Empirische Auswertung historischer Tagesdaten ({data.ticker}, {data.totalDays} Handelstage). Keine Anlageberatung — historische Wahrscheinlichkeiten garantieren keine zukünftigen Ergebnisse.
+            Empirische Auswertung historischer Tagesdaten ({data.ticker}, {data.totalDays} Handelstage). Keine
+            Anlageberatung — historische Wahrscheinlichkeiten garantieren keine zukünftigen Ergebnisse.
           </p>
         </>
       ) : null}
