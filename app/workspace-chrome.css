@@ -3777,6 +3777,125 @@ body {
   cursor: default;
 }
 
+.noise-pattern-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 13px 14px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--red, #ef4444) 26%, var(--border));
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--surface2, var(--surface)) 76%, transparent) 0%,
+    color-mix(in srgb, var(--surface) 92%, transparent) 100%
+  );
+}
+.noise-pattern-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.noise-pattern-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 11px;
+  border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
+  background: color-mix(in srgb, var(--bg, #0d1017) 42%, transparent);
+}
+.noise-pattern-headline {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 700;
+  line-height: 1.38;
+  color: var(--text);
+}
+.noise-pattern-bullets {
+  margin: 0;
+  padding-left: 17px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+  line-height: 1.42;
+  color: var(--text);
+}
+.noise-pattern-bullets li::marker {
+  color: var(--accent);
+}
+.noise-pattern-presets {
+  gap: 5px;
+}
+.noise-pattern-builder {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(195px, 1fr));
+  gap: 8px;
+}
+.noise-pattern-rule {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  background: color-mix(in srgb, var(--bg, #0d1017) 32%, transparent);
+}
+.noise-pattern-rule-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.noise-pattern-rule-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.noise-pattern-ops {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.noise-pattern-num {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.noise-pattern-num input[type="number"] {
+  width: 68px;
+  height: 28px;
+  padding: 0 7px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  text-align: right;
+}
+.noise-pattern-table-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 11px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
+}
+.noise-pattern-table-head h4 {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
 .noise-disclaimer {
   margin: 0;
   font-size: 11.5px;
@@ -3819,7 +3938,8 @@ body {
     max-width: none;
     flex: 1 1 100%;
   }
-  .noise-t1-card {
+  .noise-t1-card,
+  .noise-pattern-card {
     padding: 11px;
   }
   .noise-t1-headline {
@@ -3836,7 +3956,8 @@ body {
 
 @media (max-width: 1024px), (pointer: coarse) {
   .noise-search-form > input,
-  .noise-sim-actions input[type="number"] {
+  .noise-sim-actions input[type="number"],
+  .noise-pattern-num input[type="number"] {
     font-size: 16px;
     min-height: 36px;
     height: 36px;

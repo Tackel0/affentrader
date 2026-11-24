@@ -45,8 +45,19 @@ export interface NoiseObservation {
   nextDayCloseToClosePct: number | null; // T+1 return
   nextDayGreen: boolean | null; // T+1 close > today close
   nextDayGreenCandle: boolean | null; // T+1 close > T+1 open
+  prevDayCloseToClosePct: number | null; // T-1 return (causal)
+  drawdownFrom52wHighPct: number; // <= 0, causal drawdown from rolling 252d closing peak
+  inBearCycle: boolean; // Inside a >= 20% peak-to-trough bear market cycle
   fwd3dPct: number | null;
   fwd5dPct: number | null;
+  fwd21dPct: number | null;
+  fwd63dPct: number | null;
+  fwd126dPct: number | null;
+  fwd252dPct: number | null;
+  fwdMaxDrop63dPct: number | null; // <= 0, deepest close drop in next 63 trading days
+  fwdMaxDrop252dPct: number | null; // <= 0, deepest close drop in next 252 trading days
+  dropToBottomPct: number | null; // <= 0, drop to bear cycle bottom (or 252d low outside bear)
+  daysToBottom: number | null;
 }
 
 export interface NoiseDataset {
@@ -60,6 +71,8 @@ export interface NoiseDataset {
   currentAtr14Pct: number;
   baseGreenProb: number;
   lastClose: number;
+  lastDayReturnPct: number | null;
+  prevDayReturnPct: number | null;
   currentRsi14: number;
   lastAvgGain14: number;
   lastAvgLoss14: number;
@@ -67,9 +80,81 @@ export interface NoiseDataset {
   currentDistEma20Pct: number;
   currentSma200: number | null;
   currentAboveSma200: boolean | null;
+  currentInBearCycle: boolean;
+  currentDrawdown52wPct: number;
   gapMean: number;
   gapStd: number;
   absGapsSorted: number[];
+}
+
+export type ReturnRuleOp = "any" | "lte" | "gte";
+
+export interface ReturnRule {
+  op: ReturnRuleOp;
+  thresholdPct: number;
+}
+
+export interface PatternStudyInput {
+  ticker?: string;
+  prevDayRule: ReturnRule;
+  day0Rule: ReturnRule;
+  regimeFilter?: "all" | "bear" | "bull";
+}
+
+export interface PatternHorizonStat {
+  id: "1d" | "5d" | "21d" | "63d" | "126d" | "252d";
+  label: string;
+  sampleSize: number;
+  winRate: number;
+  avgPct: number;
+  medianPct: number;
+  bestPct: number;
+  worstPct: number;
+}
+
+export interface PatternMatch {
+  session: string;
+  prevDayPct: number | null;
+  day0Pct: number;
+  inBearCycle: boolean;
+  belowSma200: boolean | null;
+  drawdown52wPct: number;
+  nextDayPct: number | null;
+  fwd5dPct: number | null;
+  fwd21dPct: number | null;
+  fwd63dPct: number | null;
+  fwd126dPct: number | null;
+  fwd252dPct: number | null;
+  maxDrop63dPct: number | null;
+  dropToBottomPct: number | null;
+  daysToBottom: number | null;
+}
+
+export interface PatternStudyResult {
+  ruleDescription: string;
+  headline: string;
+  bullets: string[];
+  sampleSize: number;
+  firstYear: string;
+  lastYear: string;
+  totalDays: number;
+  bearCycleCount: number;
+  bearCycleRate: number;
+  belowSma200Count: number;
+  belowSma200Sample: number;
+  belowSma200Rate: number | null;
+  bottomEvaluatedCount: number;
+  droppedFurtherCount: number;
+  droppedFurtherRate: number;
+  droppedAtLeast5PctRate: number;
+  droppedAtLeast10PctRate: number;
+  minFurtherDropPct: number | null; // least severe drop (e.g. -9.2% when 100% dropped >= 9.2%)
+  medianFurtherDropPct: number | null;
+  worstFurtherDropPct: number | null;
+  medianDaysToBottom: number | null;
+  maxDrop63dMedianPct: number | null;
+  horizons: PatternHorizonStat[];
+  matches: PatternMatch[];
 }
 
 export interface NextDayForecastInput {
@@ -265,6 +350,7 @@ export interface NoiseApiPayload {
   timezone: string;
   asOf: string;
   years: number;
+  rangeMode?: "years" | "max";
   totalDays: number;
   live: {
     prevClose: number;
@@ -343,9 +429,155 @@ function formatSignedDe(value: number): string {
   return `${sign}${Math.abs(value).toFixed(1).replace(".", ",")} %`;
 }
 
+interface BearCycleLookup {
+  inBearCycle: boolean[];
+  bottomIdx: Array<number | null>;
+  bottomClose: Array<number | null>;
+  ongoing: boolean[];
+}
+
+/**
+ * Standard Wall Street 20% Peak-to-Trough Bear Market Cycle classifier:
+ * marks every bar from cycle peak (exclusive) through trough (inclusive) whenever price falls
+ * >= 20% from a peak before recovering >= 20% off the trough. Consecutive bear legs separated
+ * by short (< 252 trading day) dead-cat bear rallies that fail to reclaim the prior peak and go
+ * on to make a lower low are merged into one continuous bear market (e.g. 2000-2002, 2007-2009, 2022).
+ */
+function computeBearCycles(bars: readonly NoiseDayBar[]): BearCycleLookup {
+  const n = bars.length;
+  const inBearCycle = new Array<boolean>(n).fill(false);
+  const bottomIdx = new Array<number | null>(n).fill(null);
+  const bottomClose = new Array<number | null>(n).fill(null);
+  const ongoing = new Array<boolean>(n).fill(false);
+  if (n < 2) return { inBearCycle, bottomIdx, bottomClose, ongoing };
+
+  interface BearSeg {
+    peakIdx: number;
+    troughIdx: number;
+    peakClose: number;
+    troughClose: number;
+    ongoing: boolean;
+  }
+
+  const raw: BearSeg[] = [];
+  let regime: "bull" | "bear" = "bull";
+  let peakIdx = 0;
+  let troughIdx = 0;
+
+  for (let i = 1; i < n; i++) {
+    const c = bars[i].close;
+    if (regime === "bull") {
+      if (c >= bars[peakIdx].close) {
+        peakIdx = i;
+      } else if (c <= bars[peakIdx].close * 0.8) {
+        regime = "bear";
+        troughIdx = i;
+      }
+    } else {
+      if (c <= bars[troughIdx].close) {
+        troughIdx = i;
+      } else if (c >= bars[troughIdx].close * 1.2) {
+        raw.push({
+          peakIdx,
+          troughIdx,
+          peakClose: bars[peakIdx].close,
+          troughClose: bars[troughIdx].close,
+          ongoing: false,
+        });
+        regime = "bull";
+        peakIdx = i;
+      }
+    }
+  }
+  if (regime === "bear") {
+    raw.push({
+      peakIdx,
+      troughIdx,
+      peakClose: bars[peakIdx].close,
+      troughClose: bars[troughIdx].close,
+      ongoing: true,
+    });
+  }
+
+  const merged: BearSeg[] = [];
+  for (const seg of raw) {
+    const prev = merged.at(-1);
+    if (
+      prev &&
+      seg.peakClose < prev.peakClose &&
+      seg.troughClose <= prev.troughClose &&
+      seg.peakIdx - prev.troughIdx < 252
+    ) {
+      prev.troughIdx = seg.troughIdx;
+      prev.troughClose = seg.troughClose;
+      prev.ongoing = seg.ongoing;
+    } else {
+      merged.push({ ...seg });
+    }
+  }
+
+  for (const seg of merged) {
+    for (let k = seg.peakIdx + 1; k <= seg.troughIdx; k++) {
+      inBearCycle[k] = true;
+      bottomIdx[k] = seg.troughIdx;
+      bottomClose[k] = seg.troughClose;
+      ongoing[k] = seg.ongoing;
+    }
+    if (seg.ongoing) {
+      for (let k = seg.troughIdx + 1; k < n; k++) {
+        inBearCycle[k] = true;
+        ongoing[k] = true;
+      }
+    }
+  }
+
+  return { inBearCycle, bottomIdx, bottomClose, ongoing };
+}
+
+/** O(N) sliding-window minimum close over `[i + 1 .. min(N - 1, i + window)]`. */
+function computeForwardMin(
+  bars: readonly NoiseDayBar[],
+  window: number,
+): { minClose: Array<number | null>; minIdx: Array<number | null> } {
+  const n = bars.length;
+  const minClose = new Array<number | null>(n).fill(null);
+  const minIdx = new Array<number | null>(n).fill(null);
+  const dq: number[] = [];
+  let head = 0;
+
+  for (let i = n - 1; i >= 0; i--) {
+    while (head < dq.length && dq[head] > i + window) head++;
+    if (head < dq.length) {
+      const idx = dq[head];
+      minClose[i] = bars[idx].close;
+      minIdx[i] = idx;
+    }
+    const c = bars[i].close;
+    while (dq.length > head && bars[dq[dq.length - 1]].close >= c) dq.pop();
+    dq.push(i);
+  }
+  return { minClose, minIdx };
+}
+
+/** O(N) causal rolling 252-trading-day peak close over `[max(0, i - 251) .. i]`. */
+function computeRollingPeak252(bars: readonly NoiseDayBar[]): number[] {
+  const n = bars.length;
+  const peaks = new Array<number>(n);
+  const dq: number[] = [];
+  let head = 0;
+  for (let i = 0; i < n; i++) {
+    while (head < dq.length && dq[head] < i - 251) head++;
+    const c = bars[i].close;
+    while (dq.length > head && bars[dq[dq.length - 1]].close <= c) dq.pop();
+    dq.push(i);
+    peaks[i] = bars[dq[head]].close;
+  }
+  return peaks;
+}
+
 /**
  * Transforms chronological daily OHLCV bars into an empirical observation dataset
- * for gap-fill, fade/continuation, streak, volatility, and weekday statistics.
+ * for gap-fill, fade/continuation, streak, volatility, pattern, and weekday statistics.
  */
 export function buildNoiseDataset(rawBars: readonly NoiseDayBar[]): NoiseDataset {
   const bars = rawBars.filter(
@@ -375,6 +607,8 @@ export function buildNoiseDataset(rawBars: readonly NoiseDayBar[]): NoiseDataset
       currentAtr14Pct: 0,
       baseGreenProb: 50,
       lastClose: close0,
+      lastDayReturnPct: null,
+      prevDayReturnPct: null,
       currentRsi14: 50,
       lastAvgGain14: 0,
       lastAvgLoss14: 0,
@@ -382,11 +616,18 @@ export function buildNoiseDataset(rawBars: readonly NoiseDayBar[]): NoiseDataset
       currentDistEma20Pct: 0,
       currentSma200: null,
       currentAboveSma200: null,
+      currentInBearCycle: false,
+      currentDrawdown52wPct: 0,
       gapMean: 0,
       gapStd: 0,
       absGapsSorted: [],
     };
   }
+
+  const bearCycles = computeBearCycles(bars);
+  const fwdMin63 = computeForwardMin(bars, 63);
+  const fwdMin252 = computeForwardMin(bars, 252);
+  const rollingPeak252 = computeRollingPeak252(bars);
 
   const trueRanges: number[] = [bars[0].high - bars[0].low];
   const observations: NoiseObservation[] = [];
@@ -403,6 +644,7 @@ export function buildNoiseDataset(rawBars: readonly NoiseDayBar[]): NoiseDataset
   const emaAlpha = 2 / (20 + 1);
   let sma200Sum = bars[0].close;
   let vol20Sum = bars[0].volume;
+  let prevCloseToClosePct: number | null = null;
 
   const rsiFromAvgs = (g: number, l: number): number => {
     if (l === 0 && g === 0) return 50;
@@ -466,6 +708,10 @@ export function buildNoiseDataset(rawBars: readonly NoiseDayBar[]): NoiseDataset
     const closeToClosePct = ((curr.close - prev.close) / prev.close) * 100;
     const moveAtrRatio = atr14Pct > 0.05 ? round2(closeToClosePct / atr14Pct) : 0;
 
+    const peak252 = rollingPeak252[i];
+    const drawdownFrom52wHighPct =
+      peak252 > 0 ? round2(Math.min(0, ((curr.close - peak252) / peak252) * 100)) : 0;
+
     const isUpGap = gapPct > 0;
     const isDownGap = gapPct < 0;
     const gapFilled = isUpGap
@@ -492,10 +738,41 @@ export function buildNoiseDataset(rawBars: readonly NoiseDayBar[]): NoiseDataset
     const nextDayGreen = nextBar ? nextBar.close > curr.close : null;
     const nextDayGreenCandle = nextBar ? nextBar.close > nextBar.open : null;
 
-    const fwd3dPct =
-      i + 3 < bars.length ? ((bars[i + 3].close - curr.close) / curr.close) * 100 : null;
-    const fwd5dPct =
-      i + 5 < bars.length ? ((bars[i + 5].close - curr.close) / curr.close) * 100 : null;
+    const fwdAt = (offset: number): number | null =>
+      i + offset < bars.length ? ((bars[i + offset].close - curr.close) / curr.close) * 100 : null;
+
+    const fwd3dPct = fwdAt(3);
+    const fwd5dPct = fwdAt(5);
+    const fwd21dPct = fwdAt(21);
+    const fwd63dPct = fwdAt(63);
+    const fwd126dPct = fwdAt(126);
+    const fwd252dPct = fwdAt(252);
+
+    const remainingBars = bars.length - 1 - i;
+    const fwdMaxDrop63dPct =
+      remainingBars >= 5 && fwdMin63.minClose[i] !== null
+        ? round2(Math.min(0, ((fwdMin63.minClose[i]! - curr.close) / curr.close) * 100))
+        : null;
+    const fwdMaxDrop252dPct =
+      remainingBars >= 5 && fwdMin252.minClose[i] !== null
+        ? round2(Math.min(0, ((fwdMin252.minClose[i]! - curr.close) / curr.close) * 100))
+        : null;
+
+    const inBear = bearCycles.inBearCycle[i];
+    const bearOngoing = bearCycles.ongoing[i];
+    const bIdx = bearCycles.bottomIdx[i];
+    const bClose = bearCycles.bottomClose[i];
+
+    let dropToBottomPct: number | null = null;
+    let daysToBottom: number | null = null;
+    if (inBear && !bearOngoing && bIdx !== null && bClose !== null) {
+      dropToBottomPct = round2(Math.min(0, ((bClose - curr.close) / curr.close) * 100));
+      daysToBottom = Math.max(0, bIdx - i);
+    } else if (remainingBars >= 5 && fwdMaxDrop252dPct !== null) {
+      dropToBottomPct = fwdMaxDrop252dPct;
+      daysToBottom =
+        fwdMaxDrop252dPct < 0 && fwdMin252.minIdx[i] !== null ? fwdMin252.minIdx[i]! - i : 0;
+    }
 
     observations.push({
       session: curr.session,
@@ -525,9 +802,22 @@ export function buildNoiseDataset(rawBars: readonly NoiseDayBar[]): NoiseDataset
       nextDayCloseToClosePct,
       nextDayGreen,
       nextDayGreenCandle,
+      prevDayCloseToClosePct: prevCloseToClosePct,
+      drawdownFrom52wHighPct,
+      inBearCycle: inBear,
       fwd3dPct,
       fwd5dPct,
+      fwd21dPct,
+      fwd63dPct,
+      fwd126dPct,
+      fwd252dPct,
+      fwdMaxDrop63dPct,
+      fwdMaxDrop252dPct,
+      dropToBottomPct,
+      daysToBottom,
     });
+
+    prevCloseToClosePct = closeToClosePct;
 
     // Update close-to-close streak AFTER recording priorStreak for day `i`
     if (curr.close > prev.close) {
@@ -570,6 +860,8 @@ export function buildNoiseDataset(rawBars: readonly NoiseDayBar[]): NoiseDataset
   const currentDistEma20Pct = ema20 > 0 ? round2(((latestClose - ema20) / ema20) * 100) : 0;
   const currentSma200 = bars.length >= 200 ? sma200Sum / 200 : null;
   const currentAboveSma200 = currentSma200 !== null ? latestClose >= currentSma200 : null;
+  const lastObs = observations.at(-1);
+  const prevObs = observations.length >= 2 ? observations[observations.length - 2] : undefined;
 
   const recentDays: NoiseRecentDay[] = observations.slice(-8).map((o) => ({
     session: o.session,
@@ -596,6 +888,8 @@ export function buildNoiseDataset(rawBars: readonly NoiseDayBar[]): NoiseDataset
     currentAtr14Pct: round2(currentAtr14Pct),
     baseGreenProb,
     lastClose: latestClose,
+    lastDayReturnPct: lastObs ? round2(lastObs.closeToClosePct) : null,
+    prevDayReturnPct: prevObs ? round2(prevObs.closeToClosePct) : null,
     currentRsi14,
     lastAvgGain14: avgGain14,
     lastAvgLoss14: avgLoss14,
@@ -603,6 +897,8 @@ export function buildNoiseDataset(rawBars: readonly NoiseDayBar[]): NoiseDataset
     currentDistEma20Pct,
     currentSma200,
     currentAboveSma200,
+    currentInBearCycle: bearCycles.inBearCycle[bars.length - 1] ?? false,
+    currentDrawdown52wPct: lastObs ? lastObs.drawdownFrom52wHighPct : 0,
     gapMean: round2(gapMean),
     gapStd: round2(gapStd),
     absGapsSorted,
@@ -1505,4 +1801,292 @@ export function evaluateNextDayForecast(
     twins,
   };
 }
+
+function snapShockThreshold(pctVal: number): number | null {
+  const abs = Math.abs(pctVal);
+  if (abs < 1.0) return null;
+  const sign = pctVal < 0 ? -1 : 1;
+  if (abs >= 5.0) return sign * 5.0;
+  if (abs >= 4.0) return sign * 4.0;
+  if (abs >= 3.0) return sign * 3.0;
+  if (abs >= 2.0) return sign * 2.0;
+  if (abs >= 1.5) return sign * 1.5;
+  return sign * 1.0;
+}
+
+/**
+ * Derives a clean OddStats-style two-day shock pattern from the ticker's latest
+ * two trading days (e.g. yesterday -5.67% + today +7.00% -> prev <= -5.0%, day0 >= +5.0%).
+ */
+export function suggestLivePattern(
+  dataset: NoiseDataset,
+  liveTodayReturnPct?: number | null,
+): { prevDayRule: ReturnRule; day0Rule: ReturnRule; usedLiveToday: boolean } {
+  const hasLiveToday =
+    typeof liveTodayReturnPct === "number" &&
+    Number.isFinite(liveTodayReturnPct) &&
+    Math.abs(liveTodayReturnPct) >= 0.35;
+
+  const rawPrev = hasLiveToday ? dataset.lastDayReturnPct : dataset.prevDayReturnPct;
+  const rawDay0 = hasLiveToday ? liveTodayReturnPct! : dataset.lastDayReturnPct;
+
+  const snappedPrev = rawPrev !== null ? snapShockThreshold(rawPrev) : null;
+  const snappedDay0 = rawDay0 !== null ? snapShockThreshold(rawDay0) : null;
+
+  if (snappedPrev !== null && snappedDay0 !== null) {
+    return {
+      prevDayRule: { op: snappedPrev < 0 ? "lte" : "gte", thresholdPct: snappedPrev },
+      day0Rule: { op: snappedDay0 < 0 ? "lte" : "gte", thresholdPct: snappedDay0 },
+      usedLiveToday: hasLiveToday,
+    };
+  }
+  if (snappedDay0 !== null) {
+    return {
+      prevDayRule: { op: "any", thresholdPct: -3.0 },
+      day0Rule: { op: snappedDay0 < 0 ? "lte" : "gte", thresholdPct: snappedDay0 },
+      usedLiveToday: hasLiveToday,
+    };
+  }
+  return {
+    prevDayRule: { op: "lte", thresholdPct: -5.0 },
+    day0Rule: { op: "gte", thresholdPct: 5.0 },
+    usedLiveToday: false,
+  };
+}
+
+function matchesReturnRule(value: number | null, rule: ReturnRule): boolean {
+  if (rule.op === "any") return true;
+  if (value === null || !Number.isFinite(value)) return false;
+  if (rule.op === "lte") return value <= rule.thresholdPct;
+  return value >= rule.thresholdPct;
+}
+
+function describeReturnRule(rule: ReturnRule): string {
+  if (rule.op === "any") return "beliebig";
+  const sym = rule.op === "lte" ? "≤" : "≥";
+  return `${sym} ${formatSignedDe(rule.thresholdPct)}`;
+}
+
+function summarizeHorizon(
+  id: PatternHorizonStat["id"],
+  label: string,
+  values: readonly number[],
+): PatternHorizonStat {
+  const n = values.length;
+  if (!n) {
+    return { id, label, sampleSize: 0, winRate: 0, avgPct: 0, medianPct: 0, bestPct: 0, worstPct: 0 };
+  }
+  let best = values[0];
+  let worst = values[0];
+  let wins = 0;
+  for (const v of values) {
+    if (v > 0) wins++;
+    if (v > best) best = v;
+    if (v < worst) worst = v;
+  }
+  return {
+    id,
+    label,
+    sampleSize: n,
+    winRate: pct(wins, n),
+    avgPct: round2(mean(values)),
+    medianPct: round2(median(values)),
+    bestPct: round2(best),
+    worstPct: round2(worst),
+  };
+}
+
+/**
+ * OddStats-style Historical Pattern & Regime Scanner:
+ * Finds every historical occurrence of an exact 1-day or 2-day shock sequence
+ * (e.g. `prevDay <= -5%` followed by `day0 >= +5%`), quantifies bear-market incidence,
+ * further drop before hitting bottom (min/median/worst & days to bottom), and forward
+ * return distributions across T+1, 1W, 1M, 3M, 6M, and 1Y.
+ */
+export function evaluatePatternStudy(
+  dataset: NoiseDataset,
+  input: PatternStudyInput,
+): PatternStudyResult {
+  const ticker = (input.ticker || "Dieser Ticker").trim();
+  const prevRule: ReturnRule = {
+    op: input.prevDayRule.op,
+    thresholdPct: clamp(round1(input.prevDayRule.thresholdPct || 0), -40, 40),
+  };
+  const day0Rule: ReturnRule = {
+    op: input.day0Rule.op,
+    thresholdPct: clamp(round1(input.day0Rule.thresholdPct || 0), -40, 40),
+  };
+  const regimeFilter = input.regimeFilter ?? "all";
+
+  const firstYear = dataset.firstSession ? dataset.firstSession.slice(0, 4) : "—";
+  const lastYear = dataset.lastSession ? dataset.lastSession.slice(0, 4) : "—";
+
+  const matchedObs = dataset.observations.filter((o) => {
+    if (!matchesReturnRule(o.prevDayCloseToClosePct, prevRule)) return false;
+    if (!matchesReturnRule(o.closeToClosePct, day0Rule)) return false;
+    if (regimeFilter === "bear" && !(o.inBearCycle || o.aboveSma200 === false)) return false;
+    if (regimeFilter === "bull" && (o.inBearCycle || o.aboveSma200 === false)) return false;
+    return true;
+  });
+
+  const n = matchedObs.length;
+  const ruleDescription =
+    prevRule.op !== "any" && day0Rule.op !== "any"
+      ? `Tag −1 ${describeReturnRule(prevRule)} → Tag 0 ${describeReturnRule(day0Rule)}`
+      : day0Rule.op !== "any"
+        ? `Tag 0 ${describeReturnRule(day0Rule)}`
+        : prevRule.op !== "any"
+          ? `Tag −1 ${describeReturnRule(prevRule)}`
+          : "Alle Handelstage";
+
+  const bearCycleCount = matchedObs.filter((o) => o.inBearCycle).length;
+  const bearCycleRate = pct(bearCycleCount, n);
+  const withSma = matchedObs.filter((o) => o.aboveSma200 !== null);
+  const belowSma200Count = withSma.filter((o) => o.aboveSma200 === false).length;
+  const belowSma200Rate = withSma.length ? pct(belowSma200Count, withSma.length) : null;
+
+  const withBottom = matchedObs.filter((o) => o.dropToBottomPct !== null);
+  const drops = withBottom.map((o) => o.dropToBottomPct!);
+  const droppedFurtherCount = drops.filter((d) => d < -0.5).length;
+  const droppedFurtherRate = pct(droppedFurtherCount, withBottom.length);
+  const droppedAtLeast5PctRate = pct(drops.filter((d) => d <= -5).length, withBottom.length);
+  const droppedAtLeast10PctRate = pct(drops.filter((d) => d <= -10).length, withBottom.length);
+
+  // Since drops are <= 0, Math.max is the shallowest ("at least -X%") and Math.min is the deepest ("worst-case").
+  const minFurtherDropPct = drops.length ? round1(Math.max(...drops)) : null;
+  const medianFurtherDropPct = drops.length ? round1(median(drops)) : null;
+  const worstFurtherDropPct = drops.length ? round1(Math.min(...drops)) : null;
+
+  const daysList = withBottom
+    .map((o) => o.daysToBottom)
+    .filter((d): d is number => d !== null);
+  const medianDaysToBottom = daysList.length ? Math.round(median(daysList)) : null;
+
+  const drops63 = matchedObs
+    .map((o) => o.fwdMaxDrop63dPct)
+    .filter((d): d is number => d !== null);
+  const maxDrop63dMedianPct = drops63.length ? round1(median(drops63)) : null;
+
+  const collect = (fn: (o: NoiseObservation) => number | null): number[] =>
+    matchedObs.map(fn).filter((v): v is number => v !== null && Number.isFinite(v));
+
+  const horizons: PatternHorizonStat[] = [
+    summarizeHorizon("1d", "Morgen (T+1)", collect((o) => o.nextDayCloseToClosePct)),
+    summarizeHorizon("5d", "1 Woche (5T)", collect((o) => o.fwd5dPct)),
+    summarizeHorizon("21d", "1 Monat (21T)", collect((o) => o.fwd21dPct)),
+    summarizeHorizon("63d", "3 Monate (63T)", collect((o) => o.fwd63dPct)),
+    summarizeHorizon("126d", "6 Monate (126T)", collect((o) => o.fwd126dPct)),
+    summarizeHorizon("252d", "1 Jahr (252T)", collect((o) => o.fwd252dPct)),
+  ];
+
+  let headline: string;
+  if (prevRule.op !== "any" && day0Rule.op !== "any") {
+    headline = `${ticker} folgte auf einen ${describeReturnRule(prevRule)}-Tag genau ${n}-mal seit ${firstYear} mit einem ${describeReturnRule(day0Rule)}-Tag.`;
+  } else if (day0Rule.op !== "any") {
+    headline = `${ticker} verzeichnete einen ${describeReturnRule(day0Rule)}-Tag genau ${n}-mal seit ${firstYear}.`;
+  } else {
+    headline = `${n} historische Treffer für ${ticker} seit ${firstYear} (${ruleDescription}).`;
+  }
+
+  const bullets: string[] = [];
+  if (n === 0) {
+    bullets.push(
+      `Im geladenen Zeitraum (${firstYear}–${lastYear}, ${dataset.totalDays.toLocaleString("de-DE")} Handelstage) trat dieses exakte Muster 0-mal auf — wähle „Max“ für die komplette Historie oder lockere die Prozent-Schwellen.`,
+    );
+  } else {
+    const smaPart =
+      belowSma200Rate !== null
+        ? ` · Unter 200-SMA: ${belowSma200Rate.toFixed(1).replace(".", ",")} % (${belowSma200Count}/${withSma.length})`
+        : "";
+    bullets.push(
+      `${bearCycleRate.toFixed(1).replace(".", ",")} % (${bearCycleCount}/${n}) traten im Bärenmarkt (≥ 20 %-Zyklus) auf${smaPart}.`,
+    );
+
+    if (withBottom.length > 0 && minFurtherDropPct !== null && medianFurtherDropPct !== null && worstFurtherDropPct !== null) {
+      const daysPart =
+        medianDaysToBottom !== null && medianDaysToBottom > 0
+          ? `, Median ${medianDaysToBottom} Handelstage bis Tief`
+          : "";
+      if (droppedFurtherCount === withBottom.length && minFurtherDropPct <= -0.5) {
+        bullets.push(
+          `100,0 % (${withBottom.length}/${withBottom.length}) fielen danach noch mindestens ${formatSignedDe(minFurtherDropPct)}, bevor das Tief erreicht war (Median ${formatSignedDe(medianFurtherDropPct)}, Worst-Case ${formatSignedDe(worstFurtherDropPct)}${daysPart}).`,
+        );
+      } else if (droppedFurtherCount > 0) {
+        bullets.push(
+          `${droppedFurtherRate.toFixed(1).replace(".", ",")} % (${droppedFurtherCount}/${withBottom.length}) fielen danach noch tiefer (Median ${formatSignedDe(medianFurtherDropPct)}, Worst-Case ${formatSignedDe(worstFurtherDropPct)} · ≥ 5 % tiefer: ${droppedAtLeast5PctRate.toFixed(1).replace(".", ",")} %${daysPart}).`,
+        );
+      } else {
+        bullets.push(
+          `Keiner der ${withBottom.length} ausgewerteten Treffer schloss danach tiefer (0 % weiterer Rückgang).`,
+        );
+      }
+    }
+
+    const h1 = horizons[0];
+    const h21 = horizons[2];
+    const h63 = horizons[3];
+    const parts: string[] = [];
+    if (h1.sampleSize > 0) {
+      parts.push(
+        `Folgetag (T+1): ${h1.winRate.toFixed(1).replace(".", ",")} % Grün vs. ${round1(100 - h1.winRate).toFixed(1).replace(".", ",")} % Rot (Ø ${formatSignedDe(h1.avgPct)})`,
+      );
+    }
+    if (h21.sampleSize > 0) {
+      parts.push(`1M: Ø ${formatSignedDe(h21.avgPct)} (${h21.winRate.toFixed(0)} % pos.)`);
+    }
+    if (h63.sampleSize > 0) {
+      parts.push(`3M: Ø ${formatSignedDe(h63.avgPct)} (${h63.winRate.toFixed(0)} % pos.)`);
+    }
+    if (parts.length) bullets.push(`${parts.join(" · ")}.`);
+  }
+
+  const matches: PatternMatch[] = matchedObs
+    .slice()
+    .reverse()
+    .map((o) => ({
+      session: o.session,
+      prevDayPct: o.prevDayCloseToClosePct !== null ? round2(o.prevDayCloseToClosePct) : null,
+      day0Pct: round2(o.closeToClosePct),
+      inBearCycle: o.inBearCycle,
+      belowSma200: o.aboveSma200 !== null ? !o.aboveSma200 : null,
+      drawdown52wPct: o.drawdownFrom52wHighPct,
+      nextDayPct: o.nextDayCloseToClosePct !== null ? round2(o.nextDayCloseToClosePct) : null,
+      fwd5dPct: o.fwd5dPct !== null ? round2(o.fwd5dPct) : null,
+      fwd21dPct: o.fwd21dPct !== null ? round2(o.fwd21dPct) : null,
+      fwd63dPct: o.fwd63dPct !== null ? round2(o.fwd63dPct) : null,
+      fwd126dPct: o.fwd126dPct !== null ? round2(o.fwd126dPct) : null,
+      fwd252dPct: o.fwd252dPct !== null ? round2(o.fwd252dPct) : null,
+      maxDrop63dPct: o.fwdMaxDrop63dPct,
+      dropToBottomPct: o.dropToBottomPct,
+      daysToBottom: o.daysToBottom,
+    }));
+
+  return {
+    ruleDescription,
+    headline,
+    bullets,
+    sampleSize: n,
+    firstYear,
+    lastYear,
+    totalDays: dataset.totalDays,
+    bearCycleCount,
+    bearCycleRate,
+    belowSma200Count,
+    belowSma200Sample: withSma.length,
+    belowSma200Rate,
+    bottomEvaluatedCount: withBottom.length,
+    droppedFurtherCount,
+    droppedFurtherRate,
+    droppedAtLeast5PctRate,
+    droppedAtLeast10PctRate,
+    minFurtherDropPct,
+    medianFurtherDropPct,
+    worstFurtherDropPct,
+    medianDaysToBottom,
+    maxDrop63dMedianPct,
+    horizons,
+    matches,
+  };
+}
+
 

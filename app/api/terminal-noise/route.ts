@@ -174,8 +174,14 @@ function nextTradingWeekday(now: number, timezone: string): number {
 export async function GET(request: Request) {
   const q = new URL(request.url).searchParams;
   const rawTicker = (q.get("ticker") ?? "SPY").trim().toUpperCase().replace(/^YF:/, "");
-  const yearsParam = Number(q.get("years") ?? 10);
-  const years = Number.isFinite(yearsParam) ? Math.max(2, Math.min(15, Math.round(yearsParam))) : 10;
+  const rawYears = (q.get("years") ?? "max").trim().toLowerCase();
+  const isMax = rawYears === "max" || rawYears === "all";
+  const yearsParam = Number(rawYears);
+  const years = isMax
+    ? 55
+    : Number.isFinite(yearsParam)
+      ? Math.max(2, Math.min(55, Math.round(yearsParam)))
+      : 10;
 
   if (!isYahooTicker(rawTicker)) {
     return Response.json(
@@ -187,6 +193,7 @@ export async function GET(request: Request) {
   try {
     const now = Date.now();
     const period2 = Math.floor(now / 60_000) * 60;
+    const period1 = Math.max(0, period2 - years * 365 * 86400);
     const deadline = AbortSignal.timeout(22_000);
     const fetcher: typeof fetch = (input, init) =>
       fetch(input, { ...init, signal: init?.signal ? AbortSignal.any([deadline, init.signal]) : deadline });
@@ -196,7 +203,7 @@ export async function GET(request: Request) {
         {
           ticker: rawTicker,
           interval: "1d",
-          period1: period2 - years * 366 * 86400,
+          period1,
           period2,
           extended: false,
         },
@@ -236,6 +243,7 @@ export async function GET(request: Request) {
       timezone,
       asOf: dataset.lastSession,
       years,
+      rangeMode: isMax ? "max" : "years",
       totalDays: completed.length,
       live: {
         ...liveQuote,

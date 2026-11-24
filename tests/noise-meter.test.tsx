@@ -6,6 +6,8 @@ import {
   buildNoiseDataset,
   evaluateNextDayForecast,
   evaluateNoiseScenario,
+  evaluatePatternStudy,
+  suggestLivePattern,
   type NoiseApiPayload,
   type NoiseDayBar,
 } from "@/lib/terminal/noiseMeter";
@@ -289,6 +291,77 @@ describe("NoiseMeter empirical engine", () => {
     expect(coreOnly.useExtraFactors).toBe(false);
     expect(coreOnly.greenProb + coreOnly.redProb).toBeCloseTo(100, 1);
   });
+
+  it("evaluates OddStats-style -5% -> +5% shock patterns with 100% bear-market incidence and further drop to bottom", () => {
+    const dates = makeWeekdayDates(340, "2020-01-02");
+    const bars: NoiseDayBar[] = [];
+    let prev = 200;
+    let idx = 0;
+
+    const pushPct = (pctMove: number) => {
+      const open = Number((prev * (1 + (pctMove * 0.25) / 100)).toFixed(4));
+      const close = Number((prev * (1 + pctMove / 100)).toFixed(4));
+      const high = Number((Math.max(open, close) * 1.003).toFixed(4));
+      const low = Number((Math.min(open, close) * 0.997).toFixed(4));
+      bars.push({ session: dates[idx++], open, high, low, close, volume: 60_000_000 });
+      prev = close;
+    };
+
+    // Bull run up to peak (~260)
+    for (let i = 0; i < 60; i++) pushPct(0.45);
+    // Bear Market 1: drop ~15%, then [-5.5% -> +5.5%] shock, then drop another ~15% to cycle bottom, then +30% bull recovery
+    for (let i = 0; i < 10; i++) pushPct(-1.6);
+    pushPct(-5.5);
+    pushPct(5.5); // Match 1 inside Bear Market 1
+    for (let i = 0; i < 10; i++) pushPct(-1.8); // drops >16% further to bear bottom
+    for (let i = 0; i < 40; i++) pushPct(0.8); // recovers >35% -> exits Bear Market 1 cleanly
+
+    // Bear Market 2: drop ~12%, then [-6.0% -> +5.2%] shock, then drop ~12% further to bottom, then +28% bull recovery
+    for (let i = 0; i < 10; i++) pushPct(-1.5);
+    pushPct(-6.0);
+    pushPct(5.2); // Match 2 inside Bear Market 2
+    for (let i = 0; i < 8; i++) pushPct(-1.7); // drops ~12.8% further to bear bottom
+    for (let i = 0; i < 50; i++) pushPct(0.7); // recovers >35% -> exits Bear Market 2 cleanly
+
+    // End with a quiet day + yesterday -5.67% for suggestLivePattern test
+    while (idx < dates.length - 1) pushPct(0.15);
+    pushPct(-5.67);
+
+    const dataset = buildNoiseDataset(bars);
+    const study = evaluatePatternStudy(dataset, {
+      ticker: "QQQ",
+      prevDayRule: { op: "lte", thresholdPct: -5 },
+      day0Rule: { op: "gte", thresholdPct: 5 },
+    });
+
+    expect(study.sampleSize).toBe(2);
+    expect(study.bearCycleCount).toBe(2);
+    expect(study.bearCycleRate).toBe(100);
+    expect(study.bottomEvaluatedCount).toBe(2);
+    expect(study.droppedFurtherRate).toBe(100);
+    expect(study.minFurtherDropPct).not.toBeNull();
+    expect(study.minFurtherDropPct!).toBeLessThanOrEqual(-10);
+    expect(study.worstFurtherDropPct!).toBeLessThan(study.minFurtherDropPct!);
+    expect(study.horizons).toHaveLength(6);
+    expect(study.headline).toContain("QQQ");
+    expect(study.headline).toContain("genau 2-mal");
+    expect(study.bullets.some((b) => b.includes("100,0 % (2/2) traten im Bärenmarkt"))).toBe(true);
+    expect(study.bullets.some((b) => b.includes("fielen danach noch mindestens"))).toBe(true);
+
+    const bullOnly = evaluatePatternStudy(dataset, {
+      ticker: "QQQ",
+      prevDayRule: { op: "lte", thresholdPct: -5 },
+      day0Rule: { op: "gte", thresholdPct: 5 },
+      regimeFilter: "bull",
+    });
+    expect(bullOnly.sampleSize).toBe(0);
+
+    // Live auto-suggestion: yesterday -5.67% + today +7.0% -> <= -5.0% -> >= +5.0%
+    const suggested = suggestLivePattern(dataset, 7.0);
+    expect(suggested.usedLiveToday).toBe(true);
+    expect(suggested.prevDayRule).toEqual({ op: "lte", thresholdPct: -5 });
+    expect(suggested.day0Rule).toEqual({ op: "gte", thresholdPct: 5 });
+  });
 });
 
 describe("NoiseMeter terminal commands", () => {
@@ -367,6 +440,7 @@ describe("NoiseMeterPanel & ResearchTerminal UI", () => {
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(container.textContent).toContain("SPDR S&P 500 ETF Trust");
+    expect(container.textContent).toContain("Historischer Muster-Scanner");
     expect(container.textContent).toContain("Morgen-Wahrscheinlichkeit (T+1)");
     expect(container.textContent).toContain("Gap-Close-Chance (Intraday)");
     expect(container.querySelectorAll(".noise-recent-day").length).toBeGreaterThan(0);
@@ -374,6 +448,9 @@ describe("NoiseMeterPanel & ResearchTerminal UI", () => {
 
     // Select 7T + Rot in default Kerzen (C vs O) mode and test +5,0% relief rally today
     const panel = within(container);
+    expect(panel.getByRole("button", { name: "Max" }).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(panel.getByRole("button", { name: "−5 % → +5 %" }));
+    expect(container.textContent).toContain("Tag −1 ≤ −5,0 % → Tag 0 ≥ +5,0 %");
     fireEvent.click(panel.getByRole("button", { name: "Rot" }));
     fireEvent.click(panel.getByRole("button", { name: "7T" }));
     fireEvent.click(panel.getByRole("button", { name: "+5,0%" }));

@@ -1,14 +1,18 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import { Activity, AlertTriangle, BarChart3, Calendar, Gauge, RefreshCw, SlidersHorizontal, Sparkles, Target, TrendingDown, TrendingUp } from "lucide-react";
+import { Activity, AlertTriangle, BarChart3, Calendar, Gauge, History, RefreshCw, SlidersHorizontal, Sparkles, Target, TrendingDown, TrendingUp } from "lucide-react";
 import { isYahooTicker } from "@/lib/symbolId";
 import {
   buildNoiseDataset,
   evaluateNextDayForecast,
   evaluateNoiseScenario,
+  evaluatePatternStudy,
+  suggestLivePattern,
   type NoiseApiPayload,
   type NoiseStreakBasis,
   type NoiseVerdictTone,
+  type ReturnRule,
+  type ReturnRuleOp,
   type StreakStats,
 } from "@/lib/terminal/noiseMeter";
 import { AssetBadge } from "./ui";
@@ -27,6 +31,26 @@ const PRESET_TICKERS: ReadonlyArray<{ ticker: string; label: string }> = [
 const QUICK_GAPS = [-2.0, -1.0, 0.5, 1.0, 1.5, 2.0, 3.0] as const;
 const QUICK_TODAY_MOVES = [-5.0, -3.0, -1.5, 1.5, 3.0, 5.0, 7.0] as const;
 const QUICK_STREAKS = [1, 2, 3, 4, 5, 6, 7, 8] as const;
+const HISTORY_RANGES: ReadonlyArray<{ value: 5 | 10 | 15 | "max"; label: string }> = [
+  { value: 5, label: "5J" },
+  { value: 10, label: "10J" },
+  { value: 15, label: "15J" },
+  { value: "max", label: "Max" },
+];
+
+const PATTERN_PRESETS: ReadonlyArray<{
+  id: string;
+  label: string;
+  prev: ReturnRule;
+  day0: ReturnRule;
+}> = [
+  { id: "m5-p5", label: "−5 % → +5 %", prev: { op: "lte", thresholdPct: -5 }, day0: { op: "gte", thresholdPct: 5 } },
+  { id: "m3-p3", label: "−3 % → +3 %", prev: { op: "lte", thresholdPct: -3 }, day0: { op: "gte", thresholdPct: 3 } },
+  { id: "p3-m3", label: "+3 % → −3 %", prev: { op: "gte", thresholdPct: 3 }, day0: { op: "lte", thresholdPct: -3 } },
+  { id: "2xm3", label: "2× ≤ −3 %", prev: { op: "lte", thresholdPct: -3 }, day0: { op: "lte", thresholdPct: -3 } },
+  { id: "day-m5", label: "Tag ≤ −5 %", prev: { op: "any", thresholdPct: -3 }, day0: { op: "lte", thresholdPct: -5 } },
+  { id: "day-p5", label: "Tag ≥ +5 %", prev: { op: "any", thresholdPct: -3 }, day0: { op: "gte", thresholdPct: 5 } },
+];
 
 type DetailTab = "gaps" | "streaks" | "analogues";
 
@@ -140,7 +164,7 @@ export function NoiseMeterPanel({
   const defaultTicker = isYahooTicker(initialTicker) ? initialTicker.toUpperCase() : "SPY";
   const [ticker, setTicker] = useState(defaultTicker);
   const [input, setInput] = useState(defaultTicker);
-  const [years, setYears] = useState<5 | 10 | 15>(10);
+  const [years, setYears] = useState<5 | 10 | 15 | "max">("max");
   const [data, setData] = useState<NoiseApiPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -156,6 +180,11 @@ export function NoiseMeterPanel({
   const [streakDirection, setStreakDirection] = useState<"red" | "green">("red");
   const [streakDays, setStreakDays] = useState<number>(3);
   const [streakTouched, setStreakTouched] = useState(false);
+  const [prevDayRule, setPrevDayRule] = useState<ReturnRule>({ op: "lte", thresholdPct: -5 });
+  const [day0Rule, setDay0Rule] = useState<ReturnRule>({ op: "gte", thresholdPct: 5 });
+  const [patternRegime, setPatternRegime] = useState<"all" | "bear" | "bull">("all");
+  const [patternTouched, setPatternTouched] = useState(false);
+  const [showAllPatternMatches, setShowAllPatternMatches] = useState(false);
   const [detailTab, setDetailTab] = useState<DetailTab>("gaps");
 
   useEffect(() => {
@@ -166,6 +195,8 @@ export function NoiseMeterPanel({
       setGapTouched(false);
       setTodayMoveTouched(false);
       setStreakTouched(false);
+      setPatternTouched(false);
+      setShowAllPatternMatches(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialTicker]);
@@ -198,6 +229,15 @@ export function NoiseMeterPanel({
               : body.live.currentStreak;
           setStreakDirection(liveStreak.direction);
           setStreakDays(Math.max(1, liveStreak.count || 1));
+        }
+        if (!patternTouched) {
+          const suggested = suggestLivePattern(
+            computed,
+            body.live.liveTodayReturnPct ?? body.live.liveGapPct,
+          );
+          setPrevDayRule(suggested.prevDayRule);
+          setDay0Rule(suggested.day0Rule);
+          setPatternRegime("all");
         }
       } catch (err) {
         if (controller.signal.aborted) return;
@@ -241,6 +281,16 @@ export function NoiseMeterPanel({
 
   const liveTodayReturn = data ? (data.live.liveTodayReturnPct ?? data.live.liveGapPct) : 0;
 
+  const patternStudy = useMemo(() => {
+    if (!dataset || !data) return null;
+    return evaluatePatternStudy(dataset, {
+      ticker: data.ticker,
+      prevDayRule,
+      day0Rule,
+      regimeFilter: patternRegime,
+    });
+  }, [dataset, data, prevDayRule, day0Rule, patternRegime]);
+
   const switchStreakBasis = (nextBasis: NoiseStreakBasis) => {
     setStreakBasis(nextBasis);
     const nextLive = nextBasis === "candle" ? liveCandleStreak : liveCloseStreak;
@@ -261,6 +311,8 @@ export function NoiseMeterPanel({
     setGapTouched(false);
     setTodayMoveTouched(false);
     setStreakTouched(false);
+    setPatternTouched(false);
+    setShowAllPatternMatches(false);
     onTickerSelect?.(clean);
   };
 
@@ -268,6 +320,30 @@ export function NoiseMeterPanel({
     setStreakDirection(row.direction);
     setStreakDays(row.days);
     setStreakTouched(true);
+  };
+
+  const applyLivePattern = () => {
+    if (!dataset) return;
+    const suggested = suggestLivePattern(dataset, liveTodayReturn);
+    setPrevDayRule(suggested.prevDayRule);
+    setDay0Rule(suggested.day0Rule);
+    setPatternRegime("all");
+    setPatternTouched(false);
+    setShowAllPatternMatches(false);
+  };
+
+  const updateRuleOp = (which: "prev" | "day0", op: ReturnRuleOp) => {
+    const updater = which === "prev" ? setPrevDayRule : setDay0Rule;
+    updater((cur) => {
+      let nextVal = cur.thresholdPct;
+      if (op === "lte" && nextVal > 0) nextVal = -Math.abs(nextVal || 3);
+      if (op === "gte" && nextVal < 0) nextVal = Math.abs(nextVal || 3);
+      if (op === "lte" && nextVal === 0) nextVal = -3;
+      if (op === "gte" && nextVal === 0) nextVal = 3;
+      return { op, thresholdPct: nextVal };
+    });
+    setPatternTouched(true);
+    setShowAllPatternMatches(false);
   };
 
   return (
@@ -293,15 +369,15 @@ export function NoiseMeterPanel({
         </form>
 
         <div className="noise-years-group" role="group" aria-label="Historischer Zeitraum">
-          {([5, 10, 15] as const).map((y) => (
+          {HISTORY_RANGES.map((opt) => (
             <button
-              key={y}
+              key={String(opt.value)}
               type="button"
-              className={`button small${years === y ? " primary" : ""}`}
-              aria-pressed={years === y}
-              onClick={() => setYears(y)}
+              className={`button small${years === opt.value ? " primary" : ""}`}
+              aria-pressed={years === opt.value}
+              onClick={() => setYears(opt.value)}
             >
-              {y}J
+              {opt.label}
             </button>
           ))}
           <button
@@ -344,7 +420,11 @@ export function NoiseMeterPanel({
       {loading && !data ? (
         <div className="noise-loading" role="status">
           <Gauge size={18} className="spin" />
-          <span>Lade {years}-Jahres-Statistik für {ticker}…</span>
+          <span>
+            {years === "max"
+              ? `Lade komplette Historie für ${ticker}…`
+              : `Lade ${years}-Jahres-Statistik für ${ticker}…`}
+          </span>
         </div>
       ) : null}
 
@@ -381,6 +461,320 @@ export function NoiseMeterPanel({
               </ul>
             </div>
           </div>
+
+          {/* Historischer Muster-Scanner (OddStats-Analyse: Schock-Sequenzen, Bärenmarkt-Quote & Weg bis zum Tief) */}
+          {patternStudy ? (
+            <section className="noise-pattern-card" aria-label="Historischer Muster-Scanner">
+              <div className="noise-pattern-head">
+                <div className="noise-t1-title-group">
+                  <h4>
+                    <History size={15} /> Historischer Muster-Scanner
+                  </h4>
+                  <span className="noise-t1-scenario-badge">{patternStudy.ruleDescription}</span>
+                </div>
+                <span className="noise-meta-chip">
+                  <strong className="mono">{patternStudy.sampleSize}×</strong> seit {patternStudy.firstYear} ({patternStudy.totalDays.toLocaleString("de-DE")} Tage)
+                </span>
+              </div>
+
+              {/* OddStats-Style Headline & Empirical Bullet Facts */}
+              <div className="noise-pattern-summary">
+                <p className="noise-pattern-headline">{patternStudy.headline}</p>
+                <ul className="noise-pattern-bullets">
+                  {patternStudy.bullets.map((b, idx) => (
+                    <li key={idx}>{b}</li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* Pattern Presets */}
+              <div className="noise-quick-row noise-pattern-presets" role="group" aria-label="Muster-Vorlagen">
+                <button
+                  type="button"
+                  className={`noise-mini-btn${!patternTouched ? " active" : ""}`}
+                  onClick={applyLivePattern}
+                >
+                  Live-Muster
+                </button>
+                {PATTERN_PRESETS.map((preset) => {
+                  const isActive =
+                    prevDayRule.op === preset.prev.op &&
+                    day0Rule.op === preset.day0.op &&
+                    (prevDayRule.op === "any" || Math.abs(prevDayRule.thresholdPct - preset.prev.thresholdPct) < 0.05) &&
+                    (day0Rule.op === "any" || Math.abs(day0Rule.thresholdPct - preset.day0.thresholdPct) < 0.05);
+                  return (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      className={`noise-mini-btn${isActive ? " active" : ""}`}
+                      onClick={() => {
+                        setPrevDayRule(preset.prev);
+                        setDay0Rule(preset.day0);
+                        setPatternTouched(true);
+                        setShowAllPatternMatches(false);
+                      }}
+                    >
+                      {preset.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Interactive Rule Builder: Tag -1 -> Tag 0 + Regime */}
+              <div className="noise-pattern-builder">
+                <div className="noise-pattern-rule">
+                  <span className="noise-pattern-rule-label">Tag −1 (Vortag)</span>
+                  <div className="noise-pattern-rule-controls">
+                    <div className="noise-pattern-ops" role="group" aria-label="Tag minus 1 Bedingung">
+                      {(["lte", "gte", "any"] as const).map((op) => (
+                        <button
+                          key={op}
+                          type="button"
+                          className={`noise-mini-btn${prevDayRule.op === op ? " active" : ""}`}
+                          aria-pressed={prevDayRule.op === op}
+                          onClick={() => updateRuleOp("prev", op)}
+                        >
+                          {op === "lte" ? "≤" : op === "gte" ? "≥" : "Egal"}
+                        </button>
+                      ))}
+                    </div>
+                    {prevDayRule.op !== "any" ? (
+                      <div className="noise-pattern-num">
+                        <input
+                          type="number"
+                          step="0.5"
+                          min="-30"
+                          max="30"
+                          aria-label="Tag minus 1 Schwelle Prozent"
+                          value={prevDayRule.thresholdPct}
+                          onChange={(e) => {
+                            const val = Number(e.target.value);
+                            setPrevDayRule((cur) => ({ ...cur, thresholdPct: Number.isFinite(val) ? val : 0 }));
+                            setPatternTouched(true);
+                          }}
+                        />
+                        <span>%</span>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="noise-pattern-rule">
+                  <span className="noise-pattern-rule-label">Tag 0 (Folgetag / Heute)</span>
+                  <div className="noise-pattern-rule-controls">
+                    <div className="noise-pattern-ops" role="group" aria-label="Tag 0 Bedingung">
+                      {(["gte", "lte", "any"] as const).map((op) => (
+                        <button
+                          key={op}
+                          type="button"
+                          className={`noise-mini-btn${day0Rule.op === op ? " active" : ""}`}
+                          aria-pressed={day0Rule.op === op}
+                          onClick={() => updateRuleOp("day0", op)}
+                        >
+                          {op === "gte" ? "≥" : op === "lte" ? "≤" : "Egal"}
+                        </button>
+                      ))}
+                    </div>
+                    {day0Rule.op !== "any" ? (
+                      <div className="noise-pattern-num">
+                        <input
+                          type="number"
+                          step="0.5"
+                          min="-30"
+                          max="30"
+                          aria-label="Tag 0 Schwelle Prozent"
+                          value={day0Rule.thresholdPct}
+                          onChange={(e) => {
+                            const val = Number(e.target.value);
+                            setDay0Rule((cur) => ({ ...cur, thresholdPct: Number.isFinite(val) ? val : 0 }));
+                            setPatternTouched(true);
+                          }}
+                        />
+                        <span>%</span>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="noise-pattern-rule">
+                  <span className="noise-pattern-rule-label">Marktregime</span>
+                  <div className="noise-pattern-ops" role="group" aria-label="Marktregime Filter">
+                    {([
+                      ["all", "Alle"],
+                      ["bear", "Bärenmarkt"],
+                      ["bull", "Bullenmarkt"],
+                    ] as const).map(([val, label]) => (
+                      <button
+                        key={val}
+                        type="button"
+                        className={`noise-mini-btn${patternRegime === val ? " active" : ""}`}
+                        aria-pressed={patternRegime === val}
+                        onClick={() => {
+                          setPatternRegime(val);
+                          setShowAllPatternMatches(false);
+                        }}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* 4 OddStats KPI Cards */}
+              {patternStudy.sampleSize > 0 ? (
+                <>
+                  <div className="noise-t1-metrics">
+                    <div className="noise-t1-metric">
+                      <span>Treffer seit {patternStudy.firstYear}</span>
+                      <strong className="mono">{patternStudy.sampleSize}×</strong>
+                      <small>
+                        Aus {patternStudy.totalDays.toLocaleString("de-DE")} Handelstagen
+                      </small>
+                    </div>
+                    <div className="noise-t1-metric">
+                      <span>Im Bärenmarkt (≥ 20 %-Zyklus)</span>
+                      <strong className={`mono ${patternStudy.bearCycleRate >= 65 ? "negative" : ""}`}>
+                        {fmtPct(patternStudy.bearCycleRate)}
+                      </strong>
+                      <small>
+                        {patternStudy.bearCycleCount}/{patternStudy.sampleSize} · Unter 200-SMA:{" "}
+                        <b className="mono">
+                          {patternStudy.belowSma200Rate !== null ? fmtPct(patternStudy.belowSma200Rate) : "—"}
+                        </b>
+                      </small>
+                    </div>
+                    <div className="noise-t1-metric">
+                      <span>Weiterer Drop bis Tief</span>
+                      <strong className="mono negative">
+                        {patternStudy.minFurtherDropPct !== null && patternStudy.droppedFurtherRate === 100
+                          ? `min. ${fmtPct(patternStudy.minFurtherDropPct, true)}`
+                          : fmtPct(patternStudy.medianFurtherDropPct, true)}
+                      </strong>
+                      <small>
+                        Median: <b className="mono">{fmtPct(patternStudy.medianFurtherDropPct, true)}</b> · Worst:{" "}
+                        <b className="mono">{fmtPct(patternStudy.worstFurtherDropPct, true)}</b>
+                      </small>
+                    </div>
+                    <div className="noise-t1-metric">
+                      <span>Tiefer geschlossen danach</span>
+                      <strong className={`mono ${patternStudy.droppedFurtherRate >= 70 ? "negative" : "positive"}`}>
+                        {fmtPct(patternStudy.droppedFurtherRate)}
+                      </strong>
+                      <small>
+                        ≥ 5 % tiefer: <b className="mono">{fmtPct(patternStudy.droppedAtLeast5PctRate)}</b> · Median{" "}
+                        <b className="mono">{patternStudy.medianDaysToBottom ?? "—"}T</b> bis Tief
+                      </small>
+                    </div>
+                  </div>
+
+                  {/* Forward Returns Matrix (T+1 through 1Y) */}
+                  <div className="noise-table-wrap noise-t1-twins">
+                    <h4>Folge-Performance nach dem Muster (T+1 bis 1 Jahr)</h4>
+                    <table className="noise-table">
+                      <thead>
+                        <tr>
+                          <th>Horizont</th>
+                          <th>n</th>
+                          <th>Positiv %</th>
+                          <th>Ø Rendite</th>
+                          <th>Median</th>
+                          <th>Best / Worst</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {patternStudy.horizons.map((h) => (
+                          <tr key={h.id}>
+                            <td>{h.label}</td>
+                            <td className="mono">{h.sampleSize}</td>
+                            <td className={`mono ${h.sampleSize && h.winRate >= 50 ? "positive" : "negative"}`}>
+                              {h.sampleSize ? fmtPct(h.winRate) : "—"}
+                            </td>
+                            <td className={`mono ${h.avgPct >= 0 ? "positive" : "negative"}`}>
+                              {h.sampleSize ? fmtSigned2(h.avgPct) : "—"}
+                            </td>
+                            <td className={`mono ${h.medianPct >= 0 ? "positive" : "negative"}`}>
+                              {h.sampleSize ? fmtSigned2(h.medianPct) : "—"}
+                            </td>
+                            <td className="mono">
+                              {h.sampleSize ? `${fmtPct(h.bestPct, true)} / ${fmtPct(h.worstPct, true)}` : "—"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Complete Historical Occurrences Table */}
+                  <div className="noise-table-wrap noise-t1-twins">
+                    <div className="noise-pattern-table-head">
+                      <h4>Alle historischen Treffer ({patternStudy.matches.length})</h4>
+                      {patternStudy.matches.length > 15 ? (
+                        <button
+                          type="button"
+                          className="noise-mini-btn"
+                          onClick={() => setShowAllPatternMatches((v) => !v)}
+                        >
+                          {showAllPatternMatches
+                            ? "Kompakt (15)"
+                            : `Alle ${patternStudy.matches.length} anzeigen`}
+                        </button>
+                      ) : null}
+                    </div>
+                    <table className="noise-table">
+                      <thead>
+                        <tr>
+                          <th>Datum (Tag 0)</th>
+                          <th>Tag −1</th>
+                          <th>Tag 0</th>
+                          <th>Regime</th>
+                          <th>Morgen T+1</th>
+                          <th>1M</th>
+                          <th>3M</th>
+                          <th>Drop bis Tief</th>
+                          <th>Tage</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(showAllPatternMatches
+                          ? patternStudy.matches
+                          : patternStudy.matches.slice(0, 15)
+                        ).map((m) => (
+                          <tr key={m.session}>
+                            <td className="mono">{m.session}</td>
+                            <td className={`mono ${(m.prevDayPct ?? 0) >= 0 ? "positive" : "negative"}`}>
+                              {fmtSigned2(m.prevDayPct)}
+                            </td>
+                            <td className={`mono ${m.day0Pct >= 0 ? "positive" : "negative"}`}>
+                              {fmtSigned2(m.day0Pct)}
+                            </td>
+                            <td>
+                              <span className={`noise-tag ${m.inBearCycle ? "filled" : "open"}`}>
+                                {m.inBearCycle ? "Bärenmarkt" : "Bullenmarkt"}
+                              </span>
+                            </td>
+                            <td className={`mono ${(m.nextDayPct ?? 0) >= 0 ? "positive" : "negative"}`}>
+                              {fmtSigned2(m.nextDayPct)}
+                            </td>
+                            <td className={`mono ${(m.fwd21dPct ?? 0) >= 0 ? "positive" : "negative"}`}>
+                              {fmtSigned2(m.fwd21dPct)}
+                            </td>
+                            <td className={`mono ${(m.fwd63dPct ?? 0) >= 0 ? "positive" : "negative"}`}>
+                              {fmtSigned2(m.fwd63dPct)}
+                            </td>
+                            <td className="mono negative">
+                              {m.dropToBottomPct !== null ? fmtPct(m.dropToBottomPct, true) : "laufend"}
+                            </td>
+                            <td className="mono">{m.daysToBottom !== null ? `${m.daysToBottom}T` : "—"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              ) : null}
+            </section>
+          ) : null}
 
           {/* Morgen-Wahrscheinlichkeit (T+1 Multi-Factor Scenario Forecast) */}
           {nextDayForecast ? (
