@@ -25,6 +25,8 @@ import {
   type NoiseApiPayload,
   type NoiseStreakBasis,
   type NoiseVerdictTone,
+  type PriorWindowDays,
+  type PriorWindowRule,
   type ReturnRule,
   type ReturnRuleOp,
   type StreakStats,
@@ -44,7 +46,9 @@ const PRESET_TICKERS: ReadonlyArray<{ ticker: string; label: string }> = [
 
 const QUICK_GAPS = [-2.0, -1.0, 0.5, 1.0, 1.5, 2.0, 3.0] as const;
 const QUICK_TODAY_MOVES = [-5.0, -3.0, -1.5, 1.5, 3.0, 5.0, 7.0] as const;
-const QUICK_STREAKS = [1, 2, 3, 4, 5, 6, 7, 8] as const;
+const QUICK_STREAKS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const;
+const PRIOR_WINDOW_OPTIONS: readonly PriorWindowDays[] = [3, 5, 7, 10, 20];
+const LOOKBACK_DEPTHS = [2, 3, 4, 5] as const;
 const HISTORY_RANGES: ReadonlyArray<{ value: 5 | 10 | 15 | "max"; label: string }> = [
   { value: 5, label: "5J" },
   { value: 10, label: "10J" },
@@ -52,15 +56,46 @@ const HISTORY_RANGES: ReadonlyArray<{ value: 5 | 10 | 15 | "max"; label: string 
   { value: "max", label: "Max" },
 ];
 
-const PATTERN_PRESETS: ReadonlyArray<{
+const ANY_NEG_RULE: ReturnRule = { op: "any", thresholdPct: -2 };
+const ANY_PRIOR_WIN: PriorWindowRule = { days: 5, op: "any", thresholdPct: -8 };
+
+interface PatternPreset {
   id: string;
   label: string;
+  lookbackDays?: 2 | 3 | 4 | 5;
+  dayMinus4?: ReturnRule;
+  dayMinus3?: ReturnRule;
+  dayMinus2?: ReturnRule;
   prev: ReturnRule;
   day0: ReturnRule;
-}> = [
+  priorWindow?: PriorWindowRule;
+}
+
+const PATTERN_PRESETS: ReadonlyArray<PatternPreset> = [
   { id: "m5-p5", label: "−5 % → +5 %", prev: { op: "lte", thresholdPct: -5 }, day0: { op: "gte", thresholdPct: 5 } },
   { id: "m3-p3", label: "−3 % → +3 %", prev: { op: "lte", thresholdPct: -3 }, day0: { op: "gte", thresholdPct: 3 } },
-  { id: "p3-m3", label: "+3 % → −3 %", prev: { op: "gte", thresholdPct: 3 }, day0: { op: "lte", thresholdPct: -3 } },
+  {
+    id: "win7-m10-p5",
+    label: "Vor-7T ≤ −10 % → +5 %",
+    prev: { op: "any", thresholdPct: -3 },
+    day0: { op: "gte", thresholdPct: 5 },
+    priorWindow: { days: 7, op: "lte", thresholdPct: -10 },
+  },
+  {
+    id: "win5-m8-p4",
+    label: "Vor-5T ≤ −8 % → +4 %",
+    prev: { op: "any", thresholdPct: -3 },
+    day0: { op: "gte", thresholdPct: 4 },
+    priorWindow: { days: 5, op: "lte", thresholdPct: -8 },
+  },
+  {
+    id: "3xm2",
+    label: "3× ≤ −2 %",
+    lookbackDays: 3,
+    dayMinus2: { op: "lte", thresholdPct: -2 },
+    prev: { op: "lte", thresholdPct: -2 },
+    day0: { op: "lte", thresholdPct: -2 },
+  },
   { id: "2xm3", label: "2× ≤ −3 %", prev: { op: "lte", thresholdPct: -3 }, day0: { op: "lte", thresholdPct: -3 } },
   { id: "day-m5", label: "Tag ≤ −5 %", prev: { op: "any", thresholdPct: -3 }, day0: { op: "lte", thresholdPct: -5 } },
   { id: "day-p5", label: "Tag ≥ +5 %", prev: { op: "any", thresholdPct: -3 }, day0: { op: "gte", thresholdPct: 5 } },
@@ -68,6 +103,13 @@ const PATTERN_PRESETS: ReadonlyArray<{
 
 type PrimaryView = "forecast" | "pattern" | "gaps";
 type DetailTab = "gaps" | "streaks" | "analogues";
+type PatternDayKey = "dayMinus4" | "dayMinus3" | "dayMinus2" | "prev" | "day0";
+
+function rulesEqual(a: ReturnRule, b: ReturnRule): boolean {
+  if (a.op !== b.op) return false;
+  if (a.op === "any") return true;
+  return Math.abs(a.thresholdPct - b.thresholdPct) < 0.05;
+}
 
 function fmtPct(v: number | null | undefined, signed = false): string {
   if (v === null || v === undefined || !Number.isFinite(v)) return "—";
@@ -109,6 +151,19 @@ function sourceLabel(src: NoiseApiPayload["live"]["priceSource"]): string {
       return "After-Hours Live";
     case "regular":
       return "Heutiges Open-Gap";
+    default:
+      return "Letzter Close";
+  }
+}
+
+function liveMoveShortLabel(src: NoiseApiPayload["live"]["priceSource"]): string {
+  switch (src) {
+    case "premarket":
+      return "Premarket";
+    case "afterhours":
+      return "After-Hours";
+    case "regular":
+      return "Live";
     default:
       return "Letzter Close";
   }
@@ -201,18 +256,25 @@ export function NoiseMeterPanel({
   // Clean 3-tab primary navigation for uncluttered overview
   const [activeView, setActiveView] = useState<PrimaryView>("forecast");
 
-  // Interactive scenario controls (defaults to live premarket gap + live candle streak, editable for What-If)
+  // Interactive scenario controls (default: Close-to-Close streak strictly on Nasdaq/Exchange close)
   const [gapPct, setGapPct] = useState<number>(1.0);
   const [gapTouched, setGapTouched] = useState(false);
   const [todayMovePct, setTodayMovePct] = useState<number>(0);
   const [todayMoveTouched, setTodayMoveTouched] = useState(false);
   const [useExtraFactors, setUseExtraFactors] = useState<boolean>(true);
-  const [streakBasis, setStreakBasis] = useState<NoiseStreakBasis>("candle");
+  const [streakBasis, setStreakBasis] = useState<NoiseStreakBasis>("close");
   const [streakDirection, setStreakDirection] = useState<"red" | "green">("red");
   const [streakDays, setStreakDays] = useState<number>(3);
   const [streakTouched, setStreakTouched] = useState(false);
+
+  // Multi-day pattern scanner controls (up to 5 individual days back + cumulative prior window)
+  const [patternLookbackDays, setPatternLookbackDays] = useState<2 | 3 | 4 | 5>(4);
+  const [dayMinus4Rule, setDayMinus4Rule] = useState<ReturnRule>(ANY_NEG_RULE);
+  const [dayMinus3Rule, setDayMinus3Rule] = useState<ReturnRule>(ANY_NEG_RULE);
+  const [dayMinus2Rule, setDayMinus2Rule] = useState<ReturnRule>(ANY_NEG_RULE);
   const [prevDayRule, setPrevDayRule] = useState<ReturnRule>({ op: "lte", thresholdPct: -5 });
   const [day0Rule, setDay0Rule] = useState<ReturnRule>({ op: "gte", thresholdPct: 5 });
+  const [priorWindowRule, setPriorWindowRule] = useState<PriorWindowRule>(ANY_PRIOR_WIN);
   const [patternRegime, setPatternRegime] = useState<"all" | "bear" | "bull">("all");
   const [patternTouched, setPatternTouched] = useState(false);
   const [showAllPatternMatches, setShowAllPatternMatches] = useState(false);
@@ -257,17 +319,21 @@ export function NoiseMeterPanel({
           const liveStreak =
             streakBasis === "candle"
               ? (body.live.currentCandleStreak ?? computed.currentCandleStreak)
-              : body.live.currentStreak;
+              : (body.live.currentStreak ?? computed.currentStreak);
           setStreakDirection(liveStreak.direction);
           setStreakDays(Math.max(1, liveStreak.count || 1));
         }
         if (!patternTouched) {
           const suggested = suggestLivePattern(
             computed,
-            body.live.liveTodayReturnPct ?? body.live.liveGapPct,
+            body.live.priceSource === "regular" ? body.live.liveTodayReturnPct : null,
           );
+          setDayMinus4Rule(ANY_NEG_RULE);
+          setDayMinus3Rule(ANY_NEG_RULE);
+          setDayMinus2Rule(ANY_NEG_RULE);
           setPrevDayRule(suggested.prevDayRule);
           setDay0Rule(suggested.day0Rule);
+          setPriorWindowRule(ANY_PRIOR_WIN);
           setPatternRegime("all");
         }
       } catch (err) {
@@ -317,11 +383,26 @@ export function NoiseMeterPanel({
     if (!dataset || !data) return null;
     return evaluatePatternStudy(dataset, {
       ticker: data.ticker,
+      dayMinus4Rule: patternLookbackDays >= 5 ? dayMinus4Rule : ANY_NEG_RULE,
+      dayMinus3Rule: patternLookbackDays >= 4 ? dayMinus3Rule : ANY_NEG_RULE,
+      dayMinus2Rule: patternLookbackDays >= 3 ? dayMinus2Rule : ANY_NEG_RULE,
       prevDayRule,
       day0Rule,
+      priorWindowRule,
       regimeFilter: patternRegime,
     });
-  }, [dataset, data, prevDayRule, day0Rule, patternRegime]);
+  }, [
+    dataset,
+    data,
+    patternLookbackDays,
+    dayMinus4Rule,
+    dayMinus3Rule,
+    dayMinus2Rule,
+    prevDayRule,
+    day0Rule,
+    priorWindowRule,
+    patternRegime,
+  ]);
 
   const switchStreakBasis = (nextBasis: NoiseStreakBasis) => {
     setStreakBasis(nextBasis);
@@ -355,24 +436,68 @@ export function NoiseMeterPanel({
   };
 
   const applyLivePattern = () => {
-    if (!dataset) return;
-    const suggested = suggestLivePattern(dataset, liveTodayReturn);
+    if (!dataset || !data) return;
+    const suggested = suggestLivePattern(
+      dataset,
+      data.live.priceSource === "regular" ? liveTodayReturn : null,
+    );
+    setDayMinus4Rule(ANY_NEG_RULE);
+    setDayMinus3Rule(ANY_NEG_RULE);
+    setDayMinus2Rule(ANY_NEG_RULE);
     setPrevDayRule(suggested.prevDayRule);
     setDay0Rule(suggested.day0Rule);
+    setPriorWindowRule(ANY_PRIOR_WIN);
     setPatternRegime("all");
     setPatternTouched(false);
     setShowAllPatternMatches(false);
   };
 
-  const updateRuleOp = (which: "prev" | "day0", op: ReturnRuleOp) => {
-    const updater = which === "prev" ? setPrevDayRule : setDay0Rule;
+  const changePatternLookback = (depth: 2 | 3 | 4 | 5) => {
+    setPatternLookbackDays(depth);
+    if (depth < 5) setDayMinus4Rule(ANY_NEG_RULE);
+    if (depth < 4) setDayMinus3Rule(ANY_NEG_RULE);
+    if (depth < 3) setDayMinus2Rule(ANY_NEG_RULE);
+    setShowAllPatternMatches(false);
+  };
+
+  const ruleSetterFor = (which: PatternDayKey) => {
+    switch (which) {
+      case "dayMinus4":
+        return setDayMinus4Rule;
+      case "dayMinus3":
+        return setDayMinus3Rule;
+      case "dayMinus2":
+        return setDayMinus2Rule;
+      case "prev":
+        return setPrevDayRule;
+      case "day0":
+        return setDay0Rule;
+    }
+  };
+
+  const updateRuleOp = (which: PatternDayKey, op: ReturnRuleOp) => {
+    const updater = ruleSetterFor(which);
     updater((cur) => {
       let nextVal = cur.thresholdPct;
-      if (op === "lte" && nextVal > 0) nextVal = -Math.abs(nextVal || 3);
-      if (op === "gte" && nextVal < 0) nextVal = Math.abs(nextVal || 3);
-      if (op === "lte" && nextVal === 0) nextVal = -3;
-      if (op === "gte" && nextVal === 0) nextVal = 3;
+      const defaultMag = which === "prev" || which === "day0" ? 3 : 2;
+      if (op === "lte" && nextVal > 0) nextVal = -Math.abs(nextVal || defaultMag);
+      if (op === "gte" && nextVal < 0) nextVal = Math.abs(nextVal || defaultMag);
+      if (op === "lte" && nextVal === 0) nextVal = -defaultMag;
+      if (op === "gte" && nextVal === 0) nextVal = defaultMag;
       return { op, thresholdPct: nextVal };
+    });
+    setPatternTouched(true);
+    setShowAllPatternMatches(false);
+  };
+
+  const updatePriorWindowOp = (op: ReturnRuleOp) => {
+    setPriorWindowRule((cur) => {
+      let nextVal = cur.thresholdPct;
+      if (op === "lte" && nextVal > 0) nextVal = -Math.abs(nextVal || 8);
+      if (op === "gte" && nextVal < 0) nextVal = Math.abs(nextVal || 8);
+      if (op === "lte" && nextVal === 0) nextVal = -8;
+      if (op === "gte" && nextVal === 0) nextVal = 8;
+      return { ...cur, op, thresholdPct: nextVal };
     });
     setPatternTouched(true);
     setShowAllPatternMatches(false);
@@ -426,23 +551,23 @@ export function NoiseMeterPanel({
         <div className="noise-basis-row" role="group" aria-label="Streak-Berechnungsbasis">
           <button
             type="button"
-            className={`noise-mini-btn${streakBasis === "candle" ? " active" : ""}`}
-            aria-pressed={streakBasis === "candle"}
-            title="Tageskerzen-Farbe im Chart (Close vs. Open)"
-            onClick={() => switchStreakBasis("candle")}
-          >
-            Kerzen (C vs O): {liveCandleStreak.count}{" "}
-            {liveCandleStreak.direction === "red" ? "rot" : "grün"}
-          </button>
-          <button
-            type="button"
             className={`noise-mini-btn${streakBasis === "close" ? " active" : ""}`}
             aria-pressed={streakBasis === "close"}
-            title="Schlusskurs gegenüber Vortags-Close (Close vs. PrevClose)"
+            title="Schlusskurs gegenüber Vortags-Close (Standard: echte Börsen-Close-Kurse)"
             onClick={() => switchStreakBasis("close")}
           >
             Close (vs Vortag): {liveCloseStreak.count}{" "}
             {liveCloseStreak.direction === "red" ? "rot" : "grün"}
+          </button>
+          <button
+            type="button"
+            className={`noise-mini-btn${streakBasis === "candle" ? " active" : ""}`}
+            aria-pressed={streakBasis === "candle"}
+            title="Nur Kerzenkörper (Close vs. Open — bei Up-Gap kann ein grüner Tag eine rote Kerze sein)"
+            onClick={() => switchStreakBasis("candle")}
+          >
+            Kerzen (C vs O): {liveCandleStreak.count}{" "}
+            {liveCandleStreak.direction === "red" ? "rot" : "grün"}
           </button>
         </div>
         <div className="noise-quick-row noise-streak-nums" role="group" aria-label="Anzahl Tage in Folge">
@@ -882,8 +1007,27 @@ export function NoiseMeterPanel({
                           setTodayMoveTouched(false);
                         }}
                       >
-                        Live ({fmtPct(liveTodayReturn, true)})
+                        {liveMoveShortLabel(data.live.priceSource)} ({fmtPct(liveTodayReturn, true)})
                       </button>
+                      {data.live.priceSource !== "regular" &&
+                      dataset &&
+                      dataset.lastDayReturnPct !== null ? (
+                        <button
+                          type="button"
+                          className={`noise-mini-btn${
+                            todayMoveTouched && Math.abs(todayMovePct - dataset.lastDayReturnPct) < 0.05
+                              ? " active"
+                              : ""
+                          }`}
+                          title={`Letzter abgeschlossener Börsen-Close (${dataset.lastSession})`}
+                          onClick={() => {
+                            setTodayMovePct(dataset.lastDayReturnPct!);
+                            setTodayMoveTouched(true);
+                          }}
+                        >
+                          Close {fmtShortDate(dataset.lastSession)} ({fmtPct(dataset.lastDayReturnPct, true)})
+                        </button>
+                      ) : null}
                       <input
                         id="noise-today-move-input"
                         type="number"
@@ -1091,111 +1235,216 @@ export function NoiseMeterPanel({
                 </ul>
               </div>
 
-              {/* Pattern Presets */}
-              <div className="noise-quick-row noise-pattern-presets" role="group" aria-label="Muster-Vorlagen">
-                <button
-                  type="button"
-                  className={`noise-mini-btn${!patternTouched ? " active" : ""}`}
-                  onClick={applyLivePattern}
-                >
-                  Live-Muster
-                </button>
-                {PATTERN_PRESETS.map((preset) => {
-                  const isActive =
-                    prevDayRule.op === preset.prev.op &&
-                    day0Rule.op === preset.day0.op &&
-                    (prevDayRule.op === "any" ||
-                      Math.abs(prevDayRule.thresholdPct - preset.prev.thresholdPct) < 0.05) &&
-                    (day0Rule.op === "any" ||
-                      Math.abs(day0Rule.thresholdPct - preset.day0.thresholdPct) < 0.05);
-                  return (
+              {/* Pattern Presets & Lookback Depth Selector */}
+              <div className="noise-pattern-controls-bar">
+                <div className="noise-quick-row noise-pattern-presets" role="group" aria-label="Muster-Vorlagen">
+                  <button
+                    type="button"
+                    className={`noise-mini-btn${!patternTouched ? " active" : ""}`}
+                    onClick={applyLivePattern}
+                  >
+                    Live-Muster
+                  </button>
+                  {PATTERN_PRESETS.map((preset) => {
+                    const p4 = preset.dayMinus4 ?? ANY_NEG_RULE;
+                    const p3 = preset.dayMinus3 ?? ANY_NEG_RULE;
+                    const p2 = preset.dayMinus2 ?? ANY_NEG_RULE;
+                    const pWin = preset.priorWindow ?? ANY_PRIOR_WIN;
+                    const activeD4 = patternLookbackDays >= 5 ? dayMinus4Rule : ANY_NEG_RULE;
+                    const activeD3 = patternLookbackDays >= 4 ? dayMinus3Rule : ANY_NEG_RULE;
+                    const activeD2 = patternLookbackDays >= 3 ? dayMinus2Rule : ANY_NEG_RULE;
+                    const isActive =
+                      rulesEqual(activeD4, p4) &&
+                      rulesEqual(activeD3, p3) &&
+                      rulesEqual(activeD2, p2) &&
+                      rulesEqual(prevDayRule, preset.prev) &&
+                      rulesEqual(day0Rule, preset.day0) &&
+                      rulesEqual(priorWindowRule, pWin) &&
+                      (priorWindowRule.op === "any" || priorWindowRule.days === pWin.days);
+                    return (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        className={`noise-mini-btn${isActive ? " active" : ""}`}
+                        onClick={() => {
+                          if (preset.lookbackDays && patternLookbackDays < preset.lookbackDays) {
+                            setPatternLookbackDays(preset.lookbackDays);
+                          }
+                          setDayMinus4Rule(p4);
+                          setDayMinus3Rule(p3);
+                          setDayMinus2Rule(p2);
+                          setPrevDayRule(preset.prev);
+                          setDay0Rule(preset.day0);
+                          setPriorWindowRule(pWin);
+                          setPatternTouched(true);
+                          setShowAllPatternMatches(false);
+                        }}
+                      >
+                        {preset.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="noise-pattern-depth" role="group" aria-label="Muster Rückblick-Tiefe">
+                  <span className="noise-pattern-rule-label">Rückblick:</span>
+                  {LOOKBACK_DEPTHS.map((depth) => (
                     <button
-                      key={preset.id}
+                      key={depth}
                       type="button"
-                      className={`noise-mini-btn${isActive ? " active" : ""}`}
-                      onClick={() => {
-                        setPrevDayRule(preset.prev);
-                        setDay0Rule(preset.day0);
-                        setPatternTouched(true);
-                        setShowAllPatternMatches(false);
-                      }}
+                      className={`noise-mini-btn${patternLookbackDays === depth ? " active" : ""}`}
+                      aria-pressed={patternLookbackDays === depth}
+                      onClick={() => changePatternLookback(depth)}
                     >
-                      {preset.label}
+                      {depth} Tage
                     </button>
-                  );
-                })}
+                  ))}
+                </div>
               </div>
 
-              {/* Interactive Rule Builder: Tag -1 -> Tag 0 + Regime */}
+              {/* Interactive Multi-Day Rule Builder: Tag -4 .. Tag -1 -> Tag 0 + Vor-Zeitraum + Regime */}
               <div className="noise-pattern-builder">
+                {(
+                  [
+                    ...(patternLookbackDays >= 5
+                      ? [
+                          {
+                            key: "dayMinus4" as const,
+                            label: "Tag −4",
+                            ariaPrefix: "Tag minus 4",
+                            rule: dayMinus4Rule,
+                            ops: ["lte", "gte", "any"] as const,
+                          },
+                        ]
+                      : []),
+                    ...(patternLookbackDays >= 4
+                      ? [
+                          {
+                            key: "dayMinus3" as const,
+                            label: "Tag −3",
+                            ariaPrefix: "Tag minus 3",
+                            rule: dayMinus3Rule,
+                            ops: ["lte", "gte", "any"] as const,
+                          },
+                        ]
+                      : []),
+                    ...(patternLookbackDays >= 3
+                      ? [
+                          {
+                            key: "dayMinus2" as const,
+                            label: "Tag −2",
+                            ariaPrefix: "Tag minus 2",
+                            rule: dayMinus2Rule,
+                            ops: ["lte", "gte", "any"] as const,
+                          },
+                        ]
+                      : []),
+                    {
+                      key: "prev" as const,
+                      label: "Tag −1 (Vortag)",
+                      ariaPrefix: "Tag minus 1",
+                      rule: prevDayRule,
+                      ops: ["lte", "gte", "any"] as const,
+                    },
+                    {
+                      key: "day0" as const,
+                      label: "Tag 0 (Folgetag / Heute)",
+                      ariaPrefix: "Tag 0",
+                      rule: day0Rule,
+                      ops: ["gte", "lte", "any"] as const,
+                    },
+                  ] as const
+                ).map((item) => {
+                  const setter = ruleSetterFor(item.key);
+                  return (
+                    <div key={item.key} className="noise-pattern-rule">
+                      <span className="noise-pattern-rule-label">{item.label}</span>
+                      <div className="noise-pattern-rule-controls">
+                        <div className="noise-pattern-ops" role="group" aria-label={`${item.ariaPrefix} Bedingung`}>
+                          {item.ops.map((op) => (
+                            <button
+                              key={op}
+                              type="button"
+                              className={`noise-mini-btn${item.rule.op === op ? " active" : ""}`}
+                              aria-pressed={item.rule.op === op}
+                              onClick={() => updateRuleOp(item.key, op)}
+                            >
+                              {op === "lte" ? "≤" : op === "gte" ? "≥" : "Egal"}
+                            </button>
+                          ))}
+                        </div>
+                        {item.rule.op !== "any" ? (
+                          <div className="noise-pattern-num">
+                            <input
+                              type="number"
+                              step="0.5"
+                              min="-30"
+                              max="30"
+                              aria-label={`${item.ariaPrefix} Schwelle Prozent`}
+                              value={item.rule.thresholdPct}
+                              onChange={(e) => {
+                                const val = Number(e.target.value);
+                                setter((cur) => ({
+                                  ...cur,
+                                  thresholdPct: Number.isFinite(val) ? val : 0,
+                                }));
+                                setPatternTouched(true);
+                              }}
+                            />
+                            <span>%</span>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* Cumulative Prior-Window Filter (3T / 5T / 7T / 10T / 20T before Tag 0) */}
                 <div className="noise-pattern-rule">
-                  <span className="noise-pattern-rule-label">Tag −1 (Vortag)</span>
+                  <span className="noise-pattern-rule-label">Vor-Zeitraum (kumulativ vor Tag 0)</span>
                   <div className="noise-pattern-rule-controls">
-                    <div className="noise-pattern-ops" role="group" aria-label="Tag minus 1 Bedingung">
+                    <div className="noise-pattern-ops" role="group" aria-label="Vor-Zeitraum Fenster">
+                      {PRIOR_WINDOW_OPTIONS.map((w) => (
+                        <button
+                          key={w}
+                          type="button"
+                          className={`noise-mini-btn${priorWindowRule.days === w ? " active" : ""}`}
+                          aria-pressed={priorWindowRule.days === w}
+                          onClick={() => {
+                            setPriorWindowRule((cur) => ({ ...cur, days: w }));
+                            setPatternTouched(true);
+                            setShowAllPatternMatches(false);
+                          }}
+                        >
+                          {w}T
+                        </button>
+                      ))}
+                    </div>
+                    <div className="noise-pattern-ops" role="group" aria-label="Vor-Zeitraum Bedingung">
                       {(["lte", "gte", "any"] as const).map((op) => (
                         <button
                           key={op}
                           type="button"
-                          className={`noise-mini-btn${prevDayRule.op === op ? " active" : ""}`}
-                          aria-pressed={prevDayRule.op === op}
-                          onClick={() => updateRuleOp("prev", op)}
+                          className={`noise-mini-btn${priorWindowRule.op === op ? " active" : ""}`}
+                          aria-pressed={priorWindowRule.op === op}
+                          onClick={() => updatePriorWindowOp(op)}
                         >
                           {op === "lte" ? "≤" : op === "gte" ? "≥" : "Egal"}
                         </button>
                       ))}
                     </div>
-                    {prevDayRule.op !== "any" ? (
+                    {priorWindowRule.op !== "any" ? (
                       <div className="noise-pattern-num">
                         <input
                           type="number"
-                          step="0.5"
-                          min="-30"
-                          max="30"
-                          aria-label="Tag minus 1 Schwelle Prozent"
-                          value={prevDayRule.thresholdPct}
+                          step="1"
+                          min="-80"
+                          max="100"
+                          aria-label="Vor-Zeitraum Schwelle Prozent"
+                          value={priorWindowRule.thresholdPct}
                           onChange={(e) => {
                             const val = Number(e.target.value);
-                            setPrevDayRule((cur) => ({
-                              ...cur,
-                              thresholdPct: Number.isFinite(val) ? val : 0,
-                            }));
-                            setPatternTouched(true);
-                          }}
-                        />
-                        <span>%</span>
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-
-                <div className="noise-pattern-rule">
-                  <span className="noise-pattern-rule-label">Tag 0 (Folgetag / Heute)</span>
-                  <div className="noise-pattern-rule-controls">
-                    <div className="noise-pattern-ops" role="group" aria-label="Tag 0 Bedingung">
-                      {(["gte", "lte", "any"] as const).map((op) => (
-                        <button
-                          key={op}
-                          type="button"
-                          className={`noise-mini-btn${day0Rule.op === op ? " active" : ""}`}
-                          aria-pressed={day0Rule.op === op}
-                          onClick={() => updateRuleOp("day0", op)}
-                        >
-                          {op === "gte" ? "≥" : op === "lte" ? "≤" : "Egal"}
-                        </button>
-                      ))}
-                    </div>
-                    {day0Rule.op !== "any" ? (
-                      <div className="noise-pattern-num">
-                        <input
-                          type="number"
-                          step="0.5"
-                          min="-30"
-                          max="30"
-                          aria-label="Tag 0 Schwelle Prozent"
-                          value={day0Rule.thresholdPct}
-                          onChange={(e) => {
-                            const val = Number(e.target.value);
-                            setDay0Rule((cur) => ({
+                            setPriorWindowRule((cur) => ({
                               ...cur,
                               thresholdPct: Number.isFinite(val) ? val : 0,
                             }));
@@ -1347,6 +1596,10 @@ export function NoiseMeterPanel({
                       <thead>
                         <tr>
                           <th>Datum (Tag 0)</th>
+                          <th>Vor-{priorWindowRule.days}T</th>
+                          {patternLookbackDays >= 5 ? <th>Tag −4</th> : null}
+                          {patternLookbackDays >= 4 ? <th>Tag −3</th> : null}
+                          {patternLookbackDays >= 3 ? <th>Tag −2</th> : null}
                           <th>Tag −1</th>
                           <th>Tag 0</th>
                           <th>Regime</th>
@@ -1364,6 +1617,24 @@ export function NoiseMeterPanel({
                         ).map((m) => (
                           <tr key={m.session}>
                             <td className="mono">{m.session}</td>
+                            <td className={`mono ${(m.priorWindowPct ?? 0) >= 0 ? "positive" : "negative"}`}>
+                              {fmtSigned2(m.priorWindowPct)}
+                            </td>
+                            {patternLookbackDays >= 5 ? (
+                              <td className={`mono ${(m.dayMinus4Pct ?? 0) >= 0 ? "positive" : "negative"}`}>
+                                {fmtSigned2(m.dayMinus4Pct)}
+                              </td>
+                            ) : null}
+                            {patternLookbackDays >= 4 ? (
+                              <td className={`mono ${(m.dayMinus3Pct ?? 0) >= 0 ? "positive" : "negative"}`}>
+                                {fmtSigned2(m.dayMinus3Pct)}
+                              </td>
+                            ) : null}
+                            {patternLookbackDays >= 3 ? (
+                              <td className={`mono ${(m.dayMinus2Pct ?? 0) >= 0 ? "positive" : "negative"}`}>
+                                {fmtSigned2(m.dayMinus2Pct)}
+                              </td>
+                            ) : null}
                             <td className={`mono ${(m.prevDayPct ?? 0) >= 0 ? "positive" : "negative"}`}>
                               {fmtSigned2(m.prevDayPct)}
                             </td>

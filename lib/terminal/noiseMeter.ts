@@ -49,6 +49,14 @@ export interface NoiseObservation {
   nextDayGreen: boolean | null; // T+1 close > today close
   nextDayGreenCandle: boolean | null; // T+1 close > T+1 open
   prevDayCloseToClosePct: number | null; // T-1 return (causal)
+  dayMinus2Pct: number | null; // T-2 return (causal)
+  dayMinus3Pct: number | null; // T-3 return (causal)
+  dayMinus4Pct: number | null; // T-4 return (causal)
+  prior3dPct: number | null; // Cumulative 3-day Close-to-Close return BEFORE Tag 0 (causal)
+  prior5dPct: number | null; // Cumulative 5-day Close-to-Close return BEFORE Tag 0 (causal)
+  prior7dPct: number | null; // Cumulative 7-day Close-to-Close return BEFORE Tag 0 (causal)
+  prior10dPct: number | null; // Cumulative 10-day Close-to-Close return BEFORE Tag 0 (causal)
+  prior20dPct: number | null; // Cumulative 20-day Close-to-Close return BEFORE Tag 0 (causal)
   drawdownFrom52wHighPct: number; // <= 0, causal drawdown from rolling 252d closing peak
   inBearCycle: boolean; // Inside a >= 20% peak-to-trough bear market cycle
   fwd3dPct: number | null;
@@ -97,10 +105,22 @@ export interface ReturnRule {
   thresholdPct: number;
 }
 
+export type PriorWindowDays = 3 | 5 | 7 | 10 | 20;
+
+export interface PriorWindowRule {
+  days: PriorWindowDays;
+  op: ReturnRuleOp;
+  thresholdPct: number;
+}
+
 export interface PatternStudyInput {
   ticker?: string;
+  dayMinus4Rule?: ReturnRule;
+  dayMinus3Rule?: ReturnRule;
+  dayMinus2Rule?: ReturnRule;
   prevDayRule: ReturnRule;
   day0Rule: ReturnRule;
+  priorWindowRule?: PriorWindowRule;
   regimeFilter?: "all" | "bear" | "bull";
 }
 
@@ -117,8 +137,12 @@ export interface PatternHorizonStat {
 
 export interface PatternMatch {
   session: string;
+  dayMinus4Pct: number | null;
+  dayMinus3Pct: number | null;
+  dayMinus2Pct: number | null;
   prevDayPct: number | null;
   day0Pct: number;
+  priorWindowPct: number | null;
   inBearCycle: boolean;
   belowSma200: boolean | null;
   drawdown52wPct: number;
@@ -824,6 +848,18 @@ export function buildNoiseDataset(rawBars: readonly NoiseDayBar[]): NoiseDataset
         fwdMaxDrop252dPct < 0 && fwdMin252.minIdx[i] !== null ? fwdMin252.minIdx[i]! - i : 0;
     }
 
+    const dayReturnAt = (barIdx: number): number | null => {
+      if (barIdx < 1 || barIdx >= bars.length) return null;
+      const pClose = bars[barIdx - 1].close;
+      return pClose > 0 ? ((bars[barIdx].close - pClose) / pClose) * 100 : null;
+    };
+    const priorWindowAt = (windowDays: number): number | null => {
+      const startIdx = i - 1 - windowDays;
+      if (startIdx < 0) return null;
+      const baseC = bars[startIdx].close;
+      return baseC > 0 ? ((prev.close - baseC) / baseC) * 100 : null;
+    };
+
     observations.push({
       session: curr.session,
       weekday: sessionWeekday(curr.session),
@@ -856,6 +892,14 @@ export function buildNoiseDataset(rawBars: readonly NoiseDayBar[]): NoiseDataset
       nextDayGreen,
       nextDayGreenCandle,
       prevDayCloseToClosePct: prevCloseToClosePct,
+      dayMinus2Pct: dayReturnAt(i - 2),
+      dayMinus3Pct: dayReturnAt(i - 3),
+      dayMinus4Pct: dayReturnAt(i - 4),
+      prior3dPct: priorWindowAt(3),
+      prior5dPct: priorWindowAt(5),
+      prior7dPct: priorWindowAt(7),
+      prior10dPct: priorWindowAt(10),
+      prior20dPct: priorWindowAt(20),
       drawdownFrom52wHighPct,
       inBearCycle: inBear,
       fwd3dPct,
@@ -916,7 +960,7 @@ export function buildNoiseDataset(rawBars: readonly NoiseDayBar[]): NoiseDataset
   const lastObs = observations.at(-1);
   const prevObs = observations.length >= 2 ? observations[observations.length - 2] : undefined;
 
-  const recentDays: NoiseRecentDay[] = observations.slice(-8).map((o) => ({
+  const recentDays: NoiseRecentDay[] = observations.slice(-10).map((o) => ({
     session: o.session,
     openToClosePct: round2(o.openToClosePct),
     closeToClosePct: round2(o.closeToClosePct),
@@ -2115,25 +2159,46 @@ function summarizeHorizon(
   };
 }
 
+function priorWindowValueOf(o: NoiseObservation, days: PriorWindowDays): number | null {
+  switch (days) {
+    case 3:
+      return o.prior3dPct;
+    case 5:
+      return o.prior5dPct;
+    case 7:
+      return o.prior7dPct;
+    case 10:
+      return o.prior10dPct;
+    case 20:
+      return o.prior20dPct;
+  }
+}
+
 /**
  * OddStats-style Historical Pattern & Regime Scanner:
- * Finds every historical occurrence of an exact 1-day or 2-day shock sequence
- * (e.g. `prevDay <= -5%` followed by `day0 >= +5%`), quantifies bear-market incidence,
- * further drop before hitting bottom (min/median/worst & days to bottom), and forward
- * return distributions across T+1, 1W, 1M, 3M, 6M, and 1Y.
+ * Finds every historical occurrence of a 1-day to 5-day shock sequence
+ * (Tag -4 -> Tag -3 -> Tag -2 -> Tag -1 -> Tag 0) and/or cumulative prior-window move
+ * (3T/5T/7T/10T/20T before Tag 0), quantifies bear-market incidence, further drop before
+ * hitting bottom (min/median/worst & days to bottom), T+1 volatility, and forward returns.
  */
 export function evaluatePatternStudy(
   dataset: NoiseDataset,
   input: PatternStudyInput,
 ): PatternStudyResult {
   const ticker = (input.ticker || "Dieser Ticker").trim();
-  const prevRule: ReturnRule = {
-    op: input.prevDayRule.op,
-    thresholdPct: clamp(round1(input.prevDayRule.thresholdPct || 0), -40, 40),
-  };
-  const day0Rule: ReturnRule = {
-    op: input.day0Rule.op,
-    thresholdPct: clamp(round1(input.day0Rule.thresholdPct || 0), -40, 40),
+  const normRule = (rule?: ReturnRule): ReturnRule => ({
+    op: rule?.op ?? "any",
+    thresholdPct: clamp(round1(rule?.thresholdPct || 0), -40, 40),
+  });
+  const dayMinus4Rule = normRule(input.dayMinus4Rule);
+  const dayMinus3Rule = normRule(input.dayMinus3Rule);
+  const dayMinus2Rule = normRule(input.dayMinus2Rule);
+  const prevRule = normRule(input.prevDayRule);
+  const day0Rule = normRule(input.day0Rule);
+  const priorWinDays: PriorWindowDays = input.priorWindowRule?.days ?? 5;
+  const priorWinRule: ReturnRule = {
+    op: input.priorWindowRule?.op ?? "any",
+    thresholdPct: clamp(round1(input.priorWindowRule?.thresholdPct || 0), -80, 100),
   };
   const regimeFilter = input.regimeFilter ?? "all";
 
@@ -2141,6 +2206,10 @@ export function evaluatePatternStudy(
   const lastYear = dataset.lastSession ? dataset.lastSession.slice(0, 4) : "—";
 
   const matchedObs = dataset.observations.filter((o) => {
+    if (!matchesReturnRule(priorWindowValueOf(o, priorWinDays), priorWinRule)) return false;
+    if (!matchesReturnRule(o.dayMinus4Pct, dayMinus4Rule)) return false;
+    if (!matchesReturnRule(o.dayMinus3Pct, dayMinus3Rule)) return false;
+    if (!matchesReturnRule(o.dayMinus2Pct, dayMinus2Rule)) return false;
     if (!matchesReturnRule(o.prevDayCloseToClosePct, prevRule)) return false;
     if (!matchesReturnRule(o.closeToClosePct, day0Rule)) return false;
     if (regimeFilter === "bear" && !(o.inBearCycle || o.aboveSma200 === false)) return false;
@@ -2149,14 +2218,17 @@ export function evaluatePatternStudy(
   });
 
   const n = matchedObs.length;
-  const ruleDescription =
-    prevRule.op !== "any" && day0Rule.op !== "any"
-      ? `Tag −1 ${describeReturnRule(prevRule)} → Tag 0 ${describeReturnRule(day0Rule)}`
-      : day0Rule.op !== "any"
-        ? `Tag 0 ${describeReturnRule(day0Rule)}`
-        : prevRule.op !== "any"
-          ? `Tag −1 ${describeReturnRule(prevRule)}`
-          : "Alle Handelstage";
+  const activeRuleParts: string[] = [];
+  if (priorWinRule.op !== "any") {
+    activeRuleParts.push(`Vor-${priorWinDays}T ${describeReturnRule(priorWinRule)}`);
+  }
+  if (dayMinus4Rule.op !== "any") activeRuleParts.push(`Tag −4 ${describeReturnRule(dayMinus4Rule)}`);
+  if (dayMinus3Rule.op !== "any") activeRuleParts.push(`Tag −3 ${describeReturnRule(dayMinus3Rule)}`);
+  if (dayMinus2Rule.op !== "any") activeRuleParts.push(`Tag −2 ${describeReturnRule(dayMinus2Rule)}`);
+  if (prevRule.op !== "any") activeRuleParts.push(`Tag −1 ${describeReturnRule(prevRule)}`);
+  if (day0Rule.op !== "any") activeRuleParts.push(`Tag 0 ${describeReturnRule(day0Rule)}`);
+
+  const ruleDescription = activeRuleParts.length ? activeRuleParts.join(" → ") : "Alle Handelstage";
 
   const bearCycleCount = matchedObs.filter((o) => o.inBearCycle).length;
   const bearCycleRate = pct(bearCycleCount, n);
@@ -2208,11 +2280,19 @@ export function evaluatePatternStudy(
     summarizeHorizon("252d", "1 Jahr (252T)", collect((o) => o.fwd252dPct)),
   ];
 
+  const hasExtendedRules =
+    priorWinRule.op !== "any" ||
+    dayMinus4Rule.op !== "any" ||
+    dayMinus3Rule.op !== "any" ||
+    dayMinus2Rule.op !== "any";
+
   let headline: string;
-  if (prevRule.op !== "any" && day0Rule.op !== "any") {
+  if (!hasExtendedRules && prevRule.op !== "any" && day0Rule.op !== "any") {
     headline = `${ticker} folgte auf einen ${describeReturnRule(prevRule)}-Tag genau ${n}-mal seit ${firstYear} mit einem ${describeReturnRule(day0Rule)}-Tag.`;
-  } else if (day0Rule.op !== "any") {
+  } else if (!hasExtendedRules && day0Rule.op !== "any" && prevRule.op === "any") {
     headline = `${ticker} verzeichnete einen ${describeReturnRule(day0Rule)}-Tag genau ${n}-mal seit ${firstYear}.`;
+  } else if (activeRuleParts.length > 0) {
+    headline = `${ticker} erfüllte das Muster „${ruleDescription}“ genau ${n}-mal seit ${firstYear}.`;
   } else {
     headline = `${n} historische Treffer für ${ticker} seit ${firstYear} (${ruleDescription}).`;
   }
@@ -2276,23 +2356,30 @@ export function evaluatePatternStudy(
   const matches: PatternMatch[] = matchedObs
     .slice()
     .reverse()
-    .map((o) => ({
-      session: o.session,
-      prevDayPct: o.prevDayCloseToClosePct !== null ? round2(o.prevDayCloseToClosePct) : null,
-      day0Pct: round2(o.closeToClosePct),
-      inBearCycle: o.inBearCycle,
-      belowSma200: o.aboveSma200 !== null ? !o.aboveSma200 : null,
-      drawdown52wPct: o.drawdownFrom52wHighPct,
-      nextDayPct: o.nextDayCloseToClosePct !== null ? round2(o.nextDayCloseToClosePct) : null,
-      fwd5dPct: o.fwd5dPct !== null ? round2(o.fwd5dPct) : null,
-      fwd21dPct: o.fwd21dPct !== null ? round2(o.fwd21dPct) : null,
-      fwd63dPct: o.fwd63dPct !== null ? round2(o.fwd63dPct) : null,
-      fwd126dPct: o.fwd126dPct !== null ? round2(o.fwd126dPct) : null,
-      fwd252dPct: o.fwd252dPct !== null ? round2(o.fwd252dPct) : null,
-      maxDrop63dPct: o.fwdMaxDrop63dPct,
-      dropToBottomPct: o.dropToBottomPct,
-      daysToBottom: o.daysToBottom,
-    }));
+    .map((o) => {
+      const priorWinVal = priorWindowValueOf(o, priorWinDays);
+      return {
+        session: o.session,
+        dayMinus4Pct: o.dayMinus4Pct !== null ? round2(o.dayMinus4Pct) : null,
+        dayMinus3Pct: o.dayMinus3Pct !== null ? round2(o.dayMinus3Pct) : null,
+        dayMinus2Pct: o.dayMinus2Pct !== null ? round2(o.dayMinus2Pct) : null,
+        prevDayPct: o.prevDayCloseToClosePct !== null ? round2(o.prevDayCloseToClosePct) : null,
+        day0Pct: round2(o.closeToClosePct),
+        priorWindowPct: priorWinVal !== null ? round2(priorWinVal) : null,
+        inBearCycle: o.inBearCycle,
+        belowSma200: o.aboveSma200 !== null ? !o.aboveSma200 : null,
+        drawdown52wPct: o.drawdownFrom52wHighPct,
+        nextDayPct: o.nextDayCloseToClosePct !== null ? round2(o.nextDayCloseToClosePct) : null,
+        fwd5dPct: o.fwd5dPct !== null ? round2(o.fwd5dPct) : null,
+        fwd21dPct: o.fwd21dPct !== null ? round2(o.fwd21dPct) : null,
+        fwd63dPct: o.fwd63dPct !== null ? round2(o.fwd63dPct) : null,
+        fwd126dPct: o.fwd126dPct !== null ? round2(o.fwd126dPct) : null,
+        fwd252dPct: o.fwd252dPct !== null ? round2(o.fwd252dPct) : null,
+        maxDrop63dPct: o.fwdMaxDrop63dPct,
+        dropToBottomPct: o.dropToBottomPct,
+        daysToBottom: o.daysToBottom,
+      };
+    });
 
   return {
     ruleDescription,

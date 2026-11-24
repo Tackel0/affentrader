@@ -206,9 +206,15 @@ describe("NoiseMeter empirical engine", () => {
     const dataset = buildNoiseDataset(qqqLikeBars);
     expect(dataset.currentCandleStreak).toEqual({ direction: "red", count: 6 });
     expect(dataset.currentStreak).toEqual({ direction: "red", count: 2 });
-    expect(dataset.recentDays).toHaveLength(6);
-    expect(dataset.recentDays.every((d) => !d.greenCandle)).toBe(true);
-    expect(dataset.recentDays.find((d) => d.session === "2026-11-18")?.greenDay).toBe(true);
+    const qqqWithBounce = [
+      ...qqqLikeBars,
+      { session: "2026-11-23", open: 655.98, high: 657.53, low: 641.95, close: 651.03, volume: 75_000_000 }, // +7.00% green close, red candle body
+    ];
+    const datasetAfterBounce = buildNoiseDataset(qqqWithBounce);
+    expect(datasetAfterBounce.currentStreak).toEqual({ direction: "green", count: 1 });
+    expect(datasetAfterBounce.currentCandleStreak).toEqual({ direction: "red", count: 7 });
+    expect(datasetAfterBounce.recentDays.at(-1)?.greenDay).toBe(true);
+    expect(datasetAfterBounce.recentDays.at(-1)?.greenCandle).toBe(false);
   });
 
   it("computes empirical T+1 green/red probability for 7 red days + massive relief rally with causal RSI/ATR/EMA/SMA factors", () => {
@@ -418,6 +424,22 @@ describe("NoiseMeter empirical engine", () => {
     });
     expect(bullOnly.sampleSize).toBe(0);
 
+    // Multi-day lookback (Tag -3 <= -1%, Tag -2 <= -1%, Tag -1 <= -5%, Tag 0 >= +5%) + cumulative Vor-7T <= -10%
+    const multiDay = evaluatePatternStudy(dataset, {
+      ticker: "QQQ",
+      dayMinus3Rule: { op: "lte", thresholdPct: -1 },
+      dayMinus2Rule: { op: "lte", thresholdPct: -1 },
+      prevDayRule: { op: "lte", thresholdPct: -5 },
+      day0Rule: { op: "gte", thresholdPct: 5 },
+      priorWindowRule: { days: 7, op: "lte", thresholdPct: -10 },
+    });
+    expect(multiDay.sampleSize).toBe(2);
+    expect(multiDay.ruleDescription).toContain("Vor-7T ≤ −10,0 %");
+    expect(multiDay.ruleDescription).toContain("Tag −3 ≤ −1,0 %");
+    expect(multiDay.ruleDescription).toContain("Tag −2 ≤ −1,0 %");
+    expect(multiDay.matches[0].dayMinus3Pct).not.toBeNull();
+    expect(multiDay.matches[0].priorWindowPct!).toBeLessThanOrEqual(-10);
+
     // Live auto-suggestion: yesterday -5.67% + today +7.0% -> <= -5.0% -> >= +5.0%
     const suggested = suggestLivePattern(dataset, 7.0);
     expect(suggested.usedLiveToday).toBe(true);
@@ -493,7 +515,7 @@ describe("NoiseMeterPanel & ResearchTerminal UI", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders executive overview, expected next-day volatility, and 3 primary tabs with zero refetches", async () => {
+  it("renders executive overview, expected next-day volatility, Close default basis, and multi-day Muster-Scanner with zero refetches", async () => {
     const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
     const { container } = render(<NoiseMeterPanel initialTicker="SPY" />);
 
@@ -508,12 +530,16 @@ describe("NoiseMeterPanel & ResearchTerminal UI", () => {
     expect(container.textContent).toContain("Morgen-Wahrscheinlichkeit (T+1)");
     expect(container.textContent).toContain("Erwartete Volatilität morgen (T+1)");
     expect(container.querySelector(".noise-vol-box")).not.toBeNull();
-    expect(container.querySelectorAll(".noise-recent-day").length).toBeGreaterThan(0);
+    expect(container.querySelectorAll(".noise-recent-day")).toHaveLength(10);
     expect(container.querySelectorAll(".noise-t1-factor")).toHaveLength(4);
 
-    // Select 7T + Rot in default Kerzen (C vs O) mode and test +5,0% relief rally today
+    // Close (vs Vortag) MUST be the default basis (never candle body color)
     const panel = within(container);
     expect(panel.getByRole("button", { name: "Max" }).getAttribute("aria-pressed")).toBe("true");
+    expect(panel.getByRole("button", { name: /Close \(vs Vortag\)/i }).getAttribute("aria-pressed")).toBe("true");
+    expect(panel.getByRole("button", { name: /Kerzen \(C vs O\)/i }).getAttribute("aria-pressed")).toBe("false");
+
+    // Select 7T + Rot in default Close mode and test +5,0% relief rally today
     fireEvent.click(panel.getByRole("button", { name: "Rot" }));
     fireEvent.click(panel.getByRole("button", { name: "7T" }));
     fireEvent.click(panel.getByRole("button", { name: "+5,0%" }));
@@ -527,14 +553,16 @@ describe("NoiseMeterPanel & ResearchTerminal UI", () => {
     fireEvent.click(factorToggle);
     expect(factorToggle.getAttribute("aria-pressed")).toBe("true");
 
-    // Switch basis to Close (vs Vortag) and select 7T + Rot
-    fireEvent.click(panel.getByRole("button", { name: /Close \(vs Vortag\)/i }));
-    fireEvent.click(panel.getByRole("button", { name: "Rot" }));
-    fireEvent.click(panel.getByRole("button", { name: "7T" }));
-
-    // Switch primary tab to Muster-Scanner and test -5% -> +5% preset
+    // Switch primary tab to Muster-Scanner and test multi-day lookback (4T default -> 5T Tag -4 + Vor-7T preset)
     fireEvent.click(panel.getByRole("tab", { name: /Muster-Scanner/i }));
     expect(container.textContent).toContain("Historischer Muster-Scanner");
+    expect(container.textContent).toContain("Tag −3");
+    expect(container.textContent).toContain("Tag −2");
+    expect(container.textContent).toContain("Vor-Zeitraum (kumulativ vor Tag 0)");
+    fireEvent.click(panel.getByRole("button", { name: "5 Tage" }));
+    expect(container.textContent).toContain("Tag −4");
+    fireEvent.click(panel.getByRole("button", { name: "Vor-7T ≤ −10 % → +5 %" }));
+    expect(container.textContent).toContain("Vor-7T ≤ −10,0 % → Tag 0 ≥ +5,0 %");
     fireEvent.click(panel.getByRole("button", { name: "−5 % → +5 %" }));
     expect(container.textContent).toContain("Tag −1 ≤ −5,0 % → Tag 0 ≥ +5,0 %");
 
