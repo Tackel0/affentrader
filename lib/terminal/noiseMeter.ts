@@ -432,30 +432,30 @@ function formatSignedDe(value: number): string {
 interface BearCycleLookup {
   inBearCycle: boolean[];
   bottomIdx: Array<number | null>;
-  bottomClose: Array<number | null>;
+  bottomPrice: Array<number | null>;
   ongoing: boolean[];
 }
 
 /**
  * Standard Wall Street 20% Peak-to-Trough Bear Market Cycle classifier:
- * marks every bar from cycle peak (exclusive) through trough (inclusive) whenever price falls
- * >= 20% from a peak before recovering >= 20% off the trough. Consecutive bear legs separated
- * by short (< 252 trading day) dead-cat bear rallies that fail to reclaim the prior peak and go
- * on to make a lower low are merged into one continuous bear market (e.g. 2000-2002, 2007-2009, 2022).
+ * marks every bar from cycle peak (exclusive) through intraday trough (inclusive) whenever price
+ * declines >= 20% from peak before closing >= 20% above the trough. Consecutive bear legs
+ * separated by short (< 252 trading day) dead-cat rallies that fail to reclaim the prior peak
+ * and go on to make a lower low are merged into one continuous bear market (e.g. 2000-2002, 2007-2009, 2022).
  */
 function computeBearCycles(bars: readonly NoiseDayBar[]): BearCycleLookup {
   const n = bars.length;
   const inBearCycle = new Array<boolean>(n).fill(false);
   const bottomIdx = new Array<number | null>(n).fill(null);
-  const bottomClose = new Array<number | null>(n).fill(null);
+  const bottomPrice = new Array<number | null>(n).fill(null);
   const ongoing = new Array<boolean>(n).fill(false);
-  if (n < 2) return { inBearCycle, bottomIdx, bottomClose, ongoing };
+  if (n < 2) return { inBearCycle, bottomIdx, bottomPrice, ongoing };
 
   interface BearSeg {
     peakIdx: number;
     troughIdx: number;
-    peakClose: number;
-    troughClose: number;
+    peakPrice: number;
+    troughPrice: number;
     ongoing: boolean;
   }
 
@@ -465,23 +465,25 @@ function computeBearCycles(bars: readonly NoiseDayBar[]): BearCycleLookup {
   let troughIdx = 0;
 
   for (let i = 1; i < n; i++) {
-    const c = bars[i].close;
+    const hi = bars[i].high;
+    const lo = bars[i].low;
+    const cl = bars[i].close;
     if (regime === "bull") {
-      if (c >= bars[peakIdx].close) {
+      if (hi >= bars[peakIdx].high) {
         peakIdx = i;
-      } else if (c <= bars[peakIdx].close * 0.8) {
+      } else if (lo <= bars[peakIdx].high * 0.8) {
         regime = "bear";
         troughIdx = i;
       }
     } else {
-      if (c <= bars[troughIdx].close) {
+      if (lo <= bars[troughIdx].low) {
         troughIdx = i;
-      } else if (c >= bars[troughIdx].close * 1.2) {
+      } else if (cl >= bars[troughIdx].low * 1.2) {
         raw.push({
           peakIdx,
           troughIdx,
-          peakClose: bars[peakIdx].close,
-          troughClose: bars[troughIdx].close,
+          peakPrice: bars[peakIdx].high,
+          troughPrice: bars[troughIdx].low,
           ongoing: false,
         });
         regime = "bull";
@@ -493,8 +495,8 @@ function computeBearCycles(bars: readonly NoiseDayBar[]): BearCycleLookup {
     raw.push({
       peakIdx,
       troughIdx,
-      peakClose: bars[peakIdx].close,
-      troughClose: bars[troughIdx].close,
+      peakPrice: bars[peakIdx].high,
+      troughPrice: bars[troughIdx].low,
       ongoing: true,
     });
   }
@@ -504,12 +506,12 @@ function computeBearCycles(bars: readonly NoiseDayBar[]): BearCycleLookup {
     const prev = merged.at(-1);
     if (
       prev &&
-      seg.peakClose < prev.peakClose &&
-      seg.troughClose <= prev.troughClose &&
+      seg.peakPrice < prev.peakPrice &&
+      seg.troughPrice <= prev.troughPrice &&
       seg.peakIdx - prev.troughIdx < 252
     ) {
       prev.troughIdx = seg.troughIdx;
-      prev.troughClose = seg.troughClose;
+      prev.troughPrice = seg.troughPrice;
       prev.ongoing = seg.ongoing;
     } else {
       merged.push({ ...seg });
@@ -520,7 +522,7 @@ function computeBearCycles(bars: readonly NoiseDayBar[]): BearCycleLookup {
     for (let k = seg.peakIdx + 1; k <= seg.troughIdx; k++) {
       inBearCycle[k] = true;
       bottomIdx[k] = seg.troughIdx;
-      bottomClose[k] = seg.troughClose;
+      bottomPrice[k] = seg.troughPrice;
       ongoing[k] = seg.ongoing;
     }
     if (seg.ongoing) {
@@ -531,16 +533,16 @@ function computeBearCycles(bars: readonly NoiseDayBar[]): BearCycleLookup {
     }
   }
 
-  return { inBearCycle, bottomIdx, bottomClose, ongoing };
+  return { inBearCycle, bottomIdx, bottomPrice, ongoing };
 }
 
-/** O(N) sliding-window minimum close over `[i + 1 .. min(N - 1, i + window)]`. */
+/** O(N) sliding-window minimum intraday low over `[i + 1 .. min(N - 1, i + window)]`. */
 function computeForwardMin(
   bars: readonly NoiseDayBar[],
   window: number,
-): { minClose: Array<number | null>; minIdx: Array<number | null> } {
+): { minLow: Array<number | null>; minIdx: Array<number | null> } {
   const n = bars.length;
-  const minClose = new Array<number | null>(n).fill(null);
+  const minLow = new Array<number | null>(n).fill(null);
   const minIdx = new Array<number | null>(n).fill(null);
   const dq: number[] = [];
   let head = 0;
@@ -549,14 +551,14 @@ function computeForwardMin(
     while (head < dq.length && dq[head] > i + window) head++;
     if (head < dq.length) {
       const idx = dq[head];
-      minClose[i] = bars[idx].close;
+      minLow[i] = bars[idx].low;
       minIdx[i] = idx;
     }
-    const c = bars[i].close;
-    while (dq.length > head && bars[dq[dq.length - 1]].close >= c) dq.pop();
+    const l = bars[i].low;
+    while (dq.length > head && bars[dq[dq.length - 1]].low >= l) dq.pop();
     dq.push(i);
   }
-  return { minClose, minIdx };
+  return { minLow, minIdx };
 }
 
 /** O(N) causal rolling 252-trading-day peak close over `[max(0, i - 251) .. i]`. */
@@ -750,23 +752,23 @@ export function buildNoiseDataset(rawBars: readonly NoiseDayBar[]): NoiseDataset
 
     const remainingBars = bars.length - 1 - i;
     const fwdMaxDrop63dPct =
-      remainingBars >= 5 && fwdMin63.minClose[i] !== null
-        ? round2(Math.min(0, ((fwdMin63.minClose[i]! - curr.close) / curr.close) * 100))
+      remainingBars >= 5 && fwdMin63.minLow[i] !== null
+        ? round2(Math.min(0, ((fwdMin63.minLow[i]! - curr.close) / curr.close) * 100))
         : null;
     const fwdMaxDrop252dPct =
-      remainingBars >= 5 && fwdMin252.minClose[i] !== null
-        ? round2(Math.min(0, ((fwdMin252.minClose[i]! - curr.close) / curr.close) * 100))
+      remainingBars >= 5 && fwdMin252.minLow[i] !== null
+        ? round2(Math.min(0, ((fwdMin252.minLow[i]! - curr.close) / curr.close) * 100))
         : null;
 
     const inBear = bearCycles.inBearCycle[i];
     const bearOngoing = bearCycles.ongoing[i];
     const bIdx = bearCycles.bottomIdx[i];
-    const bClose = bearCycles.bottomClose[i];
+    const bPrice = bearCycles.bottomPrice[i];
 
     let dropToBottomPct: number | null = null;
     let daysToBottom: number | null = null;
-    if (inBear && !bearOngoing && bIdx !== null && bClose !== null) {
-      dropToBottomPct = round2(Math.min(0, ((bClose - curr.close) / curr.close) * 100));
+    if (inBear && !bearOngoing && bIdx !== null && bPrice !== null) {
+      dropToBottomPct = round2(Math.min(0, ((bPrice - curr.close) / curr.close) * 100));
       daysToBottom = Math.max(0, bIdx - i);
     } else if (remainingBars >= 5 && fwdMaxDrop252dPct !== null) {
       dropToBottomPct = fwdMaxDrop252dPct;
@@ -1822,29 +1824,40 @@ export function suggestLivePattern(
   dataset: NoiseDataset,
   liveTodayReturnPct?: number | null,
 ): { prevDayRule: ReturnRule; day0Rule: ReturnRule; usedLiveToday: boolean } {
-  const hasLiveToday =
-    typeof liveTodayReturnPct === "number" &&
-    Number.isFinite(liveTodayReturnPct) &&
-    Math.abs(liveTodayReturnPct) >= 0.35;
+  const snappedLive =
+    typeof liveTodayReturnPct === "number" && Number.isFinite(liveTodayReturnPct)
+      ? snapShockThreshold(liveTodayReturnPct)
+      : null;
 
-  const rawPrev = hasLiveToday ? dataset.lastDayReturnPct : dataset.prevDayReturnPct;
-  const rawDay0 = hasLiveToday ? liveTodayReturnPct! : dataset.lastDayReturnPct;
-
-  const snappedPrev = rawPrev !== null ? snapShockThreshold(rawPrev) : null;
-  const snappedDay0 = rawDay0 !== null ? snapShockThreshold(rawDay0) : null;
-
-  if (snappedPrev !== null && snappedDay0 !== null) {
+  if (snappedLive !== null) {
+    const snappedPrev = dataset.lastDayReturnPct !== null ? snapShockThreshold(dataset.lastDayReturnPct) : null;
     return {
-      prevDayRule: { op: snappedPrev < 0 ? "lte" : "gte", thresholdPct: snappedPrev },
-      day0Rule: { op: snappedDay0 < 0 ? "lte" : "gte", thresholdPct: snappedDay0 },
-      usedLiveToday: hasLiveToday,
+      prevDayRule:
+        snappedPrev !== null
+          ? { op: snappedPrev < 0 ? "lte" : "gte", thresholdPct: snappedPrev }
+          : { op: "any", thresholdPct: -3.0 },
+      day0Rule: { op: snappedLive < 0 ? "lte" : "gte", thresholdPct: snappedLive },
+      usedLiveToday: true,
     };
   }
-  if (snappedDay0 !== null) {
+
+  const snappedCompletedPrev =
+    dataset.prevDayReturnPct !== null ? snapShockThreshold(dataset.prevDayReturnPct) : null;
+  const snappedCompletedDay0 =
+    dataset.lastDayReturnPct !== null ? snapShockThreshold(dataset.lastDayReturnPct) : null;
+
+  if (snappedCompletedPrev !== null && snappedCompletedDay0 !== null) {
+    return {
+      prevDayRule: { op: snappedCompletedPrev < 0 ? "lte" : "gte", thresholdPct: snappedCompletedPrev },
+      day0Rule: { op: snappedCompletedDay0 < 0 ? "lte" : "gte", thresholdPct: snappedCompletedDay0 },
+      usedLiveToday: false,
+    };
+  }
+  if (snappedCompletedDay0 !== null) {
     return {
       prevDayRule: { op: "any", thresholdPct: -3.0 },
-      day0Rule: { op: snappedDay0 < 0 ? "lte" : "gte", thresholdPct: snappedDay0 },
-      usedLiveToday: hasLiveToday,
+      day0Rule: { op: snappedCompletedDay0 < 0 ? "lte" : "gte", thresholdPct: snappedCompletedDay0 },
+      usedLiveToday: false,
     };
   }
   return {
