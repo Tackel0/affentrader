@@ -36,6 +36,7 @@ import { PhoneChartActions, WorkspaceToolbar } from "./WorkspaceToolbar";
 import { MainMenu } from "./WorkspaceMenus";
 import { PhoneWorkspacePanels } from "./WorkspacePanelTabs";
 import { DrawingFavoritesPicker } from "./DrawingFavorites";
+import { ChartDataExportDialog } from "./ChartDataExportDialog";
 import { ReplayBar } from "./ReplayBar";
 import { DrawingRail } from "./DrawingRail";
 import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
@@ -490,6 +491,7 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
       <IndicatorPicker />
       <IndicatorSettings />
       <DrawingFavoritesPicker />
+      <ChartDataExportDialog />
       <AlertDialog />
       <CompareDialog />
       <DerivedDialog />

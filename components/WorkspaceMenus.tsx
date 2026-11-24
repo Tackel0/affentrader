@@ -146,14 +146,12 @@ function MainMenuContent({
       </button>
       <button
         onClick={() => {
-          useChartStore
-            .getState()
-            .set({ command: { id: Date.now(), kind: "csv" } });
+          useChartStore.getState().set({ chartExportOpen: true });
           close();
         }}
       >
         <Download size={16} />
-        Export chart data (CSV)
+        Chartdaten exportieren (CSV / JSON)…
       </button>
       <hr />
       <div className="popover-label">Color theme</div>

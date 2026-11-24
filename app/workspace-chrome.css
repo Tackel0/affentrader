@@ -2646,6 +2646,107 @@ body {
   color: #f59e0b;
 }
 
+/* Chart data export modal / iOS bottom sheet */
+.chart-export-modal {
+  width: min(480px, calc(100vw - 16px));
+}
+.chart-export-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 14px 16px;
+}
+.chart-export-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface2, var(--surface)) 70%, transparent);
+}
+.chart-export-meta strong {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text);
+}
+.chart-export-meta span {
+  font-size: 12px;
+  color: var(--muted);
+}
+.chart-export-meta small {
+  font-size: 11px;
+  color: var(--muted);
+}
+.chart-export-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.chart-export-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.chart-export-seg {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+.chart-export-seg > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 84%, transparent);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.chart-export-seg > button.active {
+  border-color: color-mix(in srgb, var(--accent) 68%, transparent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+  color: var(--accent);
+}
+.chart-export-seg > button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.chart-export-preview {
+  margin: 0;
+  padding: 9px 10px;
+  max-height: 140px;
+  overflow: auto;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg, #0d1017) 58%, transparent);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: pre;
+}
+.chart-export-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 2px;
+}
+.chart-export-actions > .button {
+  flex: 1 1 110px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 40px;
+  touch-action: manipulation;
+}
+
 /* Drawing favorites picker sheet / modal */
 .drawing-favorites-modal {
   width: min(460px, calc(100vw - 16px));

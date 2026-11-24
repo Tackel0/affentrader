@@ -29,7 +29,8 @@ import {describeSymbol} from "@/lib/symbols";
 import { bindCellContext, requestChartPaint } from "@/lib/chart/cellContext";
 import { bindReplayClock, completedReplayBoundary } from "@/lib/chart/replayClock";
 import { currentWorkspaceReplay, workspaceReplay } from "@/lib/chart/workspaceReplay";
-import { chartDataCsv } from "@/lib/chart/chartDataCsv";
+import { chartDataCsv, chartDataFilename } from "@/lib/chart/chartDataCsv";
+import { downloadFile } from "@/lib/files";
 import { isChartControl, priceScaleGesture } from "@/lib/chart/controls";
 import { applyTimezone } from "@/lib/chart/timezone";
 import { footprintBarCount, footprintWindow } from "@/lib/orderflow/layout";
@@ -788,12 +789,9 @@ export function useVelaChart(container: RefObject<HTMLDivElement | null>) {
         ? state.candles.filter((b) => b.time <= (replay.cursorTime ?? 0))
         : state.candles;
       const csv = chartDataCsv(bars, state.symbol, state.timeframe, state.dataSources[`${state.symbol}:${state.timeframe}`]);
-      const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `${state.symbol}-${state.timeframe}.csv`;
-      link.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      const filename = chartDataFilename(state.symbol, state.timeframe, "csv");
+      downloadFile(filename, csv, "text/csv;charset=utf-8");
+      state.toast("Chartdaten exportiert", `${bars.length.toLocaleString("de-DE")} Kerzen als ${filename} gespeichert.`);
     }
     if (["undo", "redo", "clear"].includes(command.kind)) {
       const state = useChartStore.getState();

@@ -1,6 +1,6 @@
 "use client";
 import {useState} from "react";
-import {MoreHorizontal,Search,Plus,Bell,BellPlus,ChevronsLeft,SlidersHorizontal,Camera,Maximize,PanelRight,Undo2,Redo2,CalendarDays,Wallet,ListTree,Star,LayoutGrid,Terminal,Menu} from "lucide-react";
+import {MoreHorizontal,Search,Plus,Bell,BellPlus,ChevronsLeft,SlidersHorizontal,Camera,Maximize,PanelRight,Undo2,Redo2,CalendarDays,Wallet,ListTree,Star,LayoutGrid,Terminal,Menu,Download} from "lucide-react";
 import {IconButton} from "./ui";
 import {useDismiss,LayoutMenu,SavedLayoutsMenu,IndicatorTemplateMenu} from "./WorkspaceMenus";
 import {PatternsButton} from "./ChartTools";
@@ -77,6 +77,7 @@ export function ChartToolbarOverflow({toggleSidebar, phone}:{
       <button type="button" onClick={()=>command("undo")}><Undo2 size={18}/><span>Undo drawing</span></button>
       <button type="button" onClick={()=>command("redo")}><Redo2 size={18}/><span>Redo drawing</span></button>
       {!phone ? <button type="button" onClick={()=>{setOpen(false);toggleSidebar();}}><PanelRight size={18}/><span>Toggle sidebar</span></button> : null}
+      <button type="button" onClick={()=>{setOpen(false);useChartStore.getState().set({chartExportOpen:true});}}><Download size={18}/><span>Chartdaten exportieren (CSV / JSON)</span></button>
       <button type="button" onClick={()=>command("snapshot")}><Camera size={18}/><span>Take a snapshot</span></button>
       <button type="button" onClick={()=>{setOpen(false);void(document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen()).catch(()=>useChartStore.getState().toast("Full screen unavailable","Use your browser full screen shortcut."));}}><Maximize size={18}/><span>Full screen</span></button>
     </div>:null}
