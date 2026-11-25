@@ -637,7 +637,10 @@ describe("Analytical Terminal Sub-Panels", () => {
       await waitFor(() => {
         expect(container.querySelector(".screener-error")?.textContent).toContain("RSS proxy unavailable");
       });
-      expect(fetchSpy).toHaveBeenCalledWith(expect.stringContaining("/api/feeds?kind=news&scope=crypto"));
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.stringContaining("/api/feeds?kind=news&scope=crypto"),
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      );
     });
   });
 
@@ -872,7 +875,7 @@ describe("Analytical Terminal Sub-Panels", () => {
 
       // Switch to Earnings tab
       await act(async () => {
-        fireEvent.click(within(container).getByRole("button", { name: "Earnings" }));
+        fireEvent.click(within(container).getByRole("tab", { name: "Earnings" }));
       });
       await waitFor(() => {
         expect(container.textContent).toContain("NVIDIA Corporation");
@@ -881,7 +884,7 @@ describe("Analytical Terminal Sub-Panels", () => {
 
       // Switch to Treasury yields tab
       await act(async () => {
-        fireEvent.click(within(container).getByRole("button", { name: "Treasury yields" }));
+        fireEvent.click(within(container).getByRole("tab", { name: "Treasury yields" }));
       });
       await waitFor(() => {
         expect(within(container).getByRole("img", { name: "Treasury yield curve" })).toBeTruthy();
@@ -891,7 +894,7 @@ describe("Analytical Terminal Sub-Panels", () => {
 
       // Switch to FRED & Macro tab and click Chart button
       await act(async () => {
-        fireEvent.click(within(container).getByRole("button", { name: "FRED & Macro" }));
+        fireEvent.click(within(container).getByRole("tab", { name: "FRED & Macro" }));
       });
       await waitFor(() => {
         expect(container.textContent).toContain("64/100 (Greed)");
@@ -902,7 +905,7 @@ describe("Analytical Terminal Sub-Panels", () => {
 
       // Switch to Dividends tab -> shows error state cleanly
       await act(async () => {
-        fireEvent.click(within(container).getByRole("button", { name: "Dividends" }));
+        fireEvent.click(within(container).getByRole("tab", { name: "Dividends" }));
       });
       await waitFor(() => {
         expect(container.querySelector(".screener-error")?.textContent).toContain("Dividend calendar unavailable");

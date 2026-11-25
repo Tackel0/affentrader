@@ -37,20 +37,21 @@ export function InsiderResearch({ initialTicker, onTickerSelect }: { initialTick
     setError("");
     setResult(null);
   }, [initialTicker]);
-  const load = async () => {
-    if (!selectedTicker) return;
+  const load = async (overrideTicker?: string) => {
+    const target = overrideTicker ? optionsFlowTicker(`YF:${overrideTicker.trim()}`) : selectedTicker;
+    if (!target) return;
     pending.current?.controller.abort();
     const controller = new AbortController();
-    pending.current = { controller, ticker: selectedTicker };
-    setTicker(selectedTicker);
-    onTickerSelect?.(selectedTicker);
+    pending.current = { controller, ticker: target };
+    setTicker(target);
+    onTickerSelect?.(target);
     setError("");
     setLoading(true);
     setResult(null);
     try {
-      const response = await fetch(`/api/terminal-insiders?${new URLSearchParams({ ticker: selectedTicker })}`, { signal: controller.signal });
-      const payload = await response.json() as Filings & { error?: string };
-      if (!response.ok) throw new Error(payload.error ?? "Insider-Meldungen nicht verfügbar.");
+      const response = await fetch(`/api/terminal-insiders?${new URLSearchParams({ ticker: target })}`, { signal: controller.signal });
+      const payload = (await response.json().catch(() => null)) as (Filings & { error?: string }) | null;
+      if (!response.ok || !payload) throw new Error(payload?.error ?? "Insider-Meldungen nicht verfügbar.");
       if (!controller.signal.aborted) setResult(payload);
     } catch (cause) {
       if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Insider-Meldungen nicht verfügbar.");
@@ -61,7 +62,12 @@ export function InsiderResearch({ initialTicker, onTickerSelect }: { initialTick
   return <section className="terminal-research-list" aria-label="Insider-Recherche">
     <form className="screener-toolbar" onSubmit={event => { event.preventDefault(); void load(); }}>
       <label>US-Aktie <input value={ticker} maxLength={15} onChange={event => setTicker(event.target.value.toUpperCase())} placeholder="AAPL" /></label>
-      {!!watched.length && <label>Watchlist <select value="" onChange={event => setTicker(event.target.value)}>
+      {!!watched.length && <label>Watchlist <select value="" onChange={event => {
+        const chosen = event.target.value;
+        if (!chosen) return;
+        setTicker(chosen);
+        void load(chosen);
+      }}>
         <option value="" disabled>Aktie auswählen</option>
         {[...new Set(watched)].map(value => <option key={value}>{value}</option>)}
       </select></label>}
@@ -78,9 +84,28 @@ export function InsiderResearch({ initialTicker, onTickerSelect }: { initialTick
     </div>
     <p className="form-help">Bis zu acht gemeldete Aktienkäufe aus bis zu zwölf SEC-Form-4-Dokumenten der letzten 90 Tage.</p>
     {loading && <p role="status">SEC-Meldungen werden geprüft…</p>}
-    {error && <p className="negative" role="alert">{error}</p>}
+    {error && (
+      <div className="negative" role="alert">
+        <span>{error}</span>{" "}
+        <button type="button" className="link-button" onClick={() => void load()} disabled={!selectedTicker || loading}>
+          Erneut versuchen
+        </button>
+      </div>
+    )}
     {result && <p role="status"><strong>{result.ticker} · {result.source}</strong> · {filtered.length} Käufe · Abgerufen {new Date(result.observedAt).toLocaleString("de-DE")}</p>}
-    {result && !filtered.length && <p className="form-help">{result.verified ? "Im geprüften Bereich passen keine verifizierten Käufe zu den Filtern." : "Für diese Aktie steht derzeit keine verifizierte Transaktionsliste zur Verfügung."}</p>}
+    {result && !filtered.length && (
+      <p className="form-help">
+        {result.verified ? "Im geprüften Bereich passen keine verifizierten Käufe zu den Filtern." : "Für diese Aktie steht derzeit keine verifizierte Transaktionsliste zur Verfügung."}
+        {result.verified && minimum > 0 ? (
+          <>
+            {" "}
+            <button type="button" className="link-button" onClick={() => setMinimum(0)}>
+              Filter zurücksetzen
+            </button>
+          </>
+        ) : null}
+      </p>
+    )}
     <div className="terminal-research-cards">
       {filtered.map((row, index) => <article className="terminal-research-card" key={`${row.sourceUrl}-${row.insider}-${index}`}>
         <header><strong>{row.insider}</strong><span>{formatPrice(row.valueUsd)} USD</span></header>

@@ -118,7 +118,10 @@ export function OsintMapPanel({ onSelectSymbol }: Props) {
 
   useEffect(() => {
     void load();
-    const timer = setInterval(() => void load(), 120_000);
+    const timer = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      void load();
+    }, 120_000);
     return () => {
       clearInterval(timer);
       abortRef.current?.abort();
@@ -215,13 +218,13 @@ export function OsintMapPanel({ onSelectSymbol }: Props) {
           <button type="button" className={`button small ${showRoutes ? "primary" : ""}`} onClick={() => setShowRoutes((v) => !v)}>
             <Navigation size={11} /> Routes
           </button>
-          <button type="button" className="button small" onClick={() => setZoom((z) => Math.min(6, Number((z * 1.35).toFixed(2))))} title="Zoom in">
+          <button type="button" className="button small" onClick={() => setZoom((z) => Math.min(6, Number((z * 1.35).toFixed(2))))} aria-label="Zoom in" title="Zoom in">
             <ZoomIn size={11} />
           </button>
-          <button type="button" className="button small" onClick={() => setZoom((z) => Math.max(1, Number((z / 1.35).toFixed(2))))} title="Zoom out">
+          <button type="button" className="button small" onClick={() => setZoom((z) => Math.max(1, Number((z / 1.35).toFixed(2))))} aria-label="Zoom out" title="Zoom out">
             <ZoomOut size={11} />
           </button>
-          <button type="button" className="button small" onClick={() => { setZoom(1); setPan([0, 0]); }} title="Reset view">
+          <button type="button" className="button small" onClick={() => { setZoom(1); setPan([0, 0]); }} aria-label="Reset view" title="Reset view">
             <RotateCcw size={11} />
           </button>
           <button type="button" className="button small" onClick={() => void load()} disabled={loading}>
@@ -230,7 +233,14 @@ export function OsintMapPanel({ onSelectSymbol }: Props) {
         </div>
       </div>
 
-      {error ? <p className="error-message screener-error">{error}</p> : null}
+      {error ? (
+        <div className="error-message screener-error" role="alert">
+          <span>{error}</span>{" "}
+          <button type="button" className="link-button" onClick={() => void load()} disabled={loading}>
+            Retry
+          </button>
+        </div>
+      ) : null}
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "start" }}>
         <div
@@ -257,6 +267,24 @@ export function OsintMapPanel({ onSelectSymbol }: Props) {
           onPointerLeave={() => setDragging(null)}
           onPointerCancel={() => setDragging(null)}
         >
+          {loading && !data ? (
+            <div
+              role="status"
+              style={{
+                position: "absolute",
+                inset: 0,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                background: "rgba(11, 14, 17, 0.55)",
+                zIndex: 3,
+                fontSize: 12,
+                color: "var(--text)",
+              }}
+            >
+              Loading OSINT vessel &amp; flight feeds…
+            </div>
+          ) : null}
           <svg
             viewBox={`0 0 ${MAP_W} ${MAP_H}`}
             style={{ width: "100%", height: "auto", display: "block", maxHeight: 420 }}

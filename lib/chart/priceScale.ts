@@ -56,6 +56,9 @@ export function bindPriceScale(chart: Pick<Vela, "renderer">, element: Pick<HTML
   });
   const offConfig = chart.renderer.onConfigChanged?.(readRenderer);
   for (const event of ["click", "change", "keydown"]) element.addEventListener(event, afterInteraction);
-  const timer = setInterval(readRenderer, 250);
+  const timer = setInterval(() => {
+    if (typeof document !== "undefined" && document.hidden) return;
+    readRenderer();
+  }, 250);
   return () => { disposed = true; clearInterval(timer); off(); offConfig?.(); for (const event of ["click", "change", "keydown"]) element.removeEventListener(event, afterInteraction); };
 }

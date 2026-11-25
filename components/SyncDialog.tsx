@@ -19,6 +19,11 @@ const STATUS: Record<string, string> = {
 
 export function SyncDialog() {
   const open = useChartStore((s) => s.syncOpen);
+  if (!open) return null;
+  return <SyncDialogBody />;
+}
+
+function SyncDialogBody() {
   const keys = useSyncStore(), accountState = useAccountSyncStore();
   const signedIn = Boolean(workspaceProfile());
   const account = signedIn && !keys.key;
@@ -26,7 +31,6 @@ export function SyncDialog() {
   const [entry, setEntry] = useState("");
   const [reveal, setReveal] = useState(false);
   const [message, setMessage] = useState("");
-  if (!open) return null;
   const close = () => useChartStore.getState().set({ syncOpen: false });
   const dirty = (account || s.key) && s.syncedFingerprint !== workspaceFingerprint();
   const behind = s.remote && s.remote.revision > s.revision;

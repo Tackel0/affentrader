@@ -12,7 +12,9 @@ export async function GET(request: Request) {
     return Response.json({ error: "Unsupported heatmap market." }, { status: 400 });
   }
   try {
-    return Response.json(await fetchStockSectorHeatmap(market));
+    return Response.json(await fetchStockSectorHeatmap(market), {
+      headers: { "Cache-Control": "private, max-age=60" },
+    });
   } catch (error) {
     logError("api.stockHeatmap.error", error, { market });
     return Response.json({ error: "Sector heatmap unavailable." }, { status: 503 });

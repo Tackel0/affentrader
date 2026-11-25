@@ -19,6 +19,7 @@ const config: NextConfig = {
   devIndicators: false,
   experimental: {
     agentUpgrade: "security",
+    optimizePackageImports: ["lucide-react", "d3-geo", "topojson-client"],
   },
 };
 export default config;

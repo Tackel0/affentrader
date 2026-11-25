@@ -258,10 +258,27 @@ function PineEditor() {
     [busy, setBusy] = useState(false),
     [librariesOpen, setLibrariesOpen] = useState(false);
   const file = useRef<HTMLInputElement>(null);
+  const gutterRef = useRef<HTMLDivElement>(null);
+  const draftRef = useRef({ source, name, activeId });
+  draftRef.current = { source, name, activeId };
   const indicators = useChartStore((s) => s.indicators);
   useEffect(() => {
-    useChartStore.getState().set({ pineDraft: { source, name, activeId } });
+    const timer = setTimeout(() => {
+      useChartStore.getState().set({ pineDraft: { source, name, activeId } });
+    }, 250);
+    return () => clearTimeout(timer);
   }, [source, name, activeId]);
+  useEffect(
+    () => () => {
+      useChartStore.getState().set({ pineDraft: draftRef.current });
+    },
+    [],
+  );
+  const lineNumbers = useMemo(() => {
+    let count = 1;
+    for (let i = 0; i < source.length; i++) if (source.charCodeAt(i) === 10) count++;
+    return Array.from({ length: count }, (_, i) => i + 1);
+  }, [source]);
   useEffect(() => {
     if (!activeId) return;
     const indicator = indicators.find((i) => i.id === activeId);
@@ -426,11 +443,12 @@ function PineEditor() {
             e.target.value = "";
           }}
         />
-        <button className="button primary small" onClick={run} disabled={busy}>
+        <button type="button" className="button primary small" onClick={run} disabled={busy}>
           <Play size={12} />
           {busy ? "Running…" : activeId ? "Update on chart" : "Add to chart"}
         </button>
         <button
+          type="button"
           className="button small"
           onClick={() => {
             const strategy = useStrategyStore.getState();
@@ -452,9 +470,9 @@ function PineEditor() {
         </button>
       </div>
       <div className="code-area">
-        <div className="line-numbers" aria-hidden="true">
-          {source.split("\n").map((_, i) => (
-            <span key={i}>{i + 1}</span>
+        <div className="line-numbers" ref={gutterRef} aria-hidden="true">
+          {lineNumbers.map((n) => (
+            <span key={n}>{n}</span>
           ))}
         </div>
         <textarea
@@ -462,6 +480,9 @@ function PineEditor() {
           aria-label="Pine Script source code"
           maxLength={500000}
           value={source}
+          onScroll={(e) => {
+            if (gutterRef.current) gutterRef.current.scrollTop = e.currentTarget.scrollTop;
+          }}
           onChange={(e) => setSource(e.target.value)}
           onKeyDown={(e) => {
             if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
@@ -485,6 +506,7 @@ function PineEditor() {
         />
       </div>
       <div
+        role="status"
         className={`pine-status ${indicators.find((i) => i.id === activeId)?.error ? "negative" : ""}`}
       >
         <span className={`status-dot ${busy ? "amber" : ""}`} />

@@ -1,6 +1,6 @@
 "use client";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Search, Plus, Check, SlidersHorizontal, ArrowUp, ArrowDown, RotateCcw } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Search, Plus, Check, SlidersHorizontal, ArrowUp, ArrowDown, RotateCcw, X } from "lucide-react";
 import { useChartStore } from "@/stores/useChartStore";
 import { useWatchlistStore } from "@/stores/useWatchlistStore";
 import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
@@ -53,10 +53,15 @@ function yahooRow(hit: YahooSearchHit): Row {
 }
 
 export function SymbolSearch() {
+  const open = useChartStore((s) => s.searchOpen);
+  const target = useChartStore((s) => s.searchTarget);
+  if (!open) return null;
+  return <SymbolSearchModal target={target} />;
+}
+
+function SymbolSearchModal({ target }: { target: "chart" | "watchlist" }) {
   const [equityFeed, setEquityFeed] = useState<"yahoo" | "iex" | "sip">("yahoo");
   const [venueControlsOpen, setVenueControlsOpen] = useState(false);
-  const open = useChartStore((s) => s.searchOpen),
-    target = useChartStore((s) => s.searchTarget);
   const searchPreferences = useWorkspaceStore((s) => s.searchPreferences);
   const enabledExchanges = useMemo(
     () => new Set(searchPreferences.enabledExchanges),
@@ -64,10 +69,10 @@ export function SymbolSearch() {
   );
   const alpacaEnabled = useAlpacaStore(state => state.enabled);
   const feed = equityFeed === "sip" && target === "watchlist" ? "yahoo" : equityFeed;
-  const alpaca = (market: SearchMarket) => feed !== "yahoo" && (market === "stock" || market === "etf");
+  const alpaca = useCallback((m: SearchMarket) => feed !== "yahoo" && (m === "stock" || m === "etf"), [feed]);
   const equitySymbol = feed === "sip" ? sipSymbol : iexSymbol;
   const equityVenue = feed === "sip" ? "SIP · Alpaca" : "IEX · Alpaca";
-  const watchSymbols = useWatchlistStore((state) => open && target === "watchlist"
+  const watchSymbols = useWatchlistStore((state) => target === "watchlist"
     ? state.lists.find((list) => list.id === state.activeId)?.symbols
     : undefined);
   const [query, setQuery] = useState(""),
@@ -83,22 +88,20 @@ export function SymbolSearch() {
     [bybit, setBybit] = useState<Awaited<ReturnType<typeof loadBybitCatalog>>>([]),
     [bybitUnavailable, setBybitUnavailable] = useState(false),
     [perpsError, setPerpsError] = useState(""),
+    [perpsRetry, setPerpsRetry] = useState(0),
+    [bybitRetry, setBybitRetry] = useState(0),
+    [activeIndex, setActiveIndex] = useState(0),
     [loading, setLoading] = useState(false);
+  const resultsRef = useRef<HTMLDivElement>(null);
   const close = useCallback(
     () => useChartStore.getState().set({ searchOpen: false }),
     [],
   );
   useEffect(() => {
-    if (!open) return;
     const timer = setTimeout(() => setDebounced(query), 180);
     return () => clearTimeout(timer);
-  }, [open, query]);
+  }, [query]);
   useEffect(() => {
-    if (!open) return;
-    setQuery("");
-    setDebounced("");
-    setMarket("all");
-    setVenueControlsOpen(false);
     let cancelled = false;
     setLoading(true);
     void loadSymbolCatalog()
@@ -111,29 +114,29 @@ export function SymbolSearch() {
     return () => {
       cancelled = true;
     };
-  }, [open]);
+  }, []);
   const hasQuery = Boolean(debounced.trim());
   const needsPerps = enabledExchanges.has("hyperliquid") && (market === "perps" || (market === "all" && hasQuery));
   useEffect(() => {
-    if (!open || !needsPerps) return;
+    if (!needsPerps) return;
     let cancelled = false;
     setPerpsError("");
     void hyperliquidCatalog()
       .then(assets => { if (!cancelled) setPerps(assets); })
       .catch(() => { if (!cancelled) setPerpsError("Hyperliquid is temporarily unavailable."); });
     return () => { cancelled = true; };
-  }, [open, needsPerps]);
+  }, [needsPerps, perpsRetry]);
   const needsSnapshots = (enabledExchanges.has("binance") || enabledExchanges.has("kraken"))
     && hasQuery && (market === "all" || market === "crypto");
   useEffect(() => {
-    if (!open || !needsSnapshots) return;
+    if (!needsSnapshots) return;
     let cancelled = false;
     void searchMarketSnapshots().then(value => { if (!cancelled) setSnapshots(value); });
     return () => { cancelled = true; };
-  }, [open, needsSnapshots]);
+  }, [needsSnapshots]);
   const needsBybit = enabledExchanges.has("bybit") && (hasQuery && (market === "all" || market === "crypto") || market === "perps");
   useEffect(() => {
-    if (!open || !needsBybit) return;
+    if (!needsBybit) return;
     let cancelled = false;
     setBybitUnavailable(false);
     void loadBybitCatalog().then(value => {
@@ -142,20 +145,20 @@ export function SymbolSearch() {
       setBybitUnavailable(!value.length);
     });
     return () => { cancelled = true; };
-  }, [open, needsBybit]);
+  }, [needsBybit, bybitRetry]);
 
   const searchYahoo = (enabledExchanges.has("yahoo") || enabledExchanges.has("alpaca"))
     && market !== "crypto" && market !== "perps";
   useEffect(() => {
     const text = debounced.trim();
-    if (!open || !searchYahoo || !text) return;
+    if (!searchYahoo || !text) return;
     const abort = new AbortController();
     void yahooSearch(text, (input, init) => fetch(input, { ...init, signal: init?.signal
       ? AbortSignal.any([init.signal, abort.signal]) : abort.signal }))
       .then(hits => { if (!abort.signal.aborted) setRemote({ query: text, hits }); })
       .catch(() => { if (!abort.signal.aborted) setRemote({ query: text, hits: [] }); });
     return () => abort.abort();
-  }, [open, searchYahoo, debounced]);
+  }, [searchYahoo, debounced]);
 
   const perpRows = useMemo<Row[]>(() => perps
     .filter(a => market !== "perps" || dex === "all" || (dex === "main" ? !a.dex : a.dex === dex))
@@ -204,16 +207,20 @@ export function SymbolSearch() {
         || exchangeOfTicker(tickerOf(row.symbol)).id === exchange));
   }, [market, exchange, remote, debounced]);
 
-  const equityRows = alpaca(market) || (market === "all" && alpacaEnabled)
-    ? listings.filter(row => IEX_TICKER.test(row.base) && row.quote === "USD" && (row.type === "stock" || row.type === "etf"))
-      .map(row => ({ ...row, symbol: market === "all" ? iexSymbol(row.base) : equitySymbol(row.base),
-        venue: market === "all" ? "IEX · Alpaca" : equityVenue, realTime: market === "all" || feed === "iex" }))
-    : [];
-  const direct = alpaca(market) && IEX_TICKER.test(debounced.trim().toUpperCase()) ? {
-    symbol: equitySymbol(debounced), base: debounced.trim().toUpperCase(),
-    name: "US ticker · availability requires provider confirmation", venue: equityVenue, quote: "USD",
-  } : null;
-  const results = !open ? [] : rankedSearchRows(
+  const equityRows = useMemo<Row[]>(() => (
+    alpaca(market) || (market === "all" && alpacaEnabled)
+      ? listings.filter(row => IEX_TICKER.test(row.base) && row.quote === "USD" && (row.type === "stock" || row.type === "etf"))
+        .map(row => ({ ...row, symbol: market === "all" ? iexSymbol(row.base) : equitySymbol(row.base),
+          venue: market === "all" ? "IEX · Alpaca" : equityVenue, realTime: market === "all" || feed === "iex" }))
+      : []
+  ), [alpaca, market, alpacaEnabled, listings, equitySymbol, equityVenue, feed]);
+  const direct = useMemo<Row | null>(() => (
+    alpaca(market) && IEX_TICKER.test(debounced.trim().toUpperCase()) ? {
+      symbol: equitySymbol(debounced), base: debounced.trim().toUpperCase(),
+      name: "US ticker · availability requires provider confirmation", venue: equityVenue, quote: "USD",
+    } : null
+  ), [alpaca, market, debounced, equitySymbol, equityVenue]);
+  const results = useMemo(() => rankedSearchRows(
     market === "all" ? [...crypto, ...krakenRows, ...perpRows, ...bybitRows, ...listings, ...equityRows] :
     market === "crypto" ? [...crypto, ...krakenRows, ...bybitRows] :
     market === "perps" ? [...perpRows, ...bybitRows] :
@@ -221,7 +228,19 @@ export function SymbolSearch() {
     query.trim(),
     150,
     searchPreferences,
-  );
+  ), [market, crypto, krakenRows, perpRows, bybitRows, listings, equityRows, alpaca, direct, query, searchPreferences]);
+
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [query, market, category, exchange, dex]);
+
+  const clampedIndex = results.length ? Math.min(activeIndex, results.length - 1) : 0;
+
+  const scrollResultIntoView = useCallback((index: number) => {
+    const el = resultsRef.current?.children[index] as HTMLElement | undefined;
+    if (el && typeof el.scrollIntoView === "function") el.scrollIntoView({ block: "nearest" });
+  }, []);
+
   const allExchangesEnabled = searchPreferences.enabledExchanges.length === SEARCH_EXCHANGES.length;
   const activePriorityPreview = searchPreferences.exchangePriority
     .filter((id) => enabledExchanges.has(id))
@@ -260,7 +279,6 @@ export function SymbolSearch() {
       close();
     }
   };
-  if (!open) return null;
   return (
     <Modal
       title={
@@ -278,15 +296,42 @@ export function SymbolSearch() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && query.trim() === debounced.trim() && results[0]) choose(results[0]);
+            if (e.key === "ArrowDown" && results.length > 0) {
+              e.preventDefault();
+              const next = (clampedIndex + 1) % results.length;
+              setActiveIndex(next);
+              scrollResultIntoView(next);
+            } else if (e.key === "ArrowUp" && results.length > 0) {
+              e.preventDefault();
+              const next = (clampedIndex - 1 + results.length) % results.length;
+              setActiveIndex(next);
+              scrollResultIntoView(next);
+            } else if (e.key === "Enter" && query.trim() === debounced.trim() && results[clampedIndex]) {
+              e.preventDefault();
+              choose(results[clampedIndex]);
+            }
           }}
         />
+        {query ? (
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Clear search"
+            onClick={() => {
+              setQuery("");
+              setDebounced("");
+            }}
+          >
+            <X size={14} />
+          </button>
+        ) : null}
         <kbd>↵</kbd>
       </div>
       <div className="filter-tabs market-tabs" role="tablist" aria-label="Market">
         {SEARCH_TABS.map((m) => (
           <button
             key={m.id}
+            type="button"
             role="tab"
             aria-selected={market === m.id}
             className={market === m.id ? "active" : ""}
@@ -398,7 +443,7 @@ export function SymbolSearch() {
       {market === "perps" ? (
         <div className="filter-tabs" role="group" aria-label="Perpetual venues">
           {([["all", "All venues"], [BYBIT_PERPS, "Bybit"], ["main", "Hyperliquid"], ...dexes] as [string, string][]).map(([id, label]) => (
-            <button key={id} className={dex === id ? "active" : ""} onClick={() => setDex(id)}>
+            <button key={id} type="button" className={dex === id ? "active" : ""} onClick={() => setDex(id)}>
               {label}
             </button>
           ))}
@@ -407,7 +452,7 @@ export function SymbolSearch() {
       {market === "stock" || market === "etf" ? (
         <div className="exchange-select">
           <label>Data source<select aria-label="Equity data source" value={feed} onChange={event => { setEquityFeed(event.target.value as typeof equityFeed); setExchange("all"); }}><option value="yahoo">Yahoo Finance · delayed</option><option value="iex">Alpaca · IEX only</option>{target === "chart" && <option value="sip">Alpaca · delayed SIP history</option>}</select></label>
-          {alpaca(market) ? <button className="button" onClick={() => { close(); useAlpacaStore.setState({ open: true }); }}>Alpaca connection…</button> :
+          {alpaca(market) ? <button type="button" className="button" onClick={() => { close(); useAlpacaStore.setState({ open: true }); }}>Alpaca connection…</button> :
           <label>
             Exchange
             <select aria-label="Exchange" value={exchange} onChange={(e) => setExchange(e.target.value)}>
@@ -435,6 +480,7 @@ export function SymbolSearch() {
           ).map((c) => (
             <button
               key={c}
+              type="button"
               className={category === c ? "active" : ""}
               onClick={() => setCategory(c)}
             >
@@ -447,11 +493,14 @@ export function SymbolSearch() {
         <span>SYMBOL / NAME</span>
         <span>{market === "all" ? "SOURCE / 24H TURNOVER" : market === "crypto" ? "SPOT" : market === "perps" ? "PERPETUAL" : alpaca(market) ? `${equityVenue.toUpperCase()} · ALPACA KEY REQUIRED` : "YAHOO FINANCE · DELAYED"}</span>
       </div>
-      <div className="search-results">
-        {results.map((s) => (
+      <div className="search-results" ref={resultsRef}>
+        {results.map((s, idx) => (
           <button
-            className="symbol-result"
+            type="button"
+            className={`symbol-result${idx === clampedIndex ? " highlighted" : ""}`}
+            data-active={idx === clampedIndex ? "true" : undefined}
             key={s.symbol}
+            onMouseEnter={() => setActiveIndex(idx)}
             onClick={() => choose(s)}
           >
             <AssetBadge symbol={s.symbol} />
@@ -490,7 +539,14 @@ export function SymbolSearch() {
                   Alle Börsen aktivieren
                 </button>
               </>
-            ) : perpsError && market === "perps" ? perpsError : searching ? "Searching…" : `No symbols match “${debounced}”.`}
+            ) : perpsError && market === "perps" ? (
+              <>
+                <span>{perpsError}</span>{" "}
+                <button type="button" className="link-button" onClick={() => setPerpsRetry((n) => n + 1)}>
+                  Retry
+                </button>
+              </>
+            ) : searching ? "Searching…" : `No symbols match “${debounced}”.`}
           </div>
         ) : null}
       </div>
@@ -504,8 +560,22 @@ export function SymbolSearch() {
             : market === "perps"
               ? "Perpetual markets from Hyperliquid and Bybit. Equity perpetuals are separate from listed shares."
               : alpaca(market) ? feed === "sip" ? "Consolidated US stock history with a 16-minute cutoff. Alpaca credentials are required." : "Real-time IEX trades and minute bars. Account key required in Market data connections. 30-symbol stream limit." : "Stocks, ETFs, indices and forex come from Yahoo Finance and are typically delayed 15 minutes for US exchanges."}
-        {needsBybit && bybitUnavailable ? <span role="status">Bybit data is temporarily unavailable.</span> : null}
-        {market === "all" && hasQuery && perpsError ? <span role="status">{perpsError}</span> : null}
+        {needsBybit && bybitUnavailable ? (
+          <span role="status">
+            {" "}Bybit data is temporarily unavailable.{" "}
+            <button type="button" className="link-button" onClick={() => setBybitRetry((n) => n + 1)}>
+              Retry
+            </button>
+          </span>
+        ) : null}
+        {market === "all" && hasQuery && perpsError ? (
+          <span role="status">
+            {" "}{perpsError}{" "}
+            <button type="button" className="link-button" onClick={() => setPerpsRetry((n) => n + 1)}>
+              Retry
+            </button>
+          </span>
+        ) : null}
       </div>
     </Modal>
   );

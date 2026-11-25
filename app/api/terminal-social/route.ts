@@ -1,3 +1,4 @@
+import { logError } from "@/lib/server/logger";
 import { terminalSocialRequest } from "@/lib/server/terminalSocial";
 import { HttpError, isSameOriginRequest, readJson } from "@/lib/server/security";
 
@@ -9,6 +10,7 @@ export async function POST(request: Request) {
   try {
     return Response.json(await terminalSocialRequest(await readJson(request, 4096), request.signal), { headers });
   } catch (error) {
+    if (!(error instanceof HttpError)) logError("api.terminalSocial.error", error);
     return Response.json({ error: error instanceof HttpError ? error.message : "Social-Recherche vorübergehend nicht verfügbar." },
       { status: error instanceof HttpError ? error.status : 503, headers });
   }

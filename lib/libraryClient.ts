@@ -29,6 +29,8 @@ export class LibraryRequestError extends Error {
 }
 
 async function call<T>(query: string, init: RequestInit = {}, serverKey = ""): Promise<T> {
+  const timeout = AbortSignal.timeout(20_000);
+  const signal = init.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
   const response = await fetch(`/api/library${query}`, {
     ...init,
     headers: {
@@ -36,7 +38,7 @@ async function call<T>(query: string, init: RequestInit = {}, serverKey = ""): P
       "x-affentrader-reader": readerToken(),
       ...(serverKey ? { "x-affentrader-key": serverKey } : {}),
     },
-    signal: AbortSignal.timeout(20_000),
+    signal,
   });
   const body = (await response.json().catch(() => ({}))) as { error?: string } & T;
   if (!response.ok) throw new LibraryRequestError(body.error ?? `Server responded with HTTP ${response.status}`, response.status);
@@ -55,13 +57,13 @@ export interface PublishFields {
 }
 
 export const scriptLibrary = {
-  list: (query: string, kind: string, sort: string) =>
-    call<{ scripts: ScriptSummary[] }>(`?q=${encodeURIComponent(query)}&kind=${encodeURIComponent(kind)}&sort=${sort}`),
-  mine: (serverKey: string) => call<{ scripts: ScriptSummary[] }>("?mine=1", {}, serverKey),
-  get: (id: string, invite = "", serverKey = "") =>
+  list: (query: string, kind: string, sort: string, signal?: AbortSignal) =>
+    call<{ scripts: ScriptSummary[] }>(`?q=${encodeURIComponent(query)}&kind=${encodeURIComponent(kind)}&sort=${sort}`, { signal }),
+  mine: (serverKey: string, signal?: AbortSignal) => call<{ scripts: ScriptSummary[] }>("?mine=1", { signal }, serverKey),
+  get: (id: string, invite = "", serverKey = "", signal?: AbortSignal) =>
     call<{ script: ScriptDetail }>(
       `?id=${encodeURIComponent(id)}${invite ? `&invite=${encodeURIComponent(invite)}` : ""}${serverKey ? "&owner=1" : ""}`,
-      {},
+      { signal },
       serverKey,
     ),
   openInvite: (code: string) => call<{ script: ScriptDetail }>(`?invite=${encodeURIComponent(code.trim())}`),

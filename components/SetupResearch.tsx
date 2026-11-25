@@ -60,7 +60,8 @@ export function SetupResearch({ externalWindow }: { externalWindow: boolean }) {
           const search = new URLSearchParams({ kind: "spark", symbols: group.join(",") });
           const response = await fetch(`/api/yahoo?${search}`, { signal: controller.signal });
           if (!response.ok) throw new Error("Kursdaten fehlen.");
-          return (await response.json() as { quotes: Record<string, YahooQuote> }).quotes;
+          const payload = (await response.json().catch(() => null)) as { quotes?: Record<string, YahooQuote> } | null;
+          return payload?.quotes ?? {};
         }));
         if (!controller.signal.aborted) setMarketQuotes(Object.assign({}, ...batches.flatMap(batch => batch.status === "fulfilled" ? [batch.value] : [])));
       } finally { if (pending === controller) pending = undefined; }
@@ -119,8 +120,8 @@ export function SetupResearch({ externalWindow }: { externalWindow: boolean }) {
     setReplay(null);
     try {
       const response = await fetch(`/api/terminal-setups?${new URLSearchParams({ ticker: pastTicker })}`, { signal: controller.signal });
-      const data = await response.json() as { records?: SetupRecord[]; sessions: number; error?: string };
-      if (!response.ok || !data.records) throw new Error(data.error ?? "Historische Signale fehlen.");
+      const data = (await response.json().catch(() => null)) as { records?: SetupRecord[]; sessions: number; error?: string } | null;
+      if (!response.ok || !data?.records) throw new Error(data?.error ?? "Historische Signale fehlen.");
       if (controller.signal.aborted) return;
       useSetupJournal.getState().importHistory(data.records);
       setQuery(pastTicker); setPage(0);

@@ -34,6 +34,7 @@ import {
   suggestLiveLeadupPattern,
   suggestLivePattern,
   type NoiseApiPayload,
+  type NoiseDataset,
   type NoiseStreakBasis,
   type NoiseVerdictTone,
   type PatternMatch,
@@ -495,7 +496,7 @@ export function NoiseMeterPanel({
   const [ticker, setTicker] = useState(defaultTicker);
   const [input, setInput] = useState(defaultTicker);
   const [years, setYears] = useState<5 | 10 | 15 | "max">("max");
-  const [data, setData] = useState<NoiseApiPayload | null>(null);
+  const [loaded, setLoaded] = useState<{ payload: NoiseApiPayload; dataset: NoiseDataset } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [reloadNonce, setReloadNonce] = useState(0);
@@ -565,11 +566,11 @@ export function NoiseMeterPanel({
           `/api/terminal-noise?ticker=${encodeURIComponent(ticker)}&years=${years}`,
           { signal: controller.signal },
         );
-        const body = (await res.json()) as NoiseApiPayload & { error?: string };
-        if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+        const body = (await res.json().catch(() => null)) as (NoiseApiPayload & { error?: string }) | null;
+        if (!res.ok || !body) throw new Error(body?.error || `HTTP ${res.status}`);
         if (controller.signal.aborted) return;
-        setData(body);
         const computed = buildNoiseDataset(body.bars);
+        setLoaded({ payload: body, dataset: computed });
         if (!gapTouched) {
           setGapPct(body.live.liveGapPct);
         }
@@ -610,7 +611,8 @@ export function NoiseMeterPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ticker, years, reloadNonce]);
 
-  const dataset = useMemo(() => (data ? buildNoiseDataset(data.bars) : null), [data]);
+  const data = loaded?.payload ?? null;
+  const dataset = loaded?.dataset ?? null;
 
   const liveCloseStreak =
     dataset?.currentStreak ?? data?.live.currentStreak ?? { direction: "red" as const, count: 1 };

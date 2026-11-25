@@ -1,10 +1,12 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import { ExternalLink, RefreshCw } from "lucide-react";
+import { ExternalLink, RefreshCw, X } from "lucide-react";
 import { useChartStore } from "@/stores/useChartStore";
 import { useWatchlistStore } from "@/stores/useWatchlistStore";
 import type { NewsItem } from "@/lib/server/feeds";
 import { getSymbol } from "@/lib/symbols";
+
+const EMPTY_SYMBOLS: readonly string[] = [];
 
 export function timeAgo(time: number, now = Date.now()): string {
   if (!Number.isFinite(time)) return "";
@@ -18,7 +20,7 @@ export function timeAgo(time: number, now = Date.now()): string {
 
 export function NewsPanel() {
   const symbol = useChartStore((s) => s.symbol);
-  const watch = useWatchlistStore((s) => s.lists.find((l) => l.id === s.activeId)?.symbols ?? []);
+  const watch = useWatchlistStore((s) => s.lists.find((l) => l.id === s.activeId)?.symbols ?? EMPTY_SYMBOLS);
   const [items, setItems] = useState<NewsItem[]>([]);
   const [failed, setFailed] = useState<string[]>([]);
   const [error, setError] = useState("");
@@ -28,10 +30,10 @@ export function NewsPanel() {
   const [query, setQuery] = useState("");
   const [tick, setTick] = useState(0);
   useEffect(() => {
-    let alive = true;
+    const controller = new AbortController();
     setLoading(true);
     setError("");
-    fetch(`/api/feeds?kind=news&scope=${feedKind}`)
+    fetch(`/api/feeds?kind=news&scope=${feedKind}`, { signal: controller.signal })
       .then(async (response) => {
         const body = (await response.json().catch(() => ({}))) as {
           items?: NewsItem[];
@@ -39,24 +41,27 @@ export function NewsPanel() {
           error?: string;
         };
         if (!response.ok) throw new Error(body.error ?? "News unavailable");
-        if (alive) {
+        if (!controller.signal.aborted) {
           setItems(body.items ?? []);
           setFailed(body.failed ?? []);
           setError("");
         }
       })
       .catch((e) => {
-        if (alive) setError(e instanceof Error ? e.message : String(e));
+        if (!controller.signal.aborted) setError(e instanceof Error ? e.message : String(e));
       })
       .finally(() => {
-        if (alive) setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       });
     return () => {
-      alive = false;
+      controller.abort();
     };
   }, [tick, feedKind]);
   useEffect(() => {
-    const timer = setInterval(() => setTick((t) => t + 1), 5 * 60_000);
+    const timer = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      setTick((t) => t + 1);
+    }, 5 * 60_000);
     return () => clearInterval(timer);
   }, []);
   const shown = useMemo(() => {
@@ -68,6 +73,7 @@ export function NewsPanel() {
       return !needle || `${n.title ?? ""} ${n.summary ?? ""}`.toLowerCase().includes(needle);
     });
   }, [items, scope, symbol, watch, query]);
+  const hasFilters = scope !== "all" || Boolean(query.trim());
   return (
     <div className="news-panel">
       <div className="screener-toolbar" style={{ gap: 4 }}>
@@ -79,7 +85,7 @@ export function NewsPanel() {
               ["crypto", "Crypto"],
             ] as const
           ).map(([id, label]) => (
-            <button key={id} style={{ whiteSpace: "nowrap" }} className={feedKind === id ? "active" : ""} onClick={() => setFeedKind(id)}>
+            <button key={id} type="button" style={{ whiteSpace: "nowrap" }} className={feedKind === id ? "active" : ""} onClick={() => setFeedKind(id)}>
               {label}
             </button>
           ))}
@@ -92,20 +98,34 @@ export function NewsPanel() {
               ["watchlist", "Watchlist"],
             ] as const
           ).map(([id, label]) => (
-            <button key={id} style={{ whiteSpace: "nowrap" }} className={scope === id ? "active" : ""} onClick={() => setScope(id)}>
+            <button key={id} type="button" style={{ whiteSpace: "nowrap" }} className={scope === id ? "active" : ""} onClick={() => setScope(id)}>
               {label}
             </button>
           ))}
         </div>
-        <input aria-label="Search news" placeholder="Filter…" value={query} style={{ minWidth: 90, flex: "1 1 110px" }} onChange={(e) => setQuery(e.target.value)} />
-        <button className="button small" onClick={() => setTick((t) => t + 1)} disabled={loading}>
+        <div className="inline-clear-field" style={{ display: "inline-flex", alignItems: "center", flex: "1 1 110px", minWidth: 90, gap: 2 }}>
+          <input aria-label="Search news" placeholder="Filter…" value={query} style={{ minWidth: 0, flex: 1 }} onChange={(e) => setQuery(e.target.value)} />
+          {query ? (
+            <button type="button" className="icon-button" aria-label="Clear news search" onClick={() => setQuery("")}>
+              <X size={12} />
+            </button>
+          ) : null}
+        </div>
+        <button type="button" className="button small" onClick={() => setTick((t) => t + 1)} disabled={loading}>
           <RefreshCw size={12} className={loading ? "spin" : ""} /> Refresh
         </button>
         <span className="terminal-telemetry-chip mono">
           {loading ? "SYNCING NEWS" : `${shown.length} ITEMS${failed.length ? ` · ${failed.join(", ")} DOWN` : ""}`}
         </span>
       </div>
-      {error ? <p className="error-message screener-error">{error}</p> : null}
+      {error ? (
+        <div className="error-message screener-error" role="alert">
+          <span>{error}</span>{" "}
+          <button type="button" className="link-button" onClick={() => setTick((t) => t + 1)}>
+            Retry
+          </button>
+        </div>
+      ) : null}
       <div className="news-list">
         {loading && !shown.length && !error ? <div className="empty-table">Loading news feeds…</div> : null}
         {shown.map((n) => {
@@ -124,7 +144,7 @@ export function NewsPanel() {
                 <span className="mono" style={{ textTransform: "uppercase", letterSpacing: "0.04em" }}>{n.source}</span>
                 {Number.isFinite(publishedTs) ? <span className="mono">{timeAgo(publishedTs)}</span> : null}
                 {syms.slice(0, 4).map((s) => (
-                  <button key={s} className="chip" onClick={() => useChartStore.getState().set({ symbol: s })}>
+                  <button key={s} type="button" className="chip" onClick={() => useChartStore.getState().set({ symbol: s })}>
                     {getSymbol(s).base}
                   </button>
                 ))}
@@ -132,7 +152,19 @@ export function NewsPanel() {
             </article>
           );
         })}
-        {!shown.length && !loading && !error ? <div className="empty-table">No stories match.</div> : null}
+        {!shown.length && !loading && !error ? (
+          <div className="empty-table">
+            <span>No stories match.</span>
+            {hasFilters ? (
+              <>
+                {" "}
+                <button type="button" className="link-button" onClick={() => { setScope("all"); setQuery(""); }}>
+                  Filter zurücksetzen
+                </button>
+              </>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </div>
   );

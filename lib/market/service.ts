@@ -665,6 +665,16 @@ export class MarketService {
       this.deferredQuoteTimer = null;
     }
     this.deferredQuotes.clear();
+    if (this.deferredSelectedQuoteTimer) {
+      clearTimeout(this.deferredSelectedQuoteTimer);
+      this.deferredSelectedQuoteTimer = null;
+    }
+    this.deferredSelectedQuote = null;
+    if (this.deferredBarFrame !== null) {
+      globalThis.cancelAnimationFrame?.(this.deferredBarFrame);
+      this.deferredBarFrame = null;
+    }
+    this.deferredBars.clear();
     if (this.deferredBookTimer) {
       clearTimeout(this.deferredBookTimer);
       this.deferredBookTimer = null;

@@ -19,6 +19,7 @@ export function SocialResearch({ activeTicker, requestedTicker }: { activeTicker
   const [provider, setProvider] = useState<"all" | "reddit" | "x">("all");
   const [draftToken, setDraftToken] = useState("");
   const [hasToken, setHasToken] = useState(() => Boolean(sessionXToken));
+  const [refreshNonce, setRefreshNonce] = useState(0);
   const watched = useWatchlistStore(state => state.lists.find(list => list.id === state.activeId)?.symbols);
   const tracked = useMemo(() => [...new Set((watched ?? []).filter(symbol => /^(?:YF|IEX|SIP):/.test(symbol))
     .map(symbol => normalizeSocialTicker(tickerOf(symbol))).filter((ticker): ticker is string => ticker !== null))]
@@ -41,9 +42,9 @@ export function SocialResearch({ activeTicker, requestedTicker }: { activeTicker
           method: "POST", headers: { "Content-Type": "application/json" }, signal: controller.signal,
           body: JSON.stringify({ ...selection, tracked: tracked ? tracked.split(",") : [], xToken: sessionXToken || undefined }),
         });
-        const payload = await response.json() as SocialResult & { error?: string };
-        if (!response.ok || !Array.isArray(payload.sources) || !Array.isArray(payload.trends) || !Array.isArray(payload.posts)) {
-          throw new Error(payload.error ?? "Social-Recherche nicht verfügbar.");
+        const payload = (await response.json().catch(() => null)) as (SocialResult & { error?: string }) | null;
+        if (!response.ok || !payload || !Array.isArray(payload.sources) || !Array.isArray(payload.trends) || !Array.isArray(payload.posts)) {
+          throw new Error(payload?.error ?? "Social-Recherche nicht verfügbar.");
         }
         if (!controller.signal.aborted) setResult(payload);
       } catch (cause) {
@@ -52,7 +53,7 @@ export function SocialResearch({ activeTicker, requestedTicker }: { activeTicker
     }
     void load();
     return () => controller.abort();
-  }, [selection, tracked]);
+  }, [selection, tracked, refreshNonce]);
 
   const search = (ticker: string | null, hours = selection.hours) => {
     setInput(ticker ?? "");
@@ -70,12 +71,20 @@ export function SocialResearch({ activeTicker, requestedTicker }: { activeTicker
         <option value={24}>24 Stunden</option><option value={72}>72 Stunden</option>
       </select></label>
       <button type="submit" className="button primary" disabled={loading || (!!input.trim() && !validInput)}>Suchen</button>
+      <button type="button" className="button" disabled={loading} onClick={() => setRefreshNonce(n => n + 1)}>Aktualisieren</button>
       {selection.ticker && <button type="button" className="button" onClick={() => search(null)}>Top-Liste</button>}
       {!selection.ticker && current && <button type="button" className="button" onClick={() => search(current)}>{current} suchen</button>}
     </form>
 
     {loading && <p role="status">Öffentliche Diskussionen werden abgerufen…</p>}
-    {error && <p role="alert" className="negative">{error}</p>}
+    {error && (
+      <div role="alert" className="negative">
+        <span>{error}</span>{" "}
+        <button type="button" className="link-button" onClick={() => setRefreshNonce(n => n + 1)} disabled={loading}>
+          Erneut versuchen
+        </button>
+      </div>
+    )}
     {result && <ul className="social-source-status" aria-label="Datenquellen">{result.sources.map(source => <li key={source.source}>
       <strong>{SOCIAL_SOURCE_LABELS[source.source]}</strong><span>{states[source.state]}{source.samples > 0 ? ` · ${source.samples} geprüft` : ""}
         {source.fetchedAt ? ` · ${new Date(source.fetchedAt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}` : ""}</span>

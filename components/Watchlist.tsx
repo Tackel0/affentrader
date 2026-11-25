@@ -108,7 +108,6 @@ function Cell({
     case "last":
       return (
         <span
-          key={quote.time}
           className={`watch-cell mono ${quote.price !== quote.previous ? (quote.price > quote.previous ? "pulse-up" : "pulse-down") : ""}`}
         >
           {formatPrice(quote.price)}
@@ -267,76 +266,123 @@ const SymbolRow = memo(function SymbolRow({
 });
 
 function ListMenu({ onImport, onRename, onCreate, onSyncVenues }: { onImport: () => void; onRename: () => void; onCreate: () => void; onSyncVenues: () => void }) {
-  const store = useWatchlistStore();
   const [open, setOpen] = useState(false);
   const ref = useDismiss(open, () => setOpen(false));
+  return (
+    <div ref={ref} className="watchlist-more">
+      <IconButton label="Watchlist options" aria-expanded={open} aria-haspopup="menu" onClick={() => setOpen(!open)}>
+        <MoreHorizontal size={18} />
+      </IconButton>
+      {open ? (
+        <ListMenuBody
+          onClose={() => setOpen(false)}
+          onImport={onImport}
+          onRename={onRename}
+          onCreate={onCreate}
+          onSyncVenues={onSyncVenues}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function ListMenuBody({
+  onClose,
+  onImport,
+  onRename,
+  onCreate,
+  onSyncVenues,
+}: {
+  onClose: () => void;
+  onImport: () => void;
+  onRename: () => void;
+  onCreate: () => void;
+  onSyncVenues: () => void;
+}) {
+  const store = useWatchlistStore();
+  const [confirmAction, setConfirmAction] = useState<"delete" | "clear" | null>(null);
   const active = store.lists.find((l) => l.id === store.activeId) ?? store.lists[0];
   const slug = active.name.replace(/[^a-z0-9-]+/gi, "-").toLowerCase();
   const close = (fn: () => void) => () => {
     fn();
-    setOpen(false);
+    onClose();
   };
   return (
-    <div ref={ref} className="watchlist-more">
-      <IconButton label="Watchlist options" onClick={() => setOpen(!open)}>
-        <MoreHorizontal size={18} />
-      </IconButton>
-      {open ? (
-        <div className="dropdown watchlist-more-menu">
-          <button onClick={close(onCreate)}>
-            <ListPlus size={14} />
-            Create watchlist
-          </button>
-          <button onClick={close(onRename)}>
-            <Pencil size={14} />
-            Rename watchlist
-          </button>
-          <button onClick={close(() => store.duplicate(active.id))}>
-            <Copy size={14} />
-            Make a copy
-          </button>
-          <button
-            disabled={store.lists.length < 2}
-            onClick={close(() => store.remove(active.id))}
-          >
-            <Trash2 size={14} />
-            Delete watchlist
-          </button>
-          <button onClick={close(() => store.clear(active.id))}>
-            <X size={14} />
-            Clear list
-          </button>
-          <hr />
-          <button onClick={close(onSyncVenues)}>
-            <RefreshCw size={14} />
-            Kurse abgleichen (Binance / HL / Bybit)
-          </button>
-          <button onClick={close(() => store.addSection(`Section ${active.symbols.filter(isSection).length + 1}`))}>
-            <Heading size={14} />
-            Add section
-          </button>
-          <button onClick={close(onImport)}>
-            <Upload size={14} />
-            Import list…
-          </button>
-          <button
-            onClick={close(() =>
-              downloadFile(`${slug}.txt`, serializeWatchlist(active.symbols), "text/plain"),
-            )}
-          >
-            <Download size={14} />
-            Export as text
-          </button>
-          <button
-            onClick={close(() =>
-              downloadFile(`${slug}.csv`, watchlistCsv(active.symbols, useChartStore.getState().quotes, active.flags), "text/csv"),
-            )}
-          >
-            <Download size={14} />
-            Export as CSV
-          </button>
-        </div>
-      ) : null}
+    <div className="dropdown watchlist-more-menu" role="menu">
+      <button type="button" onClick={close(onCreate)}>
+        <ListPlus size={14} />
+        Create watchlist
+      </button>
+      <button type="button" onClick={close(onRename)}>
+        <Pencil size={14} />
+        Rename watchlist
+      </button>
+      <button type="button" onClick={close(() => store.duplicate(active.id))}>
+        <Copy size={14} />
+        Make a copy
+      </button>
+      <button
+        type="button"
+        disabled={store.lists.length < 2}
+        className={confirmAction === "delete" ? "negative" : undefined}
+        onClick={() => {
+          if (confirmAction !== "delete") {
+            setConfirmAction("delete");
+            return;
+          }
+          store.remove(active.id);
+          onClose();
+        }}
+      >
+        <Trash2 size={14} />
+        {confirmAction === "delete" ? "Confirm delete?" : "Delete watchlist"}
+      </button>
+      <button
+        type="button"
+        className={confirmAction === "clear" ? "negative" : undefined}
+        onClick={() => {
+          if (confirmAction !== "clear") {
+            setConfirmAction("clear");
+            return;
+          }
+          store.clear(active.id);
+          onClose();
+        }}
+      >
+        <X size={14} />
+        {confirmAction === "clear" ? "Confirm clear?" : "Clear list"}
+      </button>
+      <hr />
+      <button type="button" onClick={close(onSyncVenues)}>
+        <RefreshCw size={14} />
+        Kurse abgleichen (Binance / HL / Bybit)
+      </button>
+      <button type="button" onClick={close(() => store.addSection(`Section ${active.symbols.filter(isSection).length + 1}`))}>
+        <Heading size={14} />
+        Add section
+      </button>
+      <button type="button" onClick={close(onImport)}>
+        <Upload size={14} />
+        Import list…
+      </button>
+      <button
+        type="button"
+        onClick={close(() =>
+          downloadFile(`${slug}.txt`, serializeWatchlist(active.symbols), "text/plain"),
+        )}
+      >
+        <Download size={14} />
+        Export as text
+      </button>
+      <button
+        type="button"
+        onClick={close(() =>
+          downloadFile(`${slug}.csv`, watchlistCsv(active.symbols, useChartStore.getState().quotes, active.flags), "text/csv"),
+        )}
+      >
+        <Download size={14} />
+        Export as CSV
+      </button>
     </div>
   );
 }
@@ -614,6 +660,14 @@ export function Watchlist({
     return () => query.removeListener(syncRowHeight);
   }, []);
   const flagRef = useDismiss(flagMenu !== null, () => setFlagMenu(null));
+  const menuRef = useDismiss(menu, () => setMenu(false));
+  const scrollFrameRef = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
+    },
+    [],
+  );
   const active = store.lists.find((l) => l.id === store.activeId) ?? store.lists[0];
   const syncListVenues = useCallback(async (listId: string, notify = false) => {
     const [binanceRes, hlRes, bybitRes] = await Promise.allSettled([
@@ -691,16 +745,17 @@ export function Watchlist({
   const viewHeight = phone ? phoneListHeight : Math.min(entries.length * rowHeight, MAX_VIEW);
   const first = Math.max(0, Math.floor(scroll / rowHeight) - 4);
   const last = Math.min(entries.length, Math.ceil((scroll + viewHeight) / rowHeight) + 4);
-  const flow = useOptionsFlow(entries.slice(first, last).flatMap(entry => {
+  const visibleEntries = useMemo(() => entries.slice(first, last), [entries, first, last]);
+  const flow = useOptionsFlow(visibleEntries.flatMap(entry => {
     const ticker = optionsFlowTicker(entry);
     return ticker ? [ticker] : [];
   }));
-  const visibleQuoteKey = entries.slice(first, last).filter(entry => entry.startsWith("HL:")).join(",");
+  const visibleQuoteKey = visibleEntries.filter(entry => entry.startsWith("HL:")).join(",");
   useEffect(() => {
     useChartStore.getState().set({ visibleWatchSymbols: visibleQuoteKey ? visibleQuoteKey.split(",") : [] });
     return () => useChartStore.getState().set({ visibleWatchSymbols: [] });
   }, [visibleQuoteKey]);
-  useQuoteRanges([symbol, ...(columns.some(c => ["high", "low", "range"].includes(c)) || ["high", "low", "range"].includes(store.sort?.column ?? "") ? entries.slice(first, last).filter(e => !isSection(e)) : [])]);
+  useQuoteRanges([symbol, ...(columns.some(c => ["high", "low", "range"].includes(c)) || ["high", "low", "range"].includes(store.sort?.column ?? "") ? visibleEntries.filter(e => !isSection(e)) : [])]);
   const gridColumns = `minmax(76px,1fr) ${columns.map((c) => `${COLUMN_WIDTH[c]}px`).join(" ")}`;
   const toggleSort = (column: SortSpec["column"]) => {
     const current = store.sort;
@@ -745,18 +800,25 @@ export function Watchlist({
     onOpenChart?.();
   }, [onOpenChart]);
   const others = store.lists.filter((l) => l.id !== active.id);
+  const clampedFlagX = flagMenu
+    ? Math.max(8, Math.min(flagMenu.x - 8, typeof window !== "undefined" ? Math.max(8, window.innerWidth - 180) : flagMenu.x - 8))
+    : 8;
+  const clampedFlagY = flagMenu
+    ? Math.max(8, Math.min(flagMenu.y, typeof window !== "undefined" ? Math.max(8, window.innerHeight - 44) : flagMenu.y))
+    : 8;
   return (
     <>
       <div className="panel-heading">
-        <div className="watchlist-select">
-          <button onClick={() => setMenu(!menu)}>
+        <div ref={menuRef} className="watchlist-select">
+          <button type="button" aria-expanded={menu} aria-haspopup="menu" onClick={() => setMenu(!menu)}>
             {active.name}
             <ChevronDown size={14} />
           </button>
           {menu ? (
-            <div className="dropdown watchlist-menu">
+            <div className="dropdown watchlist-menu" role="menu">
               {!store.lists.some((list) => list.id === LIQUID_MARKETS_ID) && (
                 <button
+                  type="button"
                   disabled={store.lists.length >= MAX_LISTS}
                   title="Standard-Watchlist hinzufügen"
                   onClick={() => {
@@ -773,6 +835,7 @@ export function Watchlist({
               {store.lists.map((l) => (
                 <button
                   key={l.id}
+                  type="button"
                   className={l.id === active.id ? "selected" : ""}
                   onClick={() => {
                     store.select(l.id);
@@ -842,6 +905,19 @@ export function Watchlist({
               resetScroll();
             }}
           />
+          {filter ? (
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="Clear watchlist filter"
+              onClick={() => {
+                setFilter("");
+                resetScroll();
+              }}
+            >
+              <X size={12} />
+            </button>
+          ) : null}
           {touch ? <select aria-label="Filter by flag" value={flagFilter ?? ""} onChange={event => {
             setFlagFilter(FLAG_ORDER.find(flag => flag === event.target.value) ?? null);
             resetScroll();
@@ -852,6 +928,8 @@ export function Watchlist({
             {FLAG_ORDER.map((f) => (
               <button
                 key={f}
+                type="button"
+                aria-label={`Show ${f} flagged`}
                 aria-pressed={flagFilter === f}
                 className={flagFilter === f ? "active" : ""}
                 style={{ background: FLAG_COLORS[f] }}
@@ -863,12 +941,12 @@ export function Watchlist({
         </div>
       ) : null}
       <div className={`watchlist-columns dynamic${editMode ? " editing" : ""}`} style={{ gridTemplateColumns: gridColumns }}>
-        <button onClick={() => toggleSort("symbol")}>
+        <button type="button" onClick={() => toggleSort("symbol")}>
           Symbol{arrow("symbol")}
           <ArrowDownUp size={9} className="sort-hint" />
         </button>
         {columns.map((c) => (
-          <button key={c} onClick={() => toggleSort(c)}>
+          <button key={c} type="button" onClick={() => toggleSort(c)}>
             {COLUMN_LABELS[c]}
             {arrow(c)}
           </button>
@@ -903,6 +981,7 @@ export function Watchlist({
             </select>
           ) : null}
           <button
+            type="button"
             className="link-button"
             onClick={() => {
               for (const s of selected) store.removeSymbol(s);
@@ -911,7 +990,7 @@ export function Watchlist({
           >
             Remove
           </button>
-          <button className="link-button" onClick={() => setSelected(new Set())}>
+          <button type="button" className="link-button" onClick={() => setSelected(new Set())}>
             Clear
           </button>
         </div>
@@ -920,10 +999,17 @@ export function Watchlist({
         className="watchlist-rows virtual"
         ref={rowsRef}
         style={touch ? undefined : { height: viewHeight || undefined, overflowY: entries.length * rowHeight > MAX_VIEW ? "auto" : "visible" }}
-        onScroll={(e) => setScroll(e.currentTarget.scrollTop)}
+        onScroll={(e) => {
+          const nextTop = e.currentTarget.scrollTop;
+          if (scrollFrameRef.current !== null) return;
+          scrollFrameRef.current = requestAnimationFrame(() => {
+            scrollFrameRef.current = null;
+            setScroll(rowsRef.current?.scrollTop ?? nextTop);
+          });
+        }}
       >
         <div style={{ height: entries.length * rowHeight, position: "relative" }}>
-          {entries.slice(first, last).map((entry, i) =>
+          {visibleEntries.map((entry, i) =>
             isSection(entry) ? (
               <div
                 key={`section-${first + i}-${entry}`}
@@ -932,6 +1018,7 @@ export function Watchlist({
               >
                 {sectionName(entry)}
                 {showActions && <button
+                  type="button"
                   aria-label={`Remove section ${sectionName(entry)}`}
                   onClick={() => store.removeSymbol(entry)}
                 >
@@ -969,18 +1056,32 @@ export function Watchlist({
           <div className="empty-state">
             <ListPlus size={28} />
             <p>{filter || flagFilter ? "No symbols match." : "Your next opportunity starts here."}</p>
-            {!filter && !flagFilter ? (
+            {filter || flagFilter ? (
               <button
+                type="button"
+                className="text-accent"
+                onClick={() => {
+                  setFilter("");
+                  setFlagFilter(null);
+                  resetScroll();
+                }}
+              >
+                Filter zurücksetzen
+              </button>
+            ) : (
+              <button
+                type="button"
                 className="text-accent"
                 onClick={() => useChartStore.getState().set({ searchOpen: true, searchTarget: "watchlist" })}
               >
                 Add your first symbol
               </button>
-            ) : null}
+            )}
           </div>
         ) : null}
       </div>
       {!phone && <button
+        type="button"
         className="add-symbol-row"
         onClick={() => useChartStore.getState().set({ searchOpen: true, searchTarget: "watchlist" })}
       >
@@ -999,10 +1100,11 @@ export function Watchlist({
         <button type="button" onClick={() => setDetails(true)}><Activity size={16} /> Symbol-Details</button>
       </div>}
       {flagMenu ? (
-        <div ref={flagRef} className="flag-menu" style={{ left: Math.max(8, flagMenu.x - 8), top: flagMenu.y }}>
+        <div ref={flagRef} className="flag-menu" style={{ left: clampedFlagX, top: clampedFlagY }}>
           {FLAG_ORDER.map((f) => (
             <button
               key={f}
+              type="button"
               aria-label={`Flag ${f}`}
               style={{ background: FLAG_COLORS[f] }}
               onClick={() => {
@@ -1012,6 +1114,7 @@ export function Watchlist({
             />
           ))}
           <button
+            type="button"
             aria-label="Remove flag"
             className="no-flag"
             onClick={() => {

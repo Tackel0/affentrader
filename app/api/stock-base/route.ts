@@ -17,7 +17,10 @@ export async function GET(request: Request) {
     page = parsed;
   }
   try {
-    return Response.json(await scanStockBases(params.get("market") ?? "us", page));
+    return Response.json(
+      await scanStockBases(params.get("market") ?? "us", page, undefined, undefined, undefined, request.signal),
+      { headers: { "Cache-Control": "private, max-age=120" } },
+    );
   } catch (error) {
     if (error instanceof InvalidStockBaseScan) return Response.json({ error: error.message }, { status: 400 });
     logError("api.stockBase.get", error);

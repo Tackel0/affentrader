@@ -37,7 +37,9 @@ export async function GET(request: Request) {
     const now = Date.now();
     const period2 = Math.floor(now / 60_000) * 60;
     const period1 = Math.max(0, period2 - years * 365 * 86400);
-    const deadline = AbortSignal.timeout(22_000);
+    const deadline = request.signal
+      ? AbortSignal.any([request.signal, AbortSignal.timeout(22_000)])
+      : AbortSignal.timeout(22_000);
     const fetcher: typeof fetch = (input, init) =>
       fetch(input, { ...init, signal: init?.signal ? AbortSignal.any([deadline, init.signal]) : deadline });
 

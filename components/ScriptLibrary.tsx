@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Copy, Heart, Lock, Globe, Trash2 } from "lucide-react";
 import { useServerStore } from "@/stores/useServerStore";
 import { useChartStore } from "@/stores/useChartStore";
@@ -36,6 +36,7 @@ export function ScriptLibrary({ name, source, onLoad, onClose }: Props) {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  const [loadingList, setLoadingList] = useState(false);
   // Publish form.
   const [title, setTitle] = useState(name);
   const [description, setDescription] = useState("");
@@ -45,31 +46,58 @@ export function ScriptLibrary({ name, source, onLoad, onClose }: Props) {
   const [visibility, setVisibility] = useState<Visibility>("public");
   const [notes, setNotes] = useState("");
   const [updating, setUpdating] = useState<ScriptDetail | null>(null);
+  const listAbortRef = useRef<AbortController | null>(null);
+  const detailAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(
+    () => () => {
+      listAbortRef.current?.abort();
+      detailAbortRef.current?.abort();
+    },
+    [],
+  );
 
   const refresh = useCallback(async () => {
+    listAbortRef.current?.abort();
+    const controller = new AbortController();
+    listAbortRef.current = controller;
+    setLoadingList(true);
     setError("");
     try {
-      const list = tab === "mine" ? await scriptLibrary.mine(serverKey) : await scriptLibrary.list(query, kind, sort);
-      setRows(list.scripts);
+      const list = tab === "mine"
+        ? await scriptLibrary.mine(serverKey, controller.signal)
+        : await scriptLibrary.list(query, kind, sort, controller.signal);
+      if (!controller.signal.aborted) setRows(list.scripts);
     } catch (e) {
-      setRows([]);
-      setError(messageOf(e));
+      if (!controller.signal.aborted) {
+        setRows([]);
+        setError(messageOf(e));
+      }
+    } finally {
+      if (!controller.signal.aborted) setLoadingList(false);
     }
   }, [tab, query, kind, sort, serverKey]);
 
   useEffect(() => {
     if (tab !== "browse" && tab !== "mine") return;
     const handle = setTimeout(() => void refresh(), tab === "browse" ? 200 : 0);
-    return () => clearTimeout(handle);
+    return () => {
+      clearTimeout(handle);
+      listAbortRef.current?.abort();
+    };
   }, [tab, refresh]);
 
   const open = async (row: ScriptSummary) => {
+    detailAbortRef.current?.abort();
+    const controller = new AbortController();
+    detailAbortRef.current = controller;
     setError("");
     try {
       const code = row.visibility === "invite" ? invite : "";
-      setSelected((await scriptLibrary.get(row.id, code, tab === "mine" ? serverKey : "")).script);
+      const result = await scriptLibrary.get(row.id, code, tab === "mine" ? serverKey : "", controller.signal);
+      if (!controller.signal.aborted) setSelected(result.script);
     } catch (e) {
-      setError(messageOf(e));
+      if (!controller.signal.aborted) setError(messageOf(e));
     }
   };
 
@@ -172,7 +200,11 @@ export function ScriptLibrary({ name, source, onLoad, onClose }: Props) {
               <ServerKeyField />
             ) : null}
             <div className="library-results">
-              {rows.length === 0 && !error ? <p className="form-help">{tab === "browse" ? "No public scripts yet." : "You have not published anything yet."}</p> : null}
+              {loadingList && rows.length === 0 ? (
+                <p className="form-help" role="status">Loading scripts…</p>
+              ) : rows.length === 0 && !error ? (
+                <p className="form-help">{tab === "browse" ? "No public scripts yet." : "You have not published anything yet."}</p>
+              ) : null}
               {rows.map((row) => (
                 <button key={row.id} className={`library-row ${selected?.id === row.id ? "active" : ""}`} onClick={() => void open(row)}>
                   <strong>{row.title}</strong>

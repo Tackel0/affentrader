@@ -51,7 +51,6 @@ function useActiveNotices(cellId = "primary") {
  */
 export function ChartCoverage({ cellId, host }: { cellId: string; host: RefObject<HTMLDivElement | null> }) {
   const [open, setOpen] = useState(false);
-  const { cell, notices } = useActiveNotices(cellId);
 
   useEffect(() => {
     const reader = () => (host.current ? contextForCanvas(host.current) : undefined);
@@ -71,8 +70,13 @@ export function ChartCoverage({ cellId, host }: { cellId: string; host: RefObjec
   }, [cellId, host]);
 
   if (!open) return null;
+  return <ChartCoverageModal cellId={cellId} onClose={() => setOpen(false)} />;
+}
+
+function ChartCoverageModal({ cellId, onClose }: { cellId: string; onClose: () => void }) {
+  const { cell, notices } = useActiveNotices(cellId);
   return createPortal(
-    <Modal title="Chart data coverage" onClose={() => setOpen(false)} className="small-modal chart-coverage-modal">
+    <Modal title="Chart data coverage" onClose={onClose} className="small-modal chart-coverage-modal">
       <div className="form-body chart-coverage-details">
         <p className="form-help">
           {cell ? `${cell.symbol} · ${cell.timeframe}${cell.replay ? " · REPLAY" : ""}` : "Waiting for chart context"}

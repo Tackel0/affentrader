@@ -55,8 +55,15 @@ export function Modal({
     modalStack.push(token);
     const prev = document.activeElement as HTMLElement | null;
     const el = ref.current;
+    const FOCUSABLE_SELECTOR =
+      'a[href],button:not(:disabled),input:not(:disabled),textarea:not(:disabled),select:not(:disabled),summary,[tabindex]:not([tabindex="-1"])';
+    const isVisibleFocusable = (node: HTMLElement) => {
+      if (node.hidden || node.closest("[hidden]")) return false;
+      const style = window.getComputedStyle(node);
+      return style.display !== "none" && style.visibility !== "hidden";
+    };
     const initialFocus = initialFocusSelector ? el?.querySelector<HTMLElement>(initialFocusSelector) : undefined;
-    (initialFocus ?? el?.querySelector<HTMLElement>("input,textarea,select,button"))?.focus();
+    (initialFocus ?? el?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR))?.focus();
     const handle = (e: KeyboardEvent) => {
       if (modalStack[modalStack.length - 1] !== token) return;
       if (e.key === "Escape") {
@@ -65,19 +72,23 @@ export function Modal({
         closeRef.current();
       }
       if (e.key === "Tab") {
-        const focusable = Array.from(
-          el?.querySelectorAll<HTMLElement>(
-            'button:not(:disabled),input,textarea,select,[tabindex="0"]',
-          ) ?? [],
-        ).filter((x) => x.offsetParent !== null);
+        const focusable = Array.from(el?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR) ?? []).filter(isVisibleFocusable);
+        if (!focusable.length) {
+          e.preventDefault();
+          return;
+        }
         const first = focusable[0],
-          last = focusable.at(-1);
-        if (e.shiftKey && document.activeElement === first) {
+          last = focusable.at(-1)!;
+        const active = document.activeElement as HTMLElement | null;
+        if (!active || !el?.contains(active)) {
           e.preventDefault();
-          last?.focus();
-        } else if (!e.shiftKey && document.activeElement === last) {
+          (e.shiftKey ? last : first).focus();
+        } else if (e.shiftKey && active === first) {
           e.preventDefault();
-          first?.focus();
+          last.focus();
+        } else if (!e.shiftKey && active === last) {
+          e.preventDefault();
+          first.focus();
         }
       }
     };
@@ -86,7 +97,7 @@ export function Modal({
       const idx = modalStack.lastIndexOf(token);
       if (idx >= 0) modalStack.splice(idx, 1);
       document.removeEventListener("keydown", handle, true);
-      prev?.focus();
+      if (prev?.isConnected) prev.focus();
     };
   }, [initialFocusSelector]);
   return (

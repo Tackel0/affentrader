@@ -9,7 +9,7 @@ let inflight: Promise<MarketSymbol[]> | null = null;
 /** All tradable USDT pairs on the exchange, merged over the curated list. */
 export function loadSymbolCatalog(): Promise<MarketSymbol[]> {
   if (loaded) return Promise.resolve(loaded);
-  inflight ??= fetch("/api/market?resource=exchangeInfo")
+  inflight ??= fetch("/api/market?resource=exchangeInfo", { signal: AbortSignal.timeout(15_000) })
     .then((r) => {
       if (!r.ok) throw new Error("Unavailable");
       return r.json();

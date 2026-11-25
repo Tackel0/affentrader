@@ -9,7 +9,12 @@ export function useQuoteRanges(symbols: readonly string[]) {
   const ready = useChartStore(state => key.split("|").filter(symbol => state.quotes[symbol]?.metrics && !state.quotes[symbol].simulated).join("|"));
   const epoch = useChartStore(state => state.feedEpoch);
   useEffect(() => {
-    const refresh = () => { for (const symbol of ready.split("|").filter(Boolean)) void marketService.requestQuoteRange(symbol); };
+    const symbolsList = ready.split("|").filter(Boolean);
+    if (!symbolsList.length) return;
+    const refresh = () => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      for (const symbol of symbolsList) void marketService.requestQuoteRange(symbol);
+    };
     refresh();
     const timer = setInterval(refresh, 15_000);
     return () => clearInterval(timer);

@@ -1,6 +1,6 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 import type {
   DividendEvent,
   EarningsEvent,
@@ -18,7 +18,8 @@ async function feed<T>(query: string, signal?: AbortSignal): Promise<T> {
   return body as T;
 }
 
-function useFeed<T>(query: string): { data: T | null; error: string; loading: boolean } {
+function useFeed<T>(query: string): { data: T | null; error: string; loading: boolean; retry: () => void } {
+  const [nonce, setNonce] = useState(0);
   const [state, setState] = useState<{ data: T | null; error: string; loading: boolean }>({ data: null, error: "", loading: true });
   useEffect(() => {
     const controller = new AbortController();
@@ -33,8 +34,9 @@ function useFeed<T>(query: string): { data: T | null; error: string; loading: bo
     return () => {
       controller.abort();
     };
-  }, [query]);
-  return state;
+  }, [query, nonce]);
+  const retry = useCallback(() => setNonce((n) => n + 1), []);
+  return { ...state, retry };
 }
 
 const IMPACT_COLOR: Record<Impact, string> = { high: "#f23645", medium: "#ff9800", low: "#fdd835", holiday: "#787b86" };
@@ -52,7 +54,7 @@ function EconomicView() {
   const [week, setWeek] = useState<"this" | "next">("this");
   const [impact, setImpact] = useState<Impact | "all">("all");
   const [country, setCountry] = useState("all");
-  const { data, error, loading } = useFeed<{ events: EconomicEvent[] }>(`kind=economic&week=${week}`);
+  const { data, error, loading, retry } = useFeed<{ events: EconomicEvent[] }>(`kind=economic&week=${week}`);
   const events = data?.events ?? [];
   const countries = useMemo(() => [...new Set(events.map((e) => e.country))].sort(), [events]);
   const shown = events.filter((e) => (impact === "all" || e.impact === impact) && (country === "all" || e.country === country));
@@ -61,12 +63,13 @@ function EconomicView() {
     const day = new Date(e.time).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
     days.set(day, [...(days.get(day) ?? []), e]);
   }
+  const hasFilters = impact !== "all" || country !== "all";
   return (
     <div className="calendar-view">
       <div className="screener-toolbar">
         <div className="segmented">
-          <button className={week === "this" ? "active" : ""} onClick={() => setWeek("this")}>This week</button>
-          <button className={week === "next" ? "active" : ""} onClick={() => setWeek("next")}>Next week</button>
+          <button type="button" className={week === "this" ? "active" : ""} onClick={() => setWeek("this")}>This week</button>
+          <button type="button" className={week === "next" ? "active" : ""} onClick={() => setWeek("next")}>Next week</button>
         </div>
         <label>
           Impact
@@ -87,17 +90,27 @@ function EconomicView() {
             ))}
           </select>
         </label>
+        <button type="button" className="button small" onClick={retry} disabled={loading} aria-label="Refresh economic calendar">
+          <RefreshCw size={12} className={loading ? "spin" : ""} /> Refresh
+        </button>
         <span className="terminal-telemetry-chip mono">
           {loading ? "SYNCING ECONOMIC…" : `${shown.length} EVENTS · LOCAL TZ`}
         </span>
       </div>
-      {error ? <p className="error-message screener-error">{error}</p> : null}
+      {error ? (
+        <div className="error-message screener-error" role="alert">
+          <span>{error}</span>{" "}
+          <button type="button" className="link-button" onClick={retry} disabled={loading}>
+            Retry
+          </button>
+        </div>
+      ) : null}
       <div className="table-scroll">
         <table className="data-table">
           <thead>
             <tr>
               <th>Time</th>
-              <th />
+              <th><span className="sr-only">Impact</span></th>
               <th>Cur.</th>
               <th>Event</th>
               <th>Actual</th>
@@ -115,7 +128,8 @@ function EconomicView() {
                 <tr key={e.id}>
                   <td className="mono">{new Date(e.time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</td>
                   <td>
-                    <i className="impact-dot" style={{ background: IMPACT_COLOR[e.impact] }} title={`${e.impact} impact`} />
+                    <i className="impact-dot" style={{ background: IMPACT_COLOR[e.impact] }} title={`${e.impact} impact`} aria-hidden="true" />
+                    <span className="sr-only">{e.impact} impact</span>
                   </td>
                   <td className="mono">{e.country}</td>
                   <td>{e.title}</td>
@@ -129,7 +143,19 @@ function EconomicView() {
           </tbody>
         </table>
         {loading && !events.length ? <div className="empty-table">Loading economic calendar…</div> : null}
-        {!shown.length && !loading && !error ? <div className="empty-table">No events match.</div> : null}
+        {!shown.length && !loading && !error ? (
+          <div className="empty-table">
+            <span>No events match.</span>
+            {hasFilters ? (
+              <>
+                {" "}
+                <button type="button" className="link-button" onClick={() => { setImpact("all"); setCountry("all"); }}>
+                  Filter zurücksetzen
+                </button>
+              </>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -139,31 +165,45 @@ const isoDay = (d: Date) => d.toISOString().slice(0, 10);
 
 function CorporateView({ kind }: { kind: "earnings" | "dividends" }) {
   const [date, setDate] = useState(isoDay(new Date()));
-  const { data, error, loading } = useFeed<{ events: (EarningsEvent & DividendEvent)[] }>(`kind=${kind}&date=${date}`);
+  const { data, error, loading, retry } = useFeed<{ events: (EarningsEvent & DividendEvent)[] }>(`kind=${kind}&date=${date}`);
   const move = (days: number) => {
     const d = new Date(`${date}T12:00:00Z`);
     d.setUTCDate(d.getUTCDate() + days);
     setDate(isoDay(d));
   };
+  const openTickerChart = (ticker: string) => {
+    const clean = ticker.trim().toUpperCase();
+    if (clean) useChartStore.getState().set({ symbol: `YF:${clean}`, timeframe: "1D" });
+  };
   const events = data?.events ?? [];
   return (
     <div className="calendar-view">
       <div className="screener-toolbar">
-        <button className="icon-button" aria-label="Previous day" onClick={() => move(-1)}>
+        <button type="button" className="icon-button" aria-label="Previous day" onClick={() => move(-1)}>
           <ChevronLeft size={16} />
         </button>
         <input type="date" aria-label="Date" value={date} onChange={(e) => e.target.value && setDate(e.target.value)} />
-        <button className="icon-button" aria-label="Next day" onClick={() => move(1)}>
+        <button type="button" className="icon-button" aria-label="Next day" onClick={() => move(1)}>
           <ChevronRight size={16} />
         </button>
-        <button className="button small" onClick={() => setDate(isoDay(new Date()))}>
+        <button type="button" className="button small" onClick={() => setDate(isoDay(new Date()))}>
           Today
+        </button>
+        <button type="button" className="button small" onClick={retry} disabled={loading} aria-label={`Refresh ${kind}`}>
+          <RefreshCw size={12} className={loading ? "spin" : ""} /> Refresh
         </button>
         <span className="terminal-telemetry-chip mono">
           {loading ? `SYNCING ${kind.toUpperCase()}…` : `${events.length} ${kind.toUpperCase()} · NASDAQ FEED`}
         </span>
       </div>
-      {error ? <p className="error-message screener-error">{error}</p> : null}
+      {error ? (
+        <div className="error-message screener-error" role="alert">
+          <span>{error}</span>{" "}
+          <button type="button" className="link-button" onClick={retry} disabled={loading}>
+            Retry
+          </button>
+        </div>
+      ) : null}
       <div className="table-scroll">
         {kind === "earnings" ? (
           <table className="data-table">
@@ -173,7 +213,11 @@ function CorporateView({ kind }: { kind: "earnings" | "dividends" }) {
             <tbody>
               {events.map((e) => (
                 <tr key={e.symbol}>
-                  <td className="mono"><strong>{e.symbol}</strong></td>
+                  <td className="mono">
+                    <button type="button" className="link-button" onClick={() => openTickerChart(e.symbol)}>
+                      <strong>{e.symbol}</strong>
+                    </button>
+                  </td>
                   <td>{e.name}</td>
                   <td className="mono">{e.time}</td>
                   <td className="mono">{e.epsForecast || "—"}</td>
@@ -192,7 +236,11 @@ function CorporateView({ kind }: { kind: "earnings" | "dividends" }) {
             <tbody>
               {events.map((e) => (
                 <tr key={e.symbol}>
-                  <td className="mono"><strong>{e.symbol}</strong></td>
+                  <td className="mono">
+                    <button type="button" className="link-button" onClick={() => openTickerChart(e.symbol)}>
+                      <strong>{e.symbol}</strong>
+                    </button>
+                  </td>
                   <td>{e.name}</td>
                   <td className="mono">{e.exDate}</td>
                   <td className="mono">{e.payment}</td>
@@ -251,7 +299,7 @@ export function YieldChart({ curve, previous }: { curve: YieldCurve; previous?: 
 }
 
 function YieldsView() {
-  const { data, error, loading } = useFeed<{ curves: YieldCurve[] }>("kind=yields");
+  const { data, error, loading, retry } = useFeed<{ curves: YieldCurve[] }>("kind=yields");
   const curves = data?.curves ?? [];
   const latest = curves.at(-1);
   const previous = curves.at(-2);
@@ -261,11 +309,21 @@ function YieldsView() {
   return (
     <div className="calendar-view yields">
       <div className="screener-toolbar">
+        <button type="button" className="button small" onClick={retry} disabled={loading} aria-label="Refresh treasury yields">
+          <RefreshCw size={12} className={loading ? "spin" : ""} /> Refresh
+        </button>
         <span className="terminal-telemetry-chip mono">
           {loading ? "SYNCING TREASURY CURVE…" : latest ? `US TREASURY PAR CURVE · ${latest.date} · TREASURY.GOV` : "US TREASURY CURVE"}
         </span>
       </div>
-      {error ? <p className="error-message screener-error">{error}</p> : null}
+      {error ? (
+        <div className="error-message screener-error" role="alert">
+          <span>{error}</span>{" "}
+          <button type="button" className="link-button" onClick={retry} disabled={loading}>
+            Retry
+          </button>
+        </div>
+      ) : null}
       {loading && !latest ? <div className="empty-table">Loading US Treasury yield curve…</div> : null}
       {!loading && !latest && !error ? <div className="empty-table">No yield curve snapshots available.</div> : null}
       {latest ? (
@@ -316,15 +374,25 @@ function YieldsView() {
 }
 
 function MacroSentimentView() {
-  const { data, error, loading } = useFeed<GlobalMacroPulse>("kind=macro");
+  const { data, error, loading, retry } = useFeed<GlobalMacroPulse>("kind=macro");
   return (
     <div className="calendar-view">
       <div className="screener-toolbar">
+        <button type="button" className="button small" onClick={retry} disabled={loading} aria-label="Refresh macro pulse">
+          <RefreshCw size={12} className={loading ? "spin" : ""} /> Refresh
+        </button>
         <span className="terminal-telemetry-chip mono">
           {loading ? "SYNCING MACRO PULSE…" : "FRED MACRO · FEAR & GREED · CROSS-ASSET"}
         </span>
       </div>
-      {error ? <p className="error-message screener-error">{error}</p> : null}
+      {error ? (
+        <div className="error-message screener-error" role="alert">
+          <span>{error}</span>{" "}
+          <button type="button" className="link-button" onClick={retry} disabled={loading}>
+            Retry
+          </button>
+        </div>
+      ) : null}
       {loading && !data ? <div className="empty-table">Loading FRED macro &amp; cross-asset pulse…</div> : null}
       {!loading && !data && !error ? <div className="empty-table">Macro feed unavailable.</div> : null}
       {data?.fearGreed ? (
@@ -383,7 +451,7 @@ export function CalendarPanel() {
   const [tab, setTab] = useState<"economic" | "earnings" | "dividends" | "yields" | "macro">("economic");
   return (
     <div className="screener-panel">
-      <div className="panel-tabs">
+      <div className="panel-tabs" role="tablist" aria-label="Calendar views">
         {(
           [
             ["economic", "Economic"],
@@ -393,7 +461,14 @@ export function CalendarPanel() {
             ["macro", "FRED & Macro"],
           ] as const
         ).map(([id, label]) => (
-          <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)}>
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={tab === id}
+            className={tab === id ? "active" : ""}
+            onClick={() => setTab(id)}
+          >
             {label}
           </button>
         ))}

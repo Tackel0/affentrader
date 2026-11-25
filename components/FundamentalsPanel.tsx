@@ -58,15 +58,21 @@ export function FundamentalsPanel({
 
   const loadTicker = async (rawSymbol: string) => {
     const clean = rawSymbol.replace(/^YF:/i, "").trim().toUpperCase();
+    abortRef.current?.abort();
     if (!isYahooTicker(clean)) {
+      setLoading(false);
       setError("Enter a valid exchange ticker (e.g. AAPL, QCOM, SAP.DE, SHEL.L).");
       return;
     }
-    abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
     setLoading(true);
     setError("");
+    if (snapshot && snapshot.ticker !== clean) {
+      setSnapshot(null);
+      setQuant(null);
+      setLastClose(0);
+    }
     try {
       const response = await fetch(`/api/terminal-fundamentals?${new URLSearchParams({ ticker: clean })}`, {
         signal: controller.signal,
@@ -146,7 +152,14 @@ export function FundamentalsPanel({
         </span>
       </form>
 
-      {error && <p className="error-message screener-error" role="alert">{error}</p>}
+      {error && (
+        <div className="error-message screener-error" role="alert">
+          <span>{error}</span>{" "}
+          <button type="button" className="link-button" onClick={() => void loadTicker(ticker)} disabled={loading}>
+            Retry
+          </button>
+        </div>
+      )}
 
       {!snapshot && !error && (
         <div className="empty-table">

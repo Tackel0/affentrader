@@ -1,3 +1,4 @@
+import { logError } from "@/lib/server/logger";
 import { optionsFlowRequest } from "@/lib/server/optionsFlow";
 import { HttpError, isSameOriginRequest, readJson } from "@/lib/server/security";
 
@@ -9,6 +10,7 @@ export async function POST(request: Request) {
   try {
     return Response.json(await optionsFlowRequest(await readJson(request, 4096), request.signal), { headers });
   } catch (error) {
+    if (!(error instanceof HttpError)) logError("api.optionsFlow.error", error);
     return Response.json({ error: error instanceof HttpError ? error.message : "Optionsflow nicht verfügbar." },
       { status: error instanceof HttpError ? error.status : 503, headers });
   }

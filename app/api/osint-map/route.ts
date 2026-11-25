@@ -11,14 +11,18 @@ export async function GET() {
       fetchOsintMapData(),
       fetchExtendedOsintTelemetry().catch(() => null),
     ]);
+    const cacheHeaders = { "Cache-Control": "private, max-age=45" };
     if (!telemetry) {
-      return Response.json({
-        ...base,
-        marineConditions: [],
-        advisories: [],
-        aisSources: base.feedStatus.ais.ok ? ["Digitraffic Marine AIS (Baltic)"] : [],
-        adsbSources: base.feedStatus.adsb.ok ? ["adsb.lol (/v2/mil, FRA, Hormuz)"] : [],
-      });
+      return Response.json(
+        {
+          ...base,
+          marineConditions: [],
+          advisories: [],
+          aisSources: base.feedStatus.ais.ok ? ["Digitraffic Marine AIS (Baltic)"] : [],
+          adsbSources: base.feedStatus.adsb.ok ? ["adsb.lol (/v2/mil, FRA, Hormuz)"] : [],
+        },
+        { headers: cacheHeaders },
+      );
     }
 
     const flightByIcao = new Map<string, OsintFlight>();
@@ -33,23 +37,26 @@ export async function GET() {
       ...telemetry.adsbSources,
     ];
 
-    return Response.json({
-      ...base,
-      flights: mergedFlights,
-      feedStatus: {
-        ...base.feedStatus,
-        adsb: {
-          ...base.feedStatus.adsb,
-          ok: adsbOk,
-          count: mergedFlights.length,
-          ...(adsbOk ? { error: undefined } : {}),
+    return Response.json(
+      {
+        ...base,
+        flights: mergedFlights,
+        feedStatus: {
+          ...base.feedStatus,
+          adsb: {
+            ...base.feedStatus.adsb,
+            ok: adsbOk,
+            count: mergedFlights.length,
+            ...(adsbOk ? { error: undefined } : {}),
+          },
         },
+        marineConditions: telemetry.marineConditions,
+        advisories: telemetry.advisories,
+        aisSources,
+        adsbSources,
       },
-      marineConditions: telemetry.marineConditions,
-      advisories: telemetry.advisories,
-      aisSources,
-      adsbSources,
-    });
+      { headers: cacheHeaders },
+    );
   } catch (error) {
     logError("api.osintMap.error", error);
     return Response.json({ error: "OSINT map feed unavailable." }, { status: 503 });

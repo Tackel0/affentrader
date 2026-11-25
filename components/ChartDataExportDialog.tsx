@@ -33,6 +33,11 @@ function formatShortTimestamp(ms: number): string {
 /** Modal / iOS bottom sheet for exporting chart OHLCV candles as CSV or JSON (download, copy, or native share). */
 export function ChartDataExportDialog() {
   const open = useChartStore((s) => s.chartExportOpen);
+  if (!open) return null;
+  return <ChartDataExportDialogBody />;
+}
+
+function ChartDataExportDialogBody() {
   const symbol = useChartStore((s) => s.symbol);
   const timeframe = useChartStore((s) => s.timeframe);
   const candles = useChartStore((s) => s.candles);
@@ -42,31 +47,30 @@ export function ChartDataExportDialog() {
   const [scope, setScope] = useState<ChartDataExportScope>("all");
   const [copied, setCopied] = useState(false);
 
-  const primary = open ? getPrimaryChart() : null;
+  const primary = getPrimaryChart();
   const replay = primary?.replay.state;
   const visibleRange = primary?.getVisibleRange?.() ?? null;
 
   const allBars = useMemo(() => {
-    if (!open) return [];
     if (replay?.active && replay.cursorTime != null) {
       return candles.filter((b) => b.time <= replay.cursorTime!);
     }
     return candles;
-  }, [open, candles, replay?.active, replay?.cursorTime]);
+  }, [candles, replay?.active, replay?.cursorTime]);
 
   const visibleBars = useMemo(
-    () => (open ? filterBarsByVisibleRange(allBars, visibleRange) : []),
-    [open, allBars, visibleRange],
+    () => filterBarsByVisibleRange(allBars, visibleRange),
+    [allBars, visibleRange],
   );
 
   const selectedBars = scope === "visible" && visibleBars.length > 0 ? visibleBars : allBars;
 
   const content = useMemo(() => {
-    if (!open || !selectedBars.length) return "";
+    if (!selectedBars.length) return "";
     return format === "csv"
       ? chartDataCsv(selectedBars, symbol, timeframe, lineage)
       : chartDataJson(selectedBars, symbol, timeframe, lineage, scope);
-  }, [open, selectedBars, format, symbol, timeframe, lineage, scope]);
+  }, [selectedBars, format, symbol, timeframe, lineage, scope]);
 
   const preview = useMemo(() => {
     if (!content) return "";
@@ -74,8 +78,6 @@ export function ChartDataExportDialog() {
     const head = lines.slice(0, format === "csv" ? 4 : 12).join("\n");
     return lines.length > (format === "csv" ? 4 : 12) ? `${head}\n…` : head;
   }, [content, format]);
-
-  if (!open) return null;
 
   const close = () => {
     setCopied(false);

@@ -5,8 +5,12 @@ import { iexSymbol, sipSymbol, IEX_TICKER } from "@/lib/symbolId";
 import { useChartStore } from "@/stores/useChartStore";
 import { Modal } from "./ui";
 export function MarketConnections() {
+  const open = useAlpacaStore((s) => s.open);
+  if (!open) return null;
+  return <MarketConnectionsBody />;
+}
+function MarketConnectionsBody() {
   const state = useAlpacaStore(), [key, setKey] = useState(""), [secret, setSecret] = useState(""), [ticker, setTicker] = useState("AAPL"), [error, setError] = useState("");
-  if (!state.open) return null;
   const close = () => { setKey(""); setSecret(""); setError(""); useAlpacaStore.setState({ open: false }); };
   const openChart = (feed: "iex" | "sip") => {
     if (!IEX_TICKER.test(ticker.trim())) {

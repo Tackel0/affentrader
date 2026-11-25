@@ -19,6 +19,7 @@ export async function GET(request: Request) {
   try {
     return Response.json(
       await scanTradeOpportunities(params.get("market") ?? "us", page, undefined, undefined, undefined, undefined, request.signal),
+      { headers: { "Cache-Control": "private, max-age=60" } },
     );
   } catch (error) {
     if (error instanceof InvalidOpportunityScan) {

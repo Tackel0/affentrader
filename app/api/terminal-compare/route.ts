@@ -72,7 +72,10 @@ export async function GET(request: Request) {
       bar.session >= series[0].session && other.has(bar.session) &&
       currencies.some(currency => rates.has(currency) && !rates.get(currency)!.get(bar.session)),
     ).length;
-    return Response.json({ tickers, basis, currencies, asOf: latest.session, observations: shared.length, latestSessions, unmatchedInstrumentDates, missingFxSessions, rows, retestRow, series });
+    return Response.json(
+      { tickers, basis, currencies, asOf: latest.session, observations: shared.length, latestSessions, unmatchedInstrumentDates, missingFxSessions, rows, retestRow, series },
+      { headers: { "Cache-Control": "private, max-age=60" } },
+    );
   } catch (error) {
     logError("api.terminalCompare.error", error, { tickers, basis });
     return Response.json({ error: "Yahoo Finance history is unavailable for this comparison." }, { status: 503 });

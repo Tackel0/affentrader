@@ -6,7 +6,10 @@ export const maxDuration = 25;
 
 export async function GET() {
   try {
-    return Response.json({ rows: await terminalMarkets() });
+    return Response.json(
+      { rows: await terminalMarkets() },
+      { headers: { "Cache-Control": "private, max-age=120" } },
+    );
   } catch (error) {
     logError("api.terminalMarkets.error", error);
     return Response.json({ error: "Market overview is unavailable." }, { status: 503 });

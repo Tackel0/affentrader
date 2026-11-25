@@ -147,7 +147,10 @@ export function HeatmapPanel({ onSelectSymbol }: { onSelectSymbol?: (symbol: str
     };
     refresh.current = fetchSnapshot;
     fetchSnapshot();
-    const timer = setInterval(fetchSnapshot, 20_000);
+    const timer = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      fetchSnapshot();
+    }, 20_000);
     return () => {
       active = false;
       refresh.current = undefined;
@@ -251,10 +254,10 @@ export function HeatmapPanel({ onSelectSymbol }: { onSelectSymbol?: (symbol: str
         </span>
         {sectors.length > 0 && (
           <select
+            className="heatmap-sector-select"
             aria-label="Filter GICS sector"
             value={selectedSector}
             onChange={(e) => setSectorFilter(e.target.value)}
-            style={{ fontSize: 11, height: 24, padding: "2px 6px", background: "var(--surface)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: 4 }}
           >
             <option value="all">All Sectors ({sectors.length})</option>
             {sectors.map((sec) => (
@@ -266,14 +269,33 @@ export function HeatmapPanel({ onSelectSymbol }: { onSelectSymbol?: (symbol: str
         )}
         <span className="flex-1" />
         <span className="terminal-telemetry-chip mono">{statusChip}</span>
-        <button className="icon-button" aria-label="Refresh heatmap" onClick={() => refresh.current?.()} disabled={busy}>
+        <button type="button" className="icon-button" aria-label="Refresh heatmap" onClick={() => refresh.current?.()} disabled={busy}>
           <RefreshCw size={13} className={busy ? "spin" : ""} />
         </button>
       </div>
-      {error && items.length > 0 ? <p className="heatmap-status" role="status">{error} Showing the last available data.</p> : null}
+      {error && items.length > 0 ? (
+        <p className="heatmap-status" role="alert">
+          {error} Showing the last available data.{" "}
+          <button type="button" className="link-button" onClick={() => refresh.current?.()} disabled={busy}>
+            Retry
+          </button>
+        </p>
+      ) : null}
       <div className="heatmap-body" ref={host}>
         <HeatmapTiles rects={rects} isStockSectors={isStockSectors} changeSuffix={changeMode === "us-close" ? ` (${usCloseLabel})` : ""} onHover={setHover} onSelect={choose} />
-        {!rects.length ? <p className="heat-empty" role="status">{(items.length === 0 && error) || (busy ? "Loading markets…" : "No data.")}</p> : null}
+        {!rects.length ? (
+          <p className="heat-empty" role={items.length === 0 && error ? "alert" : "status"}>
+            {(items.length === 0 && error) || (busy ? "Loading markets…" : "No data.")}
+            {items.length === 0 && error ? (
+              <>
+                {" "}
+                <button type="button" className="link-button" onClick={() => refresh.current?.()} disabled={busy}>
+                  Retry
+                </button>
+              </>
+            ) : null}
+          </p>
+        ) : null}
         {hover ? (
           <div className="heat-hover mono">
             {symbolLabel(hover.symbol)}
@@ -295,12 +317,15 @@ const HeatmapTiles = memo(function HeatmapTiles({ rects, isStockSectors, changeS
 }) {
   return rects.map(({ item, x, y, width, height }) => {
     const pct = Number.isFinite(item.change) ? `${item.change >= 0 ? "+" : ""}${item.change.toFixed(2)}%` : "—";
+    const summary = `${symbolLabel(item.symbol)}${item.sector ? ` · ${item.sector}` : ""} · ${pct}${changeSuffix} · ${isStockSectors ? `MCap $${item.size.toFixed(1)}B` : `volume ${formatVolume(item.size)}`}`;
     return (
       <button
         key={item.symbol}
+        type="button"
         className="heat-tile"
         style={{ left: x, top: y, width: Math.max(0, width - 1), height: Math.max(0, height - 1), background: heatColor(item.change) }}
-        title={`${symbolLabel(item.symbol)}${item.sector ? ` · ${item.sector}` : ""} · ${pct}${changeSuffix} · ${isStockSectors ? `MCap $${item.size.toFixed(1)}B` : `volume ${formatVolume(item.size)}`}`}
+        aria-label={summary}
+        title={summary}
         onMouseEnter={() => onHover(item.symbol)}
         onMouseLeave={() => onHover(null)}
         onFocus={() => onHover(item.symbol)}

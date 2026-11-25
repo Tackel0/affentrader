@@ -63,9 +63,9 @@ export function StockBaseScanner({ onCompare }: { onCompare?: (ticker: string, b
         });
         if (controller.signal.aborted) return;
         if (combined && (response.status === 429 || response.status >= 500)) setRetryKey(scanKey);
-        const data = await response.json() as StockBaseScan & { error?: string };
+        const data = (await response.json().catch(() => null)) as (StockBaseScan & { error?: string }) | null;
         if (controller.signal.aborted) return;
-        if (!response.ok) throw new Error(data.error ?? "Stock scan unavailable.");
+        if (!response.ok || !data) throw new Error(data?.error ?? "Stock scan unavailable.");
         if (custom) Object.assign(data, { page, pages: watchPages, universe: watchTickers.length });
         combined = mergeStockBasePages(combined, data);
         setResult(combined);

@@ -1,6 +1,6 @@
 "use client";
 import { accountScopedName } from "@/lib/accountScope";
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { type ComponentType, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { ExternalLink, LayoutGrid, Maximize2, Minimize2, X } from "lucide-react";
 import { useChartStore } from "@/stores/useChartStore";
 import { useLinkStore } from "@/stores/useLinkStore";
@@ -26,24 +26,42 @@ import { hyperliquidCatalog } from "@/hooks/useHyperliquidCatalog";
 import { buildMissingOrderflowIndicators, resolveOrderflowTarget } from "@/lib/orderflow/equityOrderflow";
 import { broadcastWorkspaceAction } from "@/hooks/useWindowLink";
 import { openAffenTerminalWindow } from "@/lib/windowScope";
-import { StockBaseScanner } from "./StockBaseScanner";
-import { OpportunitiesHub } from "./OpportunitiesHub";
-import { SetupResearch } from "./SetupResearch";
 import { InsiderResearch } from "./InsiderResearch";
 import { OptionsFlowPanel } from "./OptionsFlowPanel";
 import { SocialResearch } from "./SocialResearch";
-import { FundamentalsPanel } from "./FundamentalsPanel";
 import { NewsPanel } from "./NewsPanel";
-import { CalendarPanel } from "./CalendarPanel";
 import { TerminalMarkets } from "./TerminalMarkets";
-import { TerminalCompare } from "./TerminalCompare";
-import { NoiseMeterPanel } from "./NoiseMeterPanel";
 import { ModuleErrorBoundary } from "./ModuleErrorBoundary";
 import { TerminalModulePicker, TerminalShortcuts } from "./TerminalNavigation";
 import { COMPACT_WORKSPACE_QUERY } from "@/lib/chart/bottomPanelResize";
 
-const HeatmapPanel = lazy(() => import("./HeatmapPanel").then(({ HeatmapPanel }) => ({ default: HeatmapPanel })));
-const OsintMapPanel = lazy(() => import("./OsintMapPanel").then(({ OsintMapPanel }) => ({ default: OsintMapPanel })));
+const loadHeatmapPanel = () => import("./HeatmapPanel").then(({ HeatmapPanel }) => ({ default: HeatmapPanel }));
+const loadOsintMapPanel = () => import("./OsintMapPanel").then(({ OsintMapPanel }) => ({ default: OsintMapPanel }));
+const loadNoiseMeterPanel = () => import("./NoiseMeterPanel").then(({ NoiseMeterPanel }) => ({ default: NoiseMeterPanel }));
+const loadOpportunitiesHub = () => import("./OpportunitiesHub").then(({ OpportunitiesHub }) => ({ default: OpportunitiesHub }));
+const loadStockBaseScanner = () => import("./StockBaseScanner").then(({ StockBaseScanner }) => ({ default: StockBaseScanner }));
+const loadFundamentalsPanel = () => import("./FundamentalsPanel").then(({ FundamentalsPanel }) => ({ default: FundamentalsPanel }));
+const loadCalendarPanel = () => import("./CalendarPanel").then(({ CalendarPanel }) => ({ default: CalendarPanel }));
+const loadSetupResearch = () => import("./SetupResearch").then(({ SetupResearch }) => ({ default: SetupResearch }));
+const loadTerminalCompare = () => import("./TerminalCompare").then(({ TerminalCompare }) => ({ default: TerminalCompare }));
+
+function DeferredTerminalView<P extends object>({
+  label,
+  load,
+  props,
+}: {
+  label: string;
+  load: () => Promise<{ default: ComponentType<P> }>;
+  props: P;
+}) {
+  // Fresh lazy wrapper per mount so ModuleErrorBoundary Retry recovers from transient chunk failures.
+  const [Component] = useState(() => lazy(load));
+  return (
+    <Suspense fallback={<p className="form-help" role="status">Loading {label}…</p>}>
+      <Component {...props} />
+    </Suspense>
+  );
+}
 
 type Capm = NonNullable<ReturnType<typeof terminalCapm>> & {
   ticker: string;
@@ -411,6 +429,7 @@ export function ResearchTerminal({
   const [message, setMessage] = useState("");
   const [statusTone, setStatusTone] = useState<StatusTone>("neutral");
   const [loading, setLoading] = useState(false);
+  const [refreshNonce, setRefreshNonce] = useState(0);
 
   const request = useRef<AbortController | null>(null);
   const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -656,6 +675,7 @@ export function ResearchTerminal({
           break;
         case "F5":
           e.preventDefault();
+          setRefreshNonce((n) => n + 1);
           setStatusTone("ok");
           setMessage("Refreshed active data feeds.");
           break;
@@ -723,8 +743,8 @@ export function ResearchTerminal({
       const response = await fetch(`/api/terminal-capm?${new URLSearchParams({ ticker: symbol, market, rf: rate })}`, {
         signal: controller.signal,
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? "CAPM unavailable.");
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data) throw new Error(data?.error ?? `CAPM unavailable (HTTP ${response.status}).`);
       if (!controller.signal.aborted) setAnalysis(data);
     } catch (error) {
       if (!controller.signal.aborted) {
@@ -925,21 +945,31 @@ export function ResearchTerminal({
     switch (paneView) {
       case "opps":
         return (
-          <OpportunitiesHub
-            onSelectOpportunity={(setup, fundamentals) => {
-              if (activePane === paneId && (paneId !== "p1" || view === "opps")) handleOpportunitySelect(setup, fundamentals);
-            }}
-            onCompare={(sym, bench, session) => {
-              reset();
-              setComparison([sym, bench, session]);
-              setPaneView(paneId, "compare");
+          <DeferredTerminalView
+            label="trade setups"
+            load={loadOpportunitiesHub}
+            props={{
+              onSelectOpportunity: (setup: TradeOpportunity, fundamentals: FundamentalSnapshot | null) => {
+                if (activePane === paneId && (paneId !== "p1" || view === "opps")) handleOpportunitySelect(setup, fundamentals);
+              },
+              onCompare: (sym: string, bench: string, session: string) => {
+                reset();
+                setComparison([sym, bench, session]);
+                setPaneView(paneId, "compare");
+              },
             }}
           />
         );
       case "fa":
-        return <FundamentalsPanel initialTicker={ticker} preloaded={faPreload} onOpenChart={openChart} />;
+        return (
+          <DeferredTerminalView
+            label="fundamentals"
+            load={loadFundamentalsPanel}
+            props={{ initialTicker: ticker, preloaded: faPreload, onOpenChart: openChart }}
+          />
+        );
       case "journal":
-        return <SetupResearch externalWindow={externalWindow} />;
+        return <DeferredTerminalView label="setup journal" load={loadSetupResearch} props={{ externalWindow }} />;
       case "insiders":
         return <InsiderResearch initialTicker={ticker} onTickerSelect={selectResearchTicker} />;
       case "optionsflow":
@@ -948,38 +978,34 @@ export function ResearchTerminal({
         return <SocialResearch activeTicker={ticker} requestedTicker={socialTicker} />;
       case "scan":
         return (
-          <StockBaseScanner
-            onCompare={(sym, bench, retest) => {
-              reset();
-              setComparison([sym, bench, retest]);
-              setPaneView(paneId, "compare");
+          <DeferredTerminalView
+            label="stock base scanner"
+            load={loadStockBaseScanner}
+            props={{
+              onCompare: (sym: string, bench: string, retest: string) => {
+                reset();
+                setComparison([sym, bench, retest]);
+                setPaneView(paneId, "compare");
+              },
             }}
           />
         );
       case "news":
         return <NewsPanel />;
       case "macro":
-        return <CalendarPanel />;
+        return <DeferredTerminalView label="calendar" load={loadCalendarPanel} props={{}} />;
       case "heatmap":
-        return (
-          <Suspense fallback={<p className="form-help" role="status">Loading heatmap…</p>}>
-            <HeatmapPanel onSelectSymbol={syncSymbol} />
-          </Suspense>
-        );
+        return <DeferredTerminalView label="heatmap" load={loadHeatmapPanel} props={{ onSelectSymbol: syncSymbol }} />;
       case "osint":
-        return (
-          <Suspense fallback={<p className="form-help" role="status">Loading map…</p>}>
-            <OsintMapPanel onSelectSymbol={syncSymbol} />
-          </Suspense>
-        );
+        return <DeferredTerminalView label="map" load={loadOsintMapPanel} props={{ onSelectSymbol: syncSymbol }} />;
       case "markets":
         if (paneId === "p3") {
           return (
             <>
-              <ModuleErrorBoundary moduleName="Markets" resetKey={`${paneId}:markets:primary`} compact>
+              <ModuleErrorBoundary moduleName="Markets" resetKey={`${paneId}:markets:primary:${refreshNonce}`} compact>
                 <TerminalMarkets openChart={openChart} />
               </ModuleErrorBoundary>
-              <ModuleErrorBoundary moduleName="News" resetKey={`${paneId}:markets:news`} compact>
+              <ModuleErrorBoundary moduleName="News" resetKey={`${paneId}:markets:news:${refreshNonce}`} compact>
                 <NewsPanel />
               </ModuleErrorBoundary>
             </>
@@ -987,7 +1013,14 @@ export function ResearchTerminal({
         }
         return <TerminalMarkets openChart={openChart} />;
       case "compare":
-        return <TerminalCompare key={comparison?.join(":") ?? "default"} setupComparison={comparison} />;
+        return (
+          <DeferredTerminalView
+            key={comparison?.join(":") ?? "default"}
+            label="comparison"
+            load={loadTerminalCompare}
+            props={{ setupComparison: comparison }}
+          />
+        );
       case "capm":
         return (
           <TerminalCapmView
@@ -1005,10 +1038,14 @@ export function ResearchTerminal({
         );
       case "noise":
         return (
-          <NoiseMeterPanel
-            initialTicker={ticker}
-            onOpenChart={openChart}
-            onTickerSelect={selectResearchTicker}
+          <DeferredTerminalView
+            label="NoiseMeter"
+            load={loadNoiseMeterPanel}
+            props={{
+              initialTicker: ticker,
+              onOpenChart: openChart,
+              onTickerSelect: selectResearchTicker,
+            }}
           />
         );
       case "help":
@@ -1037,6 +1074,9 @@ export function ResearchTerminal({
             id="terminal-command"
             aria-label="Ticker oder Terminal-Befehl"
             aria-keyshortcuts="Alt+K"
+            aria-autocomplete="list"
+            aria-expanded={isAutocompleteOpen && suggestions.length > 0}
+            aria-controls={isAutocompleteOpen && suggestions.length > 0 ? "terminal-autocomplete-list" : undefined}
             value={command}
             onChange={(e) => {
               const val = e.target.value;
@@ -1120,7 +1160,7 @@ export function ResearchTerminal({
           />
 
           {isAutocompleteOpen && suggestions.length > 0 && (
-            <div className="terminal-autocomplete" role="listbox" aria-label="Command suggestions">
+            <div id="terminal-autocomplete-list" className="terminal-autocomplete" role="listbox" aria-label="Command suggestions">
               {suggestions.map((item, idx) => {
                 const pickSuggestion = () => {
                   const now = Date.now();
@@ -1257,14 +1297,14 @@ export function ResearchTerminal({
 
             <div className="pane-content">
               {opportunitiesVisited && (
-                <div hidden={view !== "opps"}>
-                  <ModuleErrorBoundary moduleName="Opportunities" resetKey="p1:opps">
+                <div hidden={view !== "opps"} key={`p1:opps:${refreshNonce}`}>
+                  <ModuleErrorBoundary moduleName="Opportunities" resetKey={`p1:opps:${refreshNonce}`}>
                     {renderPaneBody("opps", "p1")}
                   </ModuleErrorBoundary>
                 </div>
               )}
               {view !== "opps" && (
-                <ModuleErrorBoundary moduleName={getPaneTitle(view)} resetKey={`p1:${view}`}>
+                <ModuleErrorBoundary key={`p1:${view}:${refreshNonce}`} moduleName={getPaneTitle(view)} resetKey={`p1:${view}:${refreshNonce}`}>
                   {renderPaneBody(view, "p1")}
                 </ModuleErrorBoundary>
               )}
@@ -1275,7 +1315,7 @@ export function ResearchTerminal({
         {layoutMode !== "single" && (!maximizedPane || maximizedPane === "p2") && (
           <aside
             className={`terminal-pane terminal-secondary-pane${activePane === "p2" ? " active-pane" : ""}`}
-            aria-label="Synchronisiertes Fundamental-Panel"
+            aria-label={`Pane 2: ${getPaneTitle(resolvedPane2View)}`}
             onClick={() => setActivePane("p2")}
           >
             <TerminalTileHeader
@@ -1293,7 +1333,7 @@ export function ResearchTerminal({
 
             <div className="pane-content">
               {layoutReady && (
-                <ModuleErrorBoundary moduleName={getPaneTitle(resolvedPane2View)} resetKey={`p2:${resolvedPane2View}`}>
+                <ModuleErrorBoundary key={`p2:${resolvedPane2View}:${refreshNonce}`} moduleName={getPaneTitle(resolvedPane2View)} resetKey={`p2:${resolvedPane2View}:${refreshNonce}`}>
                   {renderPaneBody(resolvedPane2View, "p2")}
                 </ModuleErrorBoundary>
               )}
@@ -1304,7 +1344,7 @@ export function ResearchTerminal({
         {layoutMode === "split-3" && (!maximizedPane || maximizedPane === "p3") && (
           <aside
             className={`terminal-pane terminal-tertiary-pane${activePane === "p3" ? " active-pane" : ""}`}
-            aria-label="Live Markets und News Feed"
+            aria-label={`Pane 3: ${getPaneTitle(pane3View)}`}
             onClick={() => setActivePane("p3")}
           >
             <TerminalTileHeader
@@ -1322,7 +1362,7 @@ export function ResearchTerminal({
 
             <div className="pane-content">
               {layoutReady && (
-                <ModuleErrorBoundary moduleName={getPaneTitle(pane3View)} resetKey={`p3:${pane3View}`}>
+                <ModuleErrorBoundary key={`p3:${pane3View}:${refreshNonce}`} moduleName={getPaneTitle(pane3View)} resetKey={`p3:${pane3View}:${refreshNonce}`}>
                   {renderPaneBody(pane3View, "p3")}
                 </ModuleErrorBoundary>
               )}

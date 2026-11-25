@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
   if (timeframe && (!isValidInterval(timeframe) || timeframe.endsWith("T"))) {
     return NextResponse.json({ error: "Choose a time-based interval." }, { status: 400 });
   }
-  if (!Number.isFinite(limit) || limit < 1) {
+  if (!Number.isInteger(limit) || limit < 1) {
     return NextResponse.json({ error: "Invalid limit." }, { status: 400 });
   }
   if (!Number.isFinite(minTurnover) || minTurnover < 0) {
@@ -31,13 +31,18 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    const signal = request.signal
+      ? AbortSignal.any([request.signal, AbortSignal.timeout(50_000)])
+      : AbortSignal.timeout(50_000);
     return NextResponse.json(
       await runScreener({
         timeframe,
         limit,
         minTurnover,
         market: market as ScreenerMarket,
+        signal,
       }),
+      { headers: { "Cache-Control": "private, max-age=30" } },
     );
   } catch (error) {
     if (error instanceof ScreenerValidationError) {

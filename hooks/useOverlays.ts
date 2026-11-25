@@ -189,7 +189,7 @@ export function useOverlays(chart: Vela | null) {
     };
     refresh();
     let last = 0;
-    const expiry=setInterval(()=>{if(activeAccount(usePaperStore.getState()).positions.some(p=>p.symbol===symbol))refresh();},1000);
+    const expiry=setInterval(()=>{if(typeof document!=="undefined"&&document.hidden)return;if(activeAccount(usePaperStore.getState()).positions.some(p=>p.symbol===symbol))refresh();},1000);
     const off = usePaperStore.subscribe((state, previous) => {
       // Price ticks only matter for the P&L label, so they are throttled.
       const accountChanged =

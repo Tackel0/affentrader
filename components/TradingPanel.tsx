@@ -64,7 +64,7 @@ export function EquityChart({
 function OrderTicket() {
   const symbol = useChartStore((s) => s.symbol);
   const ticket = usePaperStore((s) => s.ticket);
-  const prices = usePaperStore(s=>s.prices);
+  const price = usePaperStore((s) => s.prices[symbol]);
   const marks=usePaperMarkPrices();
   const priceSource=usePaperStore(s=>s.mode==="replay"?s.replaySource:s.liveSources[symbol]);
   const mode = usePaperStore((s) => s.mode);
@@ -72,7 +72,11 @@ function OrderTicket() {
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
   const [busy,setBusy]=useState(false);
   const [levelsOpen,setLevelsOpen]=useState(false),contextEpoch=usePaperStore(s=>s.contextEpoch);
-  const price = prices[symbol];
+  const [qtyDraft, setQtyDraft] = useState(() => String(ticket.quantity));
+  const qtyFocusedRef = useRef(false);
+  useEffect(() => {
+    if (!qtyFocusedRef.current) setQtyDraft(String(ticket.quantity));
+  }, [ticket.quantity]);
   const book=usePaperQuote(symbol),execution=book?(ticket.side==="buy"?book.ask:book.bid):price;
   const set = (patch: Partial<Ticket>) => usePaperStore.getState().setTicket(patch);
   const num = (v: string) => (v === "" ? undefined : Number(v));
@@ -163,13 +167,20 @@ function OrderTicket() {
       <label>
         Quantity ({asset.base})
         <input
-          type="number"
+          type="text"
+          inputMode="decimal"
           aria-label={`Quantity (${asset.base})`}
-          min={0}
-          step="any"
-          value={ticket.quantity}
+          value={qtyDraft}
+          onFocus={() => { qtyFocusedRef.current = true; }}
+          onBlur={() => {
+            qtyFocusedRef.current = false;
+            setQtyDraft(String(ticket.quantity));
+          }}
           onChange={(e) => {
-            const raw = e.target.value === "" ? 0 : Number(e.target.value);
+            const next = e.target.value.replace(",", ".");
+            if (next !== "" && !/^\d*\.?\d*$/.test(next)) return;
+            setQtyDraft(next);
+            const raw = next === "" || next === "." ? 0 : Number(next);
             if (!Number.isFinite(raw) || raw < 0) return;
             const prevQty = lastPositiveQtyRef.current;
             const hasLevels = Boolean(ticket.exitLevels?.length);
@@ -201,6 +212,7 @@ function OrderTicket() {
               const prevQty = lastPositiveQtyRef.current;
               const hasLevels = Boolean(ticket.exitLevels?.length);
               const scaled = quantity > 0 && hasLevels ? scaleExitLevels(ticket.exitLevels, prevQty, quantity) : undefined;
+              setQtyDraft(String(quantity));
               set({
                 quantity,
                 ...(quantity > 0 && hasLevels ? { exitLevels: scaled } : {}),
@@ -476,8 +488,8 @@ export function TradingPanel() {
           ))}
           <span className="flex-1" />
           {mode === "replay" ? <span className="mode-badge replay">Replay account</span> : null}
-          {account.positions.length || working ? (
-            <button className="link-button" onClick={() => void paperCommands.cancelAll()}>
+          {working > 0 ? (
+            <button type="button" className="link-button" onClick={() => void paperCommands.cancelAll()}>
               Cancel all orders
             </button>
           ) : null}

@@ -13,7 +13,10 @@ export async function GET(request: Request) {
   const market = STOCK_BASE_MARKETS.find(m => m.id === (q.get("market") ?? "us")), rf = Number(q.get("rf") ?? 0);
   if (!isYahooTicker(ticker) || !market || !Number.isFinite(rf) || rf < -20 || rf > 50) return Response.json({ error: "Enter a Yahoo ticker, a supported benchmark and a rate from −20% to 50%." }, { status: 400 });
   try {
-    const now = Date.now(), period2 = Math.floor(now / 60_000) * 60, deadline = AbortSignal.timeout(22_000);
+    const now = Date.now(), period2 = Math.floor(now / 60_000) * 60;
+    const deadline = request.signal
+      ? AbortSignal.any([request.signal, AbortSignal.timeout(22_000)])
+      : AbortSignal.timeout(22_000);
     const fetcher: typeof fetch = (input, init) => fetch(input, { ...init, signal: init?.signal ? AbortSignal.any([deadline, init.signal]) : deadline });
     const load = async (symbol: string) => {
       const data = await yahooChart({ ticker: symbol, interval: "1d", period1: period2 - 365 * 86400, period2, extended: false }, fetcher);
@@ -24,7 +27,10 @@ export async function GET(request: Request) {
     if (asset.data.meta.currency !== benchmark.data.meta.currency) return Response.json({ error: "Choose a benchmark in the same currency." }, { status: 422 });
     const stats = terminalCapm(asset.bars, benchmark.bars, rf / 100);
     if (!stats) return Response.json({ error: "At least 29 matching daily returns with nonzero variance are required." }, { status: 422 });
-    return Response.json({ ticker, name: asset.data.meta.name, benchmark: market.benchmarkLabel, currency: asset.data.meta.currency, asOf: [asset.bars.at(-1)!.session, benchmark.bars.at(-1)!.session].sort()[0], riskFree: rf, ...stats });
+    return Response.json(
+      { ticker, name: asset.data.meta.name, benchmark: market.benchmarkLabel, currency: asset.data.meta.currency, asOf: [asset.bars.at(-1)!.session, benchmark.bars.at(-1)!.session].sort()[0], riskFree: rf, ...stats },
+      { headers: { "Cache-Control": "private, max-age=60" } },
+    );
   } catch (error) {
     logError("api.terminalCapm.error", error, { ticker });
     return Response.json({ error: "Yahoo Finance daily history is unavailable for this analysis." }, { status: 503 });

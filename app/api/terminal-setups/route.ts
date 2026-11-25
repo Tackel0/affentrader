@@ -3,6 +3,7 @@ import { exchangeOfTicker } from "@/lib/markets";
 import { isYahooTicker } from "@/lib/symbolId";
 import { completedStockDays, STOCK_BASE_MARKETS } from "@/lib/screener/stockBase";
 import { reconstructSetupHistory, SETUP_REPLAY_SESSIONS } from "@/lib/screener/setupJournal";
+import { logError } from "@/lib/server/logger";
 import { yahooChart } from "@/lib/server/yahoo";
 
 export const dynamic = "force-dynamic";
@@ -29,8 +30,12 @@ export async function GET(request: Request) {
       market: market.id, sector: "—" };
     const records = reconstructSetupHistory(bars, nominalBars, benchmark, metadata);
     const sessions = Math.min(SETUP_REPLAY_SESSIONS, bars.length - 60);
-    return Response.json({ records, sessions, benchmark: market.benchmarkLabel });
-  } catch {
+    return Response.json(
+      { records, sessions, benchmark: market.benchmarkLabel },
+      { headers: { "Cache-Control": "private, max-age=60" } },
+    );
+  } catch (error) {
+    logError("api.terminalSetups.error", error, { ticker });
     return Response.json({ error: "Historische Tagesdaten vorübergehend nicht verfügbar." }, { status: 503 });
   }
 }

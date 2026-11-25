@@ -80,7 +80,8 @@
 .workspace-panel-menu { position: absolute; top: auto; right: 4px; bottom: calc(100% + 4px); width: 230px; padding: 6px 0; max-height: min(480px, 70vh); overflow-y: auto; }
 .workspace-panel-menu button { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 34px; padding: 0 14px; font-size: 13px; text-align: left; }
 .workspace-panel-menu button span { flex: 1; }
-.workspace-panel-menu button:hover, .workspace-panel-menu button:focus-visible { background: var(--tv-hover); outline: none; }
+.workspace-panel-menu button:hover { background: var(--tv-hover); }
+.workspace-panel-menu button:focus-visible { background: var(--tv-hover); outline: 2px solid var(--accent); outline-offset: -2px; }
 .workspace-panel-menu button[aria-checked="true"] { color: var(--accent); }
 .bottom-panel.resizable-panel {
   display: flex;
@@ -2781,6 +2782,10 @@ body {
   background: color-mix(in srgb, var(--surface2, var(--surface)) 78%, transparent);
   color: var(--muted);
 }
+.drawing-favorites-search:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
 .drawing-favorites-search > input {
   flex: 1 1 auto;
   min-width: 0;
@@ -2922,6 +2927,10 @@ body {
   border: 1px solid var(--border);
   background: color-mix(in srgb, var(--surface) 84%, transparent);
 }
+.noise-search-form:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
 .noise-search-form > input {
   flex: 1 1 auto;
   min-width: 0;
@@ -2932,6 +2941,19 @@ body {
   font-weight: 600;
   letter-spacing: 0.02em;
   outline: none;
+}
+.heatmap-sector-select {
+  font-size: 11px;
+  height: 24px;
+  padding: 2px 6px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.symbol-result.highlighted {
+  background: var(--tv-hover, color-mix(in srgb, var(--accent) 14%, transparent));
+  outline: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
 }
 .noise-years-group {
   display: flex;

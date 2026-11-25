@@ -101,14 +101,20 @@ export function AlertsPanel({ onClose }: { onClose?: () => void } = {}) {
           ) : null}
         </div>
       </div>
-      <div className="panel-tabs">
+      <div className="panel-tabs" role="tablist" aria-label="Alerts views">
         <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "alerts"}
           className={tab === "alerts" ? "active" : ""}
           onClick={() => setTab("alerts")}
         >
           Alerts
         </button>
         <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "log"}
           className={tab === "log" ? "active" : ""}
           onClick={() => setTab("log")}
         >
@@ -116,6 +122,11 @@ export function AlertsPanel({ onClose }: { onClose?: () => void } = {}) {
         </button>
       </div>
       {tab === "alerts" ? (
+        (() => {
+          const visibleRules = rules.filter((r) => filter === "all" || r.status === filter);
+          const visibleAlerts = alerts.filter((a) => filter === "all" || a.status === filter);
+          const totalCount = alerts.length + rules.length;
+          return (
         <>
           <div className="alert-filters">
             <select
@@ -130,17 +141,13 @@ export function AlertsPanel({ onClose }: { onClose?: () => void } = {}) {
             <option value="expired">Expired</option>
             <option value="stopped">Stopped</option>
             </select>
-            <span>{alerts.length + rules.length} total</span>
+            <span>{totalCount} total</span>
           </div>
           <div className="alerts-list" role="region" aria-label="Alert list" tabIndex={0}>
-            {rules
-              .filter((r) => filter === "all" || r.status === filter)
-              .map((r) => (
+            {visibleRules.map((r) => (
                 <RuleCard key={r.id} rule={r} />
               ))}
-            {alerts
-              .filter((a) => filter === "all" || a.status === filter)
-              .map((a) => (
+            {visibleAlerts.map((a) => (
                 <div key={a.id} className="alert-card">
                   <div className="alert-card-title">
                     <AssetBadge symbol={a.symbol} size="xs" />
@@ -215,7 +222,7 @@ export function AlertsPanel({ onClose }: { onClose?: () => void } = {}) {
                   </div>
                 </div>
               ))}
-          {!alerts.length && !rules.length ? (
+          {totalCount === 0 ? (
             <div className="empty-state alert-empty">
               <div className="empty-icon">
                 <Bell size={26} />
@@ -226,15 +233,24 @@ export function AlertsPanel({ onClose }: { onClose?: () => void } = {}) {
                 <br />
                 We’ll let you know when it happens.
               </p>
-              <button className="button primary" onClick={create}>
+              <button type="button" className="button primary" onClick={create}>
                 <Plus size={14} />
                 Create your first alert
               </button>
               <small>Or click the chart’s price scale.</small>
             </div>
+          ) : visibleRules.length === 0 && visibleAlerts.length === 0 ? (
+            <div className="empty-state alert-empty">
+              <p>No {filter} alerts.</p>
+              <button type="button" className="button small" onClick={() => setFilter("all")}>
+                Show all alerts
+              </button>
+            </div>
           ) : null}
           </div>
         </>
+          );
+        })()
       ) : (
         <>
           <div className="alert-filters">
@@ -474,6 +490,11 @@ function AlertForm({
     simulated: existing?.simulated??draft.tpoReference?.simulated??current.quotes[symbol]?.simulated??(current.feedMode==="simulation"),
   });
   const [trigger, setTrigger] = useState<AlertTrigger | "legacy">(existing ? existing.trigger ?? "legacy" : "once");
+  const [priceText, setPriceText] = useState(() => (initialPrice > 0 ? String(initialPrice) : ""));
+  const [upperPriceText, setUpperPriceText] = useState(() => {
+    const initialUpper = existing?.upperPrice ?? draft.upperPrice ?? (initialPrice > 0 ? initialPrice * 1.01 : undefined);
+    return initialUpper !== undefined && initialUpper > 0 ? String(initialUpper) : "";
+  });
   const [error, setError] = useState("");
   const band =
     form.condition === "entering_band" || form.condition === "exiting_band";
@@ -578,14 +599,18 @@ function AlertForm({
               <div className="input-suffix">
                 <input
                   aria-label={band ? "Lower price" : "Trigger price"}
-                  type="number"
-                  min="0.000000001"
-                  step="any"
+                  type="text"
+                  inputMode="decimal"
                   required
-                  value={form.price>0?form.price:""}
-                  onChange={(e) =>
-                    {setForm({ ...form, price: Number(e.target.value) });setError("");}
-                  }
+                  value={priceText}
+                  onChange={(e) => {
+                    const next = e.target.value.replace(",", ".");
+                    if (next !== "" && !/^\d*\.?\d*$/.test(next)) return;
+                    setPriceText(next);
+                    const parsed = next === "" || next === "." ? 0 : Number(next);
+                    setForm({ ...form, price: Number.isFinite(parsed) ? parsed : 0 });
+                    setError("");
+                  }}
                 />
                 <span>{describeSymbol(form.symbol).quote}</span>
               </div>
@@ -595,14 +620,18 @@ function AlertForm({
                 Upper price
                 <input
                   aria-label="Upper price"
-                  type="number"
-                  step="any"
-                  min={form.price}
+                  type="text"
+                  inputMode="decimal"
                   required
-                  value={form.upperPrice??""}
-                  onChange={(e) =>
-                    setForm({ ...form, upperPrice: Number(e.target.value) })
-                  }
+                  value={upperPriceText}
+                  onChange={(e) => {
+                    const next = e.target.value.replace(",", ".");
+                    if (next !== "" && !/^\d*\.?\d*$/.test(next)) return;
+                    setUpperPriceText(next);
+                    const parsed = next === "" || next === "." ? undefined : Number(next);
+                    setForm({ ...form, upperPrice: parsed !== undefined && Number.isFinite(parsed) ? parsed : undefined });
+                    setError("");
+                  }}
                 />
               </label>
             ) : null}
@@ -673,7 +702,7 @@ function AlertForm({
             Alerts start observing the next quote and run while this tab is
             open. Live and simulated price sequences are evaluated separately.
           </p>
-          {error ? <p className="error-message">{error}</p> : null}
+          {error ? <p className="error-message" role="alert">{error}</p> : null}
         </div>
         <div className="modal-actions">
           <button type="button" className="button" onClick={onClose}>

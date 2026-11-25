@@ -113,8 +113,8 @@ export function TerminalCompare({ setupComparison }: { setupComparison?: readonl
       const params = new URLSearchParams({ a, b, basis });
       if (setupComparison && a.trim().toUpperCase() === setupComparison[0] && b.trim().toUpperCase() === setupComparison[1]) params.set("retest", setupComparison[2]);
       const response = await fetch(`/api/terminal-compare?${params}`, { signal: controller.signal });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? "Comparison unavailable.");
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data) throw new Error(data?.error ?? "Comparison unavailable.");
       if (!controller.signal.aborted) setResult(data);
     } catch (error) {
       if (!controller.signal.aborted) setError(error instanceof Error ? error.message : "Comparison unavailable.");

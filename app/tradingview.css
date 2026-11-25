@@ -1637,7 +1637,8 @@ body {
   padding: 4px;
 }
 .vela-container [tabindex="0"]:focus-visible {
-  outline: none;
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .layout-eight .ohlc-strip,

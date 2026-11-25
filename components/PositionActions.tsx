@@ -10,7 +10,7 @@ import {activateTradingChart} from "@/lib/trading/chartTrading";
 import {symbolLabel} from "@/lib/symbolId";
 import {usePaperQuote} from "@/hooks/usePaperQuotes";
 import {formatPrice,formatVolume} from "@/lib/symbols";
-import {unrealizedPnl} from "@/lib/trading/broker";
+import {unrealizedPnl,type Position} from "@/lib/trading/broker";
 export function PositionActions({symbol,cellId,closeLabel="Close",alwaysVisible=false}:{symbol:string;cellId?:string;closeLabel?:string;alwaysVisible?:boolean}){
   const mode=usePaperStore(s=>s.mode),position=usePaperStore(s=>activeAccount(s).positions.find(p=>p.symbol===symbol)),active=useWorkspaceStore(s=>s.activeId);
   const lock=useRef(false),[busy,setBusy]=useState(false),[review,setReview]=useState<CloseReview|null>(null),[protection,setProtection]=useState<ProtectionReview|null>(null);
@@ -31,8 +31,12 @@ export function PositionActions({symbol,cellId,closeLabel="Close",alwaysVisible=
   </span>;
 }
 export function ChartPositionBar({symbol,cellId}:{symbol:string;cellId:string}){
-  const position=usePaperStore(s=>activeAccount(s).positions.find(p=>p.symbol===symbol)),last=usePaperStore(s=>s.prices[symbol]),mode=usePaperStore(s=>s.mode),book=usePaperQuote(symbol);
+  const position=usePaperStore(s=>activeAccount(s).positions.find(p=>p.symbol===symbol));
   if(!position)return null;
+  return <ChartPositionBarContent symbol={symbol} cellId={cellId} position={position}/>;
+}
+function ChartPositionBarContent({symbol,cellId,position}:{symbol:string;cellId:string;position:Position}){
+  const last=usePaperStore(s=>s.prices[symbol]),mode=usePaperStore(s=>s.mode),book=usePaperQuote(symbol);
   const mark=book?(position.quantity>0?book.bid:book.ask):last,pnl=mark?unrealizedPnl(position,mark):undefined;
   return <div className="chart-position-bar" aria-label={`Position ${symbol}`}>
     <span className={position.quantity>0?"positive":"negative"}>{position.quantity>0?"LONG":"SHORT"} {formatVolume(Math.abs(position.quantity))}</span>

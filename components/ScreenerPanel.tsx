@@ -1,6 +1,6 @@
 "use client";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Download, Play, Plus, RefreshCw, Save, Trash2 } from "lucide-react";
+import { type ComponentType, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Download, Play, Plus, RefreshCw, Save, Trash2, X } from "lucide-react";
 import { useChartStore } from "@/stores/useChartStore";
 import { useScreenerStore } from "@/stores/useScreenerStore";
 import { useWatchlistStore } from "@/stores/useWatchlistStore";
@@ -23,8 +23,18 @@ import { STARTER_SCRIPT } from "@/lib/indicators/scripts";
 import { STOCK_UNIVERSE_IDS } from "@/lib/stockUniverse";
 import { STOCK_EXCHANGES } from "@/lib/markets";
 import { AssetBadge } from "./ui";
-import { StockBaseScanner } from "./StockBaseScanner";
-import { OpportunitiesHub } from "./OpportunitiesHub";
+
+const loadStockBaseScanner = () => import("./StockBaseScanner").then(({ StockBaseScanner }) => ({ default: StockBaseScanner }));
+const loadOpportunitiesHub = () => import("./OpportunitiesHub").then(({ OpportunitiesHub }) => ({ default: OpportunitiesHub }));
+
+function DeferredScreenerView({ label, load }: { label: string; load: () => Promise<{ default: ComponentType }> }) {
+  const [Component] = useState(() => lazy(load));
+  return (
+    <Suspense fallback={<p className="form-help" role="status">Loading {label}…</p>}>
+      <Component />
+    </Suspense>
+  );
+}
 
 interface ScreenerResponse {
   rows: ScreenerRow[];
@@ -39,8 +49,8 @@ async function loadScreener(timeframe: string | null, limit: number, market = "b
   const params = new URLSearchParams({ limit: String(limit), market });
   if (timeframe) params.set("timeframe", timeframe);
   const response = await fetch(`/api/screener?${params}`, { signal });
-  const body = (await response.json()) as ScreenerResponse;
-  if (!response.ok) throw new Error(body.error ?? "Screener unavailable");
+  const body = (await response.json().catch(() => null)) as ScreenerResponse | null;
+  if (!response.ok || !body) throw new Error(body?.error ?? `Screener unavailable (HTTP ${response.status})`);
   return body;
 }
 
@@ -257,9 +267,30 @@ function ScreenerView() {
         {s.presets.length ? (
           <span className="preset-chips">
             {s.presets.map((p) => (
-              <button key={p.id} className="chip" title="Delete preset" onClick={() => s.removePreset(p.id)}>
-                ★ {p.name} ×
-              </button>
+              <span key={p.id} className="chip preset-chip" style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                <button
+                  type="button"
+                  className="link-button"
+                  title={`Load preset ${p.name}`}
+                  onClick={() =>
+                    s.set({
+                      timeframe: p.timeframe,
+                      filters: p.filters.map((f) => ({ ...f, id: crypto.randomUUID() })),
+                    })
+                  }
+                >
+                  ★ {p.name}
+                </button>
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label={`Delete preset ${p.name}`}
+                  title="Delete preset"
+                  onClick={() => s.removePreset(p.id)}
+                >
+                  <X size={11} />
+                </button>
+              </span>
             ))}
           </span>
         ) : null}
@@ -268,6 +299,7 @@ function ScreenerView() {
         <div className="selection-bar">
           <strong>{selected.size} selected</strong>
           <button
+            type="button"
             className="link-button"
             onClick={() => {
               const added = watch.addSymbols([...selected]);
@@ -277,22 +309,43 @@ function ScreenerView() {
           >
             Add to watchlist
           </button>
-          <button className="link-button" onClick={() => setSelected(new Set())}>
+          <button type="button" className="link-button" onClick={() => setSelected(new Set())}>
             Clear
           </button>
         </div>
       ) : null}
-      {error ? <p className="error-message screener-error">{error}</p> : null}
+      {error ? (
+        <div className="error-message screener-error" role="alert">
+          <span>{error}</span>{" "}
+          <button type="button" className="link-button" onClick={run} disabled={loading}>
+            Retry
+          </button>
+        </div>
+      ) : null}
       <div className="table-scroll">
         <table className="data-table screener-table">
           <thead>
             <tr>
               <th />
-              <th onClick={() => setSort({ key: "symbol", dir: sort.key === "symbol" ? (-sort.dir as 1 | -1) : 1 })}>Symbol</th>
+              <th aria-sort={sort.key === "symbol" ? (sort.dir === -1 ? "descending" : "ascending") : "none"}>
+                <button
+                  type="button"
+                  className="link-button"
+                  onClick={() => setSort({ key: "symbol", dir: sort.key === "symbol" ? (-sort.dir as 1 | -1) : 1 })}
+                >
+                  Symbol{sort.key === "symbol" ? (sort.dir === -1 ? " ▼" : " ▲") : ""}
+                </button>
+              </th>
               {columns.map((c) => (
-                <th key={c} onClick={() => setSort({ key: c, dir: sort.key === c ? (-sort.dir as 1 | -1) : -1 })}>
-                  {fieldOf(c)?.label ?? c}
-                  {sort.key === c ? (sort.dir === -1 ? " ▼" : " ▲") : ""}
+                <th key={c} aria-sort={sort.key === c ? (sort.dir === -1 ? "descending" : "ascending") : "none"}>
+                  <button
+                    type="button"
+                    className="link-button"
+                    onClick={() => setSort({ key: c, dir: sort.key === c ? (-sort.dir as 1 | -1) : -1 })}
+                  >
+                    {fieldOf(c)?.label ?? c}
+                    {sort.key === c ? (sort.dir === -1 ? " ▼" : " ▲") : ""}
+                  </button>
                 </th>
               ))}
             </tr>
@@ -314,7 +367,7 @@ function ScreenerView() {
                   />
                 </td>
                 <td>
-                  <button className="link-button" onClick={() => openSymbol(row.symbol)}>
+                  <button type="button" className="link-button" onClick={() => openSymbol(row.symbol)}>
                     <AssetBadge symbol={row.symbol} /> {getSymbol(row.symbol).base}
                   </button>
                 </td>
@@ -333,58 +386,102 @@ function ScreenerView() {
             ))}
           </tbody>
         </table>
-        {!rows.length && !loading ? <div className="empty-table">No symbols match these filters.</div> : null}
+        {!rows.length && !loading ? (
+          <div className="empty-table">
+            <span>No symbols match these filters.</span>
+            {s.filters.length > 0 ? (
+              <>
+                {" "}
+                <button type="button" className="link-button" onClick={() => s.set({ filters: [] })}>
+                  Clear filters
+                </button>
+              </>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </div>
   );
 }
 
+const HOTLIST_SPECS: ReadonlyArray<{
+  title: string;
+  sort: (a: ScreenerRow, b: ScreenerRow) => number;
+  value: (r: ScreenerRow) => string;
+  tone?: (r: ScreenerRow) => number;
+}> = [
+  { title: "Top gainers", sort: (a, b) => b.change24h - a.change24h, value: (r) => `${r.change24h >= 0 ? "+" : ""}${r.change24h.toFixed(2)}%`, tone: (r) => r.change24h },
+  { title: "Top losers", sort: (a, b) => a.change24h - b.change24h, value: (r) => `${r.change24h.toFixed(2)}%`, tone: (r) => r.change24h },
+  { title: "Most active", sort: (a, b) => b.quoteVolume - a.quoteVolume, value: (r) => `${formatVolume(r.quoteVolume)} USDT` },
+  { title: "Most volatile", sort: (a, b) => (b.high24h - b.low24h) / b.price - (a.high24h - a.low24h) / a.price, value: (r) => `${(((r.high24h - r.low24h) / r.price) * 100).toFixed(1)}% range` },
+  { title: "Near 24h high", sort: (a, b) => b.rangePosition - a.rangePosition, value: (r) => `${r.rangePosition.toFixed(0)}% of range` },
+  { title: "Near 24h low", sort: (a, b) => a.rangePosition - b.rangePosition, value: (r) => `${r.rangePosition.toFixed(0)}% of range` },
+  { title: "Most trades", sort: (a, b) => b.trades - a.trades, value: (r) => `${formatVolume(r.trades)} trades` },
+];
+
 function HotlistView() {
   const [data, setData] = useState<ScreenerResponse | null>(null);
   const [error, setError] = useState("");
+  const [reloadNonce, setReloadNonce] = useState(0);
   useEffect(() => {
-    let alive = true;
-    const load = () =>
-      loadScreener(null, 150)
-        .then((r) => alive && setData(r))
-        .catch((e) => alive && setError(e instanceof Error ? e.message : String(e)));
-    void load();
-    const timer = setInterval(load, 30_000);
-    return () => {
-      alive = false;
-      clearInterval(timer);
+    let activeAbort: AbortController | null = null;
+    const load = () => {
+      activeAbort?.abort();
+      const abort = new AbortController();
+      activeAbort = abort;
+      void loadScreener(null, 150, "binance", abort.signal)
+        .then((r) => {
+          if (!abort.signal.aborted) {
+            setData(r);
+            setError("");
+          }
+        })
+        .catch((e) => {
+          if (!abort.signal.aborted) setError(e instanceof Error ? e.message : String(e));
+        });
     };
-  }, []);
-  const rows = data?.rows ?? [];
-  const lists: { title: string; sort: (a: ScreenerRow, b: ScreenerRow) => number; value: (r: ScreenerRow) => string; tone?: (r: ScreenerRow) => number }[] = [
-    { title: "Top gainers", sort: (a, b) => b.change24h - a.change24h, value: (r) => `${r.change24h >= 0 ? "+" : ""}${r.change24h.toFixed(2)}%`, tone: (r) => r.change24h },
-    { title: "Top losers", sort: (a, b) => a.change24h - b.change24h, value: (r) => `${r.change24h.toFixed(2)}%`, tone: (r) => r.change24h },
-    { title: "Most active", sort: (a, b) => b.quoteVolume - a.quoteVolume, value: (r) => `${formatVolume(r.quoteVolume)} USDT` },
-    { title: "Most volatile", sort: (a, b) => (b.high24h - b.low24h) / b.price - (a.high24h - a.low24h) / a.price, value: (r) => `${(((r.high24h - r.low24h) / r.price) * 100).toFixed(1)}% range` },
-    { title: "Near 24h high", sort: (a, b) => b.rangePosition - a.rangePosition, value: (r) => `${r.rangePosition.toFixed(0)}% of range` },
-    { title: "Near 24h low", sort: (a, b) => a.rangePosition - b.rangePosition, value: (r) => `${r.rangePosition.toFixed(0)}% of range` },
-    { title: "Most trades", sort: (a, b) => b.trades - a.trades, value: (r) => `${formatVolume(r.trades)} trades` },
-  ];
+    load();
+    const timer = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      load();
+    }, 30_000);
+    return () => {
+      clearInterval(timer);
+      activeAbort?.abort();
+    };
+  }, [reloadNonce]);
+  const rankedLists = useMemo(() => {
+    const rows = data?.rows ?? [];
+    return HOTLIST_SPECS.map((spec) => ({
+      spec,
+      items: [...rows].sort(spec.sort).slice(0, 10),
+    }));
+  }, [data]);
+  const hasRows = (data?.rows.length ?? 0) > 0;
   return (
     <div className="hotlists">
-      {error ? <p className="error-message screener-error">{error}</p> : null}
-      {lists.map((list) => (
-        <section key={list.title}>
-          <h4>{list.title}</h4>
-          {[...rows]
-            .sort(list.sort)
-            .slice(0, 10)
-            .map((row) => (
-              <button key={row.symbol} onClick={() => openSymbol(row.symbol)}>
-                <AssetBadge symbol={row.symbol} />
-                <span>{getSymbol(row.symbol).base}</span>
-                <span className="mono">{formatPrice(row.price)}</span>
-                <span className={`mono ${list.tone ? toneClass(list.tone(row)) : ""}`}>{list.value(row)}</span>
-              </button>
-            ))}
+      {error ? (
+        <div className="error-message screener-error" role="alert">
+          <span>{error}</span>{" "}
+          <button type="button" className="link-button" onClick={() => setReloadNonce((n) => n + 1)}>
+            Retry
+          </button>
+        </div>
+      ) : null}
+      {rankedLists.map(({ spec, items }) => (
+        <section key={spec.title}>
+          <h4>{spec.title}</h4>
+          {items.map((row) => (
+            <button key={row.symbol} type="button" onClick={() => openSymbol(row.symbol)}>
+              <AssetBadge symbol={row.symbol} />
+              <span>{getSymbol(row.symbol).base}</span>
+              <span className="mono">{formatPrice(row.price)}</span>
+              <span className={`mono ${spec.tone ? toneClass(spec.tone(row)) : ""}`}>{spec.value(row)}</span>
+            </button>
+          ))}
         </section>
       ))}
-      {!rows.length && !error ? <div className="empty-table">Loading market lists…</div> : null}
+      {!hasRows && !error ? <div className="empty-table">Loading market lists…</div> : null}
     </div>
   );
 }
@@ -589,7 +686,17 @@ export function ScreenerPanel() {
           </button>
         ))}
       </div>
-      {tab === "opportunities" ? <OpportunitiesHub /> : tab === "stock-base" ? <StockBaseScanner /> : tab === "screener" ? <ScreenerView /> : tab === "hotlists" ? <HotlistView /> : <PineScreenerView />}
+      {tab === "opportunities" ? (
+        <DeferredScreenerView label="trade opportunities" load={loadOpportunitiesHub} />
+      ) : tab === "stock-base" ? (
+        <DeferredScreenerView label="stock base scanner" load={loadStockBaseScanner} />
+      ) : tab === "screener" ? (
+        <ScreenerView />
+      ) : tab === "hotlists" ? (
+        <HotlistView />
+      ) : (
+        <PineScreenerView />
+      )}
     </div>
   );
 }

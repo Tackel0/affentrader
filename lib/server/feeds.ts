@@ -1,3 +1,5 @@
+import { coalesceInFlight, setBoundedCache } from "./cache";
+
 /**
  * Keyless public data feeds: crypto news (RSS), the economic calendar, the
  * Nasdaq earnings and dividend calendars and US Treasury yields. Each parser
@@ -264,14 +266,20 @@ export function parseTreasuryYields(xml: string): YieldCurve[] {
 }
 
 const UA = { "user-agent": "Mozilla/5.0 (compatible; affentrader/1.0)", accept: "*/*" };
+const MAX_FEED_CACHE = 150;
 const cache = new Map<string, { at: number; value: unknown }>();
+const inflight = new Map<string, Promise<unknown>>();
 
 async function cached<T>(key: string, ttl: number, load: () => Promise<T>): Promise<T> {
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < ttl) return hit.value as T;
-  const value = await load();
-  cache.set(key, { at: Date.now(), value });
-  return value;
+  return coalesceInFlight(inflight, key, async () => {
+    const freshHit = cache.get(key);
+    if (freshHit && Date.now() - freshHit.at < ttl) return freshHit.value as T;
+    const value = await load();
+    setBoundedCache(cache, key, { at: Date.now(), value }, MAX_FEED_CACHE);
+    return value;
+  }) as Promise<T>;
 }
 
 async function text(url: string, fetcher: typeof fetch = fetch): Promise<string> {
@@ -282,6 +290,11 @@ async function text(url: string, fetcher: typeof fetch = fetch): Promise<string>
 
 export function clearFeedCache() {
   cache.clear();
+  inflight.clear();
+}
+
+export function feedCacheSize(): number {
+  return cache.size;
 }
 
 export async function fetchNews(fetcher: typeof fetch = fetch): Promise<{ items: NewsItem[]; failed: string[] }> {

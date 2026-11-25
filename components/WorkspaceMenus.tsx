@@ -175,8 +175,10 @@ function MainMenuContent({
         {LINK_GROUPS.map((g) => (
           <button
             key={g}
+            type="button"
             role="radio"
             aria-checked={linkGroup === g}
+            aria-label={g === "off" ? "Not linked" : `Link group ${g}`}
             className={`link-chip ${g} ${linkGroup === g ? "active" : ""}`}
             title={g === "off" ? "Not linked" : `Linked group: ${g}`}
             onClick={() => setLinkGroup(g)}
@@ -364,7 +366,7 @@ export function MainMenu({
   const ref = useDismiss(open, () => setOpen(false));
   return (
     <div ref={ref} className={`toolbar-popover-host${compactLabel ? " phone-nav-menu-host" : ""}`}>
-      <IconButton label="Main menu" aria-expanded={open} onClick={() => setOpen(!open)}>
+      <IconButton label="Main menu" aria-expanded={open} aria-haspopup="menu" onClick={() => setOpen(!open)}>
         <Menu size={compactLabel ? 20 : 21} />
         {compactLabel ? <span className="compact-nav-label" aria-hidden="true">{compactLabel}</span> : null}
       </IconButton>
@@ -383,7 +385,7 @@ export function LayoutMenu() {
   const ref = useDismiss(open, () => setOpen(false));
   return (
     <div ref={ref} className="toolbar-popover-host">
-      <IconButton label="Layout setup" onClick={() => setOpen(!open)}>
+      <IconButton label="Layout setup" aria-expanded={open} aria-haspopup="menu" onClick={() => setOpen(!open)}>
         <LayoutGrid size={19} />
       </IconButton>
       {open ? (
@@ -393,6 +395,7 @@ export function LayoutMenu() {
             {LAYOUTS.map((l) => (
               <button
                 key={l.id}
+                type="button"
                 aria-label={l.name}
                 className={layout === l.id ? "selected" : ""}
                 onClick={() => {
@@ -451,6 +454,7 @@ export function SavedLayoutsMenu() {
   return (
     <div ref={ref} className="toolbar-popover-host saved-layout-control">
       <button
+        type="button"
         className="toolbar-button"
         onClick={() => {
           setName("");
@@ -460,7 +464,7 @@ export function SavedLayoutsMenu() {
         <Save size={16} />
         <span>Save</span>
       </button>
-      <IconButton label="Manage layouts" onClick={() => setOpen(!open)}>
+      <IconButton label="Manage layouts" aria-expanded={open} aria-haspopup="menu" onClick={() => setOpen(!open)}>
         <ChevronDown size={13} />
       </IconButton>
       {open ? (
@@ -469,6 +473,7 @@ export function SavedLayoutsMenu() {
           {layouts.map((l) => (
             <div key={l.id} className="saved-entry">
               <button
+                type="button"
                 onClick={() => {
                   useWorkspaceStore.getState().loadLayout(l.id);
                   setOpen(false);
@@ -498,6 +503,7 @@ export function SavedLayoutsMenu() {
             </p>
           ) : null}
           <button
+            type="button"
             onClick={() => {
               setOpen(false);
               setName("");
@@ -533,7 +539,7 @@ export function IndicatorTemplateMenu() {
   const ref = useDismiss(open, () => setOpen(false));
   return (
     <div ref={ref} className="toolbar-popover-host">
-      <IconButton label="Indicator templates" onClick={() => setOpen(!open)}>
+      <IconButton label="Indicator templates" aria-expanded={open} aria-haspopup="menu" onClick={() => setOpen(!open)}>
         <Grid2X2 size={18} />
       </IconButton>
       {open ? (
@@ -542,6 +548,7 @@ export function IndicatorTemplateMenu() {
           {templates.map((t) => (
             <div className="saved-entry" key={t.id}>
               <button
+                type="button"
                 onClick={() => {
                   useWorkspaceStore.getState().loadStudies(t.id);
                   setOpen(false);
@@ -562,6 +569,7 @@ export function IndicatorTemplateMenu() {
             </div>
           ))}
           <button
+            type="button"
             onClick={() => {
               setName("");
               setOpen(false);
@@ -634,23 +642,38 @@ function NameForm({
 export function DrawingToolsMenu({ onSelect }: { onSelect?: () => void } = {}) {
   const [open, setOpen] = useState(false),
     [query, setQuery] = useState(""),
+    [loading, setLoading] = useState(false),
     [tools, setTools] = useState<
       { type: DrawingTypeKey; label: string; group: string }[]
     >([]);
   const ref = useDismiss(open, () => setOpen(false));
   useEffect(() => {
-    if (open)
-      void import("@luxalgo/vela").then((v) =>
-        setTools(
-          v
-            .drawingTypes()
-            .map((t) => ({ type: t.type, label: t.label, group: t.group })),
-        ),
-      );
-  }, [open]);
+    if (!open || tools.length > 0) return;
+    let cancelled = false;
+    setLoading(true);
+    void import("@luxalgo/vela")
+      .then((v) => {
+        if (!cancelled) {
+          setTools(
+            v
+              .drawingTypes()
+              .map((t) => ({ type: t.type, label: t.label, group: t.group })),
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, tools.length]);
+  const filteredTools = tools.filter((t) =>
+    t.label.toLowerCase().includes(query.toLowerCase()),
+  );
   return (
     <div className="drawing-catalog-host" ref={ref}>
-      <IconButton label="All drawing tools" onClick={() => setOpen(!open)}>
+      <IconButton label="All drawing tools" aria-expanded={open} aria-haspopup="menu" onClick={() => setOpen(!open)}>
         <PenLine size={20} />
       </IconButton>
       {open ? (
@@ -665,13 +688,15 @@ export function DrawingToolsMenu({ onSelect }: { onSelect?: () => void } = {}) {
             />
           </div>
           <div className="drawing-catalog-list">
-            {tools
-              .filter((t) =>
-                t.label.toLowerCase().includes(query.toLowerCase()),
-              )
-              .map((t) => (
+            {loading && tools.length === 0 ? (
+              <p className="popover-help" role="status">Loading drawing tools…</p>
+            ) : filteredTools.length === 0 ? (
+              <p className="popover-help">No drawing tools match.</p>
+            ) : (
+              filteredTools.map((t) => (
                 <button
                   key={t.type}
+                  type="button"
                   onClick={() => {
                     useChartStore.getState().set({ drawing: t.type });
                     setOpen(false);
@@ -682,7 +707,8 @@ export function DrawingToolsMenu({ onSelect }: { onSelect?: () => void } = {}) {
                   <span>{t.label}</span>
                   <small>{t.group}</small>
                 </button>
-              ))}
+              ))
+            )}
           </div>
         </div>
       ) : null}

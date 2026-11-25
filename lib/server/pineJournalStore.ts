@@ -5,14 +5,20 @@ import type { PineJournal } from "@/types/pineAlerts";
 import { PineRecoveryError } from "@/lib/alerts/pineJournal";
 import { JsonStore, dataDir } from "./storage";
 import { usesNetlifyStorage } from "./netlifyStorage";
+import { setBoundedCache } from "./cache";
 const MAX_SERVER_PINE_BYTES = 256 * 1024 * 1024;
+const MAX_CACHED_PINE_STORES = 500;
 const directory = () => path.join(dataDir(), "pine-recovery");
 const name = (owner: string) => `pine-${createHash("sha256").update(owner).digest("hex")}`;
 const stores = new Map<string, JsonStore<PineJournal | null>>();
 // One cloud document makes the budget and owner/sequence checks atomic together.
 const cloudJournals = new JsonStore<Record<string, PineJournal>>("pine-journals", () => ({}));
 const document = (owner: string) => {
-  let store = stores.get(owner); if (!store) { store = new JsonStore<PineJournal | null>(name(owner), () => null, directory); stores.set(owner, store); }
+  let store = stores.get(owner);
+  if (!store) {
+    store = new JsonStore<PineJournal | null>(name(owner), () => null, directory);
+    setBoundedCache(stores, owner, store, MAX_CACHED_PINE_STORES);
+  }
   return store;
 };
 let writes: Promise<unknown> = Promise.resolve();

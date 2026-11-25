@@ -17,6 +17,7 @@ import { usePineAlerts } from "./usePineAlerts";
 import { useDrawingAlerts } from "./useDrawingAlerts";
 import { tpoCandlePool } from "@/lib/orderflow/tpoCandleSource";
 import { tpoAlertQuery } from "@/lib/alerts/tpoSource";
+import { expirationReason } from "@/lib/alerts/lifecycle";
 
 function announce(rule: Pick<AlertRule, "sound" | "browserNotification" | "name">, event: RuleEvent) {
   const message = `${event.message}${event.strategyFill ? " · EMULATED FILL" : ""}${event.simulated ? " · SIMULATION" : ""}`;
@@ -67,7 +68,14 @@ export function useAlertRules(role: AlertOwnerSnapshot) {
   },[role.status,role.epoch]);
   useEffect(()=>{
     if(role.status!=="primary")return;
-    const expire=()=>{void editAlerts(store=>store.expire(),()=>browserAlertOwner().owns(role.epoch)).catch(error=>report("Alert expiration not saved",error));};
+    const expire=()=>{
+      const now=Date.now();
+      const {alerts,rules:currentRules}=useAlertStore.getState();
+      const needsSweep=(item:{status:string;activity?:AlertRule["activity"];createdAt?:number;expiresAt?:number;lastTriggeredAt?:number})=>
+        !item.activity||((item.status==="active"||item.status==="paused")&&expirationReason(item,now)!==undefined);
+      if(!alerts.some(needsSweep)&&!currentRules.some(rule=>!rule.serverSide&&needsSweep(rule)))return;
+      void editAlerts(store=>store.expire(),()=>browserAlertOwner().owns(role.epoch)).catch(error=>report("Alert expiration not saved",error));
+    };
     expire();const timer=setInterval(expire,1000);return()=>clearInterval(timer);
   },[role.status,role.epoch]);
   useEffect(()=>{engineRef.current?.invalidateData();},[feedEpoch]);

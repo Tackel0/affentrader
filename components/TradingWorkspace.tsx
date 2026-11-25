@@ -92,6 +92,20 @@ export default function TradingWorkspace({ deployment, initialSidebar }: Workspa
     );
   return <Workspace deployment={deployment} initialSidebar={initialSidebar} />;
 }
+function WorkspaceRuntime({
+  phoneMode,
+  watchQuotesActive,
+}: {
+  phoneMode: boolean;
+  watchQuotesActive: boolean;
+}) {
+  useMarketData({ phoneMode, watchQuotesActive });
+  useChartToolHotkeys();
+  useSync();
+  useWindowLink();
+  return null;
+}
+
 function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
   const recordingTrades = useTradeArchiveStore(state => state.enabled);
   const recordingFailed = useTradeArchiveStore(state => Boolean(state.status.error));
@@ -104,7 +118,11 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
     bottomTab = useChartStore((s) => s.bottomTab),
     activeDrawing = useChartStore((s) => s.drawing),
     stayDrawing = useChartStore((s) => s.drawingPreferences.stay);
-  const activeAlertCount = useAlertStore((s) => s.alerts.filter((a) => a.status === "active").length);
+  const activeAlertCount = useAlertStore((s) => {
+    let count = 0;
+    for (const a of s.alerts) if (a.status === "active") count++;
+    return count;
+  });
   const theme = useWorkspaceStore((s) => s.theme);
   useEffect(() => {
     const resolved = theme === "light" ? "light" : "dark";
@@ -124,13 +142,8 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
   const [tabletLayout, setTabletLayout] = useState(() => window.matchMedia(TABLET_WORKSPACE_QUERY).matches);
   const [drawingToolsOpen, setDrawingToolsOpen] = useState(false);
   const [phoneTradingOpen, setPhoneTradingOpen] = useState(false);
-  useMarketData({
-    phoneMode: phoneChart,
-    watchQuotesActive: !phoneChart || (sidebarOpen && sidebar === "watchlist") || (bottomOpen && bottomTab === "heatmap"),
-  });
-  useChartToolHotkeys();
-  useSync();
-  useWindowLink();
+  const watchQuotesActive =
+    !phoneChart || (sidebarOpen && sidebar === "watchlist") || (bottomOpen && bottomTab === "heatmap");
   useEffect(() => {
     const query = window.matchMedia(PHONE_CHART_QUERY);
     const tablet = window.matchMedia(TABLET_WORKSPACE_QUERY);
@@ -288,6 +301,7 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
   const feedBadge = { label: dataLabel, description: `${market.feed} · ${dataLabel}`, connected: status === "live" && !requiresAlpaca };
   return (
     <main className={`trading-app theme-${theme}${phoneChart ? " phone-workspace" : ""}${isTablet ? " tablet-workspace" : ""}`}>
+      <WorkspaceRuntime phoneMode={phoneChart} watchQuotesActive={watchQuotesActive} />
       <NativeChartDialogs/>
       <MarketConnections/>
       <TradeArchive/>
@@ -345,7 +359,7 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
           </button>
         ) : null}
         <div className="center-workspace">
-          <ModuleErrorBoundary moduleName="Chart Grid">
+          <ModuleErrorBoundary moduleName="Chart Grid" resetKey={symbol}>
             <ChartGrid tradingControls={!phoneChart || phoneTradingOpen} compactLayout={compactLayout ? {
               grid: showChartGrid,
               toggleGrid: () => setShowChartGrid(previous => !previous),
@@ -371,7 +385,7 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
               phoneStatus={feedBadge}
             />
           ) : <RangeToolbar />}
-          <ModuleErrorBoundary moduleName="Bottom Panel" compact>
+          <ModuleErrorBoundary moduleName="Bottom Panel" resetKey={bottomTab} compact>
             <BottomPanel phone={phoneChart} />
           </ModuleErrorBoundary>
         </div>
@@ -446,7 +460,7 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
         ) : null}
       </div>
       <footer className="app-status">
-        {(recordingTrades || recordingFailed) && <button className="archive-recording-status" aria-label={recordingFailed ? "Trade recording stopped; open archive" : "Trade recording active; open archive"} title={recordingFailed ? "Trade recording stopped. Open the local archive for details." : "Recording observed real classified trades locally in this tab."} onClick={() => useTradeArchiveStore.setState({ open: true })}>{recordingFailed ? "REC!" : "● REC"}</button>}
+        {(recordingTrades || recordingFailed) && <button type="button" className="archive-recording-status" aria-label={recordingFailed ? "Trade recording stopped; open archive" : "Trade recording active; open archive"} title={recordingFailed ? "Trade recording stopped. Open the local archive for details." : "Recording observed real classified trades locally in this tab."} onClick={() => useTradeArchiveStore.setState({ open: true })}>{recordingFailed ? "REC!" : "● REC"}</button>}
         <span className={`status-dot ${status === "live" ? "" : "amber"}`} />
         <span className="status-feed">
           {status !== "simulation" && symbol.startsWith("SIP:")
@@ -502,19 +516,34 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
 }
 function ToastManager() {
   const toasts = useChartStore((s) => s.toasts);
+  const pausedRef = useRef(false);
   useEffect(() => {
+    if (!toasts.length) return;
     const timer = setInterval(() => {
+      if (pausedRef.current) return;
       const state = useChartStore.getState();
       state.toasts
         .filter((t) => Date.now() - t.time > 7000)
         .forEach((t) => state.dismissToast(t.id));
     }, 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [toasts.length]);
+  if (!toasts.length) return null;
   return (
-    <div className="toast-stack" aria-live="polite">
+    <div
+      className="toast-stack"
+      aria-live="polite"
+      onMouseEnter={() => { pausedRef.current = true; }}
+      onMouseLeave={() => { pausedRef.current = false; }}
+      onFocus={() => { pausedRef.current = true; }}
+      onBlur={() => { pausedRef.current = false; }}
+    >
       {toasts.map((t) => (
-        <div key={t.id} className={`toast ${t.tone}`}>
+        <div
+          key={t.id}
+          className={`toast ${t.tone}`}
+          role={t.tone === "error" ? "alert" : "status"}
+        >
           <Bell size={17} />
           <div>
             <strong>{t.title}</strong>

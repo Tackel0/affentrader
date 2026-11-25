@@ -216,9 +216,9 @@ export function OpportunitiesHub({
           : fetch(`/api/terminal-opportunities?${new URLSearchParams({ market: targetMarket, page: String(page) })}`, {
               signal: controller.signal,
             }));
-        const body = (await response.json()) as OpportunityScanResult & { error?: string };
+        const body = (await response.json().catch(() => null)) as (OpportunityScanResult & { error?: string }) | null;
         if (controller.signal.aborted) return;
-        if (!response.ok) throw new Error(body.error ?? "Scan vorübergehend nicht verfügbar.");
+        if (!response.ok || !body) throw new Error(body?.error ?? "Scan vorübergehend nicht verfügbar.");
         const normalized: OpportunityScanResult = {
           ...body,
           market: body.market ?? targetMarket,
@@ -374,7 +374,19 @@ export function OpportunitiesHub({
             <option value="rs">Relative Stärke</option><option value="entry">Nähe zum Einstieg</option><option value="upside">Abstand zu Ziel 1</option>
           </select></label>
           <details className="opportunity-advanced">
-            <summary>Weitere Filter</summary>
+            <summary>
+              Weitere Filter
+              {(() => {
+                const count =
+                  (categoryFilter !== "all" ? 1 : 0) +
+                  (subTypeFilter !== "all" ? 1 : 0) +
+                  (minScore !== 55 ? 1 : 0) +
+                  (minReward > 0 ? 1 : 0) +
+                  (maxEntryDistance > 0 ? 1 : 0) +
+                  (requireFilings ? 1 : 0);
+                return count > 0 ? ` (${count})` : "";
+              })()}
+            </summary>
             <div className="opportunity-filters">
               <label>Kategorie<select aria-label="Strategy category" value={categoryFilter} onChange={event => setCategoryFilter(event.target.value as typeof categoryFilter)}>
                 <option value="all">Alle Kategorien</option><option value="structural-bottom">A · Struktur</option>
@@ -419,7 +431,14 @@ export function OpportunitiesHub({
           downloadFile(`affenterminal-opportunities-${result.market}-${result.benchmarkSession}.csv`, opportunitiesToCsv(filtered, result, true), "text/csv;charset=utf-8")
         }>CSV</button>}
       </div>
-      {error && <p className="error-message screener-error" role="alert">{error}</p>}
+      {error && (
+        <div className="error-message screener-error" role="alert">
+          <span>{error}</span>{" "}
+          <button type="button" className="link-button" onClick={() => void runScan(market, scope, false)} disabled={loading}>
+            Erneut versuchen
+          </button>
+        </div>
+      )}
       {result && scanKey !== currentKey && <p className="form-help" role="status">Die Watchlist hat sich geändert. Starte einen neuen Scan für die aktuelle Auswahl.</p>}
       {result && <details className="opportunity-coverage">
         <summary>Datenbasis · {result.unavailable.length} ohne auswertbare Daten</summary>
@@ -452,7 +471,27 @@ export function OpportunitiesHub({
             <button type="button" className="button small" disabled={visibleResultPage + 1 === resultPages} onClick={() => { setSelectedId(null); setResultPage(visibleResultPage + 1); }}>Weiter</button>
           </nav>}
           {!loading && result && !filtered.length && <p className="form-help">
-            {result.opportunities.length ? "Keine Treffer für diese Filter." : result.evaluated
+            {result.opportunities.length ? (
+              <>
+                Keine Treffer für diese Filter.{" "}
+                <button
+                  type="button"
+                  className="link-button"
+                  onClick={() => {
+                    setQuery("");
+                    setEntryFilter("all");
+                    setCategoryFilter("all");
+                    setSubTypeFilter("all");
+                    setMinScore(0);
+                    setMinReward(0);
+                    setMaxEntryDistance(0);
+                    setRequireFilings(false);
+                  }}
+                >
+                  Filter zurücksetzen
+                </button>
+              </>
+            ) : result.evaluated
               ? "Die geprüften Aktien liefern aktuell keine Setups." : "Der Scan hat keine auswertbaren Aktiendaten erhalten."}
           </p>}
         </section>

@@ -18,6 +18,23 @@ const privateHeaders = {
 const PERMISSIONS_POLICY = "camera=(), microphone=(), geolocation=(), payment=(), usb=()";
 const API_CSP = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'";
 const HEAVY_GET_API_PATHS = new Set(["/api/terminal-opportunities", "/api/terminal-insiders", "/api/terminal-setups", "/api/stock-base", "/api/screener"]);
+const CACHEABLE_GET_API_PATHS = new Set([
+  "/api/asset-icon",
+  "/api/feeds",
+  "/api/market",
+  "/api/osint-map",
+  "/api/screener",
+  "/api/stock-base",
+  "/api/stock-heatmap",
+  "/api/terminal-capm",
+  "/api/terminal-compare",
+  "/api/terminal-fundamentals",
+  "/api/terminal-insiders",
+  "/api/terminal-markets",
+  "/api/terminal-noise",
+  "/api/terminal-opportunities",
+  "/api/terminal-setups",
+]);
 const ACCOUNT_ENTRY_PATHS = new Set(["/api/account/login", "/api/account/register", "/api/account/google/start", "/api/account/google/callback"]);
 
 // Browsers fetch manifests with credentials omitted per HTML spec, and push SWs reference icons before auth.
@@ -246,7 +263,11 @@ export async function proxy(request: NextRequest) {
   if (!path.startsWith("/api/") && profile !== (account?.id ?? "")) {
     response.cookies.set(ACCOUNT_SCOPE_COOKIE, account?.id ?? "", { sameSite: "lax", secure, path: "/", maxAge: account ? SESSION_SECONDS : 0 });
   }
-  for (const [key, value] of Object.entries(privateHeaders)) response.headers.set(key, value);
+  const allowRouteCache = request.method === "GET" && CACHEABLE_GET_API_PATHS.has(path);
+  for (const [key, value] of Object.entries(privateHeaders)) {
+    if (allowRouteCache && key === "Cache-Control") continue;
+    response.headers.set(key, value);
+  }
   response.headers.set("Permissions-Policy", PERMISSIONS_POLICY);
   response.headers.set("Content-Security-Policy", path.startsWith("/api/") ? API_CSP : appCsp(secure));
   return response;

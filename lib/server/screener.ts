@@ -9,6 +9,7 @@ import { parseCandles, type HyperliquidAsset } from "@/lib/market/hyperliquid";
 import { universeFor, STOCK_UNIVERSE_IDS } from "@/lib/stockUniverse";
 import { loadYahooBars } from "@/lib/market/yahooClient";
 import { yahooChart, yahooSpark } from "./yahoo";
+import { coalesceInFlight, setBoundedCache } from "./cache";
 
 /** `stocks:<exchange id>` screens a curated list of that exchange's large listings through Yahoo Finance. */
 export type ScreenerMarket = "binance" | "hyperliquid" | "hyperliquid-markets" | `stocks:${string}`;
@@ -26,6 +27,7 @@ export interface ScreenerResult {
 }
 
 const cache = new Map<string, { at: number; result: ScreenerResult }>();
+const screenerInflight = new Map<string, Promise<ScreenerResult>>();
 const TTL = 60_000;
 export const MAX_UNIVERSE = 150;
 
@@ -140,7 +142,7 @@ async function mapLimit<T, R>(items: T[], limit: number, run: (item: T) => Promi
  * indicators are computed server-side. Results are cached for a minute.
  */
 export async function runScreener(
-  options: { timeframe?: string | null; limit?: number; minTurnover?: number; market?: ScreenerMarket },
+  options: { timeframe?: string | null; limit?: number; minTurnover?: number; market?: ScreenerMarket; signal?: AbortSignal },
   fetcher: typeof fetch = fetch,
   now = Date.now(),
 ): Promise<ScreenerResult> {
@@ -150,64 +152,78 @@ export async function runScreener(
     throw new ScreenerValidationError("Choose a time-based interval.");
   const market = options.market ?? "binance";
   if (!SCREENER_MARKETS.includes(market)) throw new ScreenerValidationError("Unknown market.");
-  const key = `${market}:${timeframe}:${limit}:${options.minTurnover ?? 1_000_000}`;
+  const minTurnover = Math.max(0, Math.round(options.minTurnover ?? 1_000_000));
+  const key = `${market}:${timeframe}:${limit}:${minTurnover}`;
   const hit = cache.get(key);
   if (hit && now - hit.at < TTL) return hit.result;
-  const rows = market.startsWith("stocks:")
-    ? await stocksUniverse(market.slice(7), limit, fetcher)
-    : market === "binance"
-      ? await universe(limit, options.minTurnover, fetcher)
-      : await hyperliquidUniverse(market as "hyperliquid" | "hyperliquid-markets", limit, options.minTurnover, fetcher);
-  const failed: string[] = [];
-  if (timeframe) {
-    const pager = serverKlinePager(fetcher);
-    // The public Hyperliquid endpoint rate-limits bursts, so it gets fewer parallel requests.
-    await mapLimit(rows, market === "binance" ? 8 : 3, async (row) => {
-      try {
-        const bars = market.startsWith("stocks:")
-          ? (
-              await loadYahooBars({
-                ticker: row.symbol.slice(3),
-                timeframe,
-                count: 250,
-                extended: false,
-                adjustDividends: false,
-                chartLoader: async (ticker, interval, period1, period2, extended) => {
-                  const chart = await yahooChart({ ticker, interval, period1: period1 / 1000, period2: period2 / 1000, extended }, fetcher);
-                  return {
-                    meta: chart.meta,
-                    rows: chart.bars.map((b) => [b.time, b.open, b.high, b.low, b.close, b.volume]),
-                    adj: chart.adjClose,
-                    events: chart.events,
-                  };
-                },
-              })
-            ).bars
-          : market === "binance"
-            ? await loadKlines(pager, { symbol: row.symbol, timeframe, count: 250 })
-            : await loadHyperliquidBars({
-                coin: row.symbol.slice(3),
-                timeframe,
-                count: 250,
-                page: async (coin, api, startTime, endTime) =>
-                  parseCandles(await hyperliquidCandles({ coin, interval: api, startTime, endTime }, fetcher)),
-              });
-        // Yahoo ends an intraday series with empty placeholder bars while a market is closed; they would zero every volume ratio.
-        while (market.startsWith("stocks:") && bars.length > 60 && bars[bars.length - 1].volume === 0) bars.pop();
-        const t = computeTechnicals(bars);
-        if (t) Object.assign(row, t);
-        else failed.push(row.symbol);
-      } catch {
-        failed.push(row.symbol);
+  const effectiveFetcher: typeof fetch = options.signal
+    ? (input, init) => {
+        const signal = init?.signal ? AbortSignal.any([init.signal, options.signal!]) : options.signal;
+        return fetcher(input, { ...init, signal });
       }
-    });
-  }
-  const result: ScreenerResult = { rows, timeframe, universe: rows.length, generatedAt: now, failed };
-  cache.set(key, { at: now, result });
-  if (cache.size > 40) cache.delete(cache.keys().next().value!);
-  return result;
+    : fetcher;
+  return coalesceInFlight(screenerInflight, key, async () => {
+    const fresh = cache.get(key);
+    if (fresh && now - fresh.at < TTL) return fresh.result;
+    options.signal?.throwIfAborted();
+    const rows = market.startsWith("stocks:")
+      ? await stocksUniverse(market.slice(7), limit, effectiveFetcher)
+      : market === "binance"
+        ? await universe(limit, minTurnover, effectiveFetcher)
+        : await hyperliquidUniverse(market as "hyperliquid" | "hyperliquid-markets", limit, minTurnover, effectiveFetcher);
+    const failed: string[] = [];
+    if (timeframe) {
+      const pager = serverKlinePager(effectiveFetcher);
+      // The public Hyperliquid endpoint rate-limits bursts, so it gets fewer parallel requests.
+      await mapLimit(rows, market === "binance" ? 8 : 3, async (row) => {
+        if (options.signal?.aborted) return;
+        try {
+          const bars = market.startsWith("stocks:")
+            ? (
+                await loadYahooBars({
+                  ticker: row.symbol.slice(3),
+                  timeframe,
+                  count: 250,
+                  extended: false,
+                  adjustDividends: false,
+                  chartLoader: async (ticker, interval, period1, period2, extended) => {
+                    const chart = await yahooChart({ ticker, interval, period1: period1 / 1000, period2: period2 / 1000, extended }, effectiveFetcher);
+                    return {
+                      meta: chart.meta,
+                      rows: chart.bars.map((b) => [b.time, b.open, b.high, b.low, b.close, b.volume]),
+                      adj: chart.adjClose,
+                      events: chart.events,
+                    };
+                  },
+                })
+              ).bars
+            : market === "binance"
+              ? await loadKlines(pager, { symbol: row.symbol, timeframe, count: 250 })
+              : await loadHyperliquidBars({
+                  coin: row.symbol.slice(3),
+                  timeframe,
+                  count: 250,
+                  page: async (coin, api, startTime, endTime) =>
+                    parseCandles(await hyperliquidCandles({ coin, interval: api, startTime, endTime }, effectiveFetcher)),
+                });
+          // Yahoo ends an intraday series with empty placeholder bars while a market is closed; they would zero every volume ratio.
+          while (market.startsWith("stocks:") && bars.length > 60 && bars[bars.length - 1].volume === 0) bars.pop();
+          const t = computeTechnicals(bars);
+          if (t) Object.assign(row, t);
+          else failed.push(row.symbol);
+        } catch {
+          failed.push(row.symbol);
+        }
+      });
+    }
+    options.signal?.throwIfAborted();
+    const result: ScreenerResult = { rows, timeframe, universe: rows.length, generatedAt: now, failed };
+    setBoundedCache(cache, key, { at: now, result }, 40);
+    return result;
+  });
 }
 
 export function clearScreenerCache() {
   cache.clear();
+  screenerInflight.clear();
 }
