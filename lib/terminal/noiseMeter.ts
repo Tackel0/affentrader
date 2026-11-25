@@ -59,15 +59,16 @@ export interface NoiseObservation {
   prior20dPct: number | null; // Cumulative 20-day Close-to-Close return BEFORE Tag 0 (causal)
   drawdownFrom52wHighPct: number; // <= 0, causal drawdown from rolling 252d closing peak
   inBearCycle: boolean; // Inside a >= 20% peak-to-trough bear market cycle
+  bearOngoing: boolean; // True while inside an unconfirmed / ongoing >= 20% bear cycle
   fwd3dPct: number | null;
   fwd5dPct: number | null;
   fwd21dPct: number | null;
   fwd63dPct: number | null;
   fwd126dPct: number | null;
   fwd252dPct: number | null;
-  fwdMaxDrop63dPct: number | null; // <= 0, deepest close drop in next 63 trading days
-  fwdMaxDrop252dPct: number | null; // <= 0, deepest close drop in next 252 trading days
-  dropToBottomPct: number | null; // <= 0, drop to bear cycle bottom (or 252d low outside bear)
+  fwdMaxDrop63dPct: number | null; // <= 0, deepest intraday low drop in next 63 trading days
+  fwdMaxDrop252dPct: number | null; // <= 0, deepest intraday low drop in next 252 trading days
+  dropToBottomPct: number | null; // <= 0, future drop to bear cycle bottom (or 252d low outside bear; null if ongoing/too recent)
   daysToBottom: number | null;
 }
 
@@ -144,6 +145,7 @@ export interface PatternMatch {
   day0Pct: number;
   priorWindowPct: number | null;
   inBearCycle: boolean;
+  bearOngoing: boolean;
   belowSma200: boolean | null;
   drawdown52wPct: number;
   nextDayPct: number | null;
@@ -540,7 +542,11 @@ function computeBearCycles(bars: readonly NoiseDayBar[]): BearCycleLookup {
           ongoing: false,
         });
         regime = "bull";
-        peakIdx = i;
+        let bestPeak = i;
+        for (let j = troughIdx + 1; j < i; j++) {
+          if (bars[j].high > bars[bestPeak].high) bestPeak = j;
+        }
+        peakIdx = bestPeak;
       }
     }
   }
@@ -839,9 +845,20 @@ export function buildNoiseDataset(rawBars: readonly NoiseDayBar[]): NoiseDataset
 
     let dropToBottomPct: number | null = null;
     let daysToBottom: number | null = null;
-    if (inBear && !bearOngoing && bIdx !== null && bPrice !== null) {
-      dropToBottomPct = round2(Math.min(0, ((bPrice - curr.close) / curr.close) * 100));
-      daysToBottom = Math.max(0, bIdx - i);
+    if (inBear) {
+      if (!bearOngoing && bIdx !== null && bPrice !== null) {
+        if (i < bIdx && bPrice < curr.close) {
+          dropToBottomPct = round2(((bPrice - curr.close) / curr.close) * 100);
+          daysToBottom = bIdx - i;
+        } else {
+          // On the exact trough day (i === bIdx), the bear bottom was already printed
+          // intraday before Tag 0's close — never count today's own lower wick as a future drop.
+          dropToBottomPct = 0;
+          daysToBottom = 0;
+        }
+      }
+      // When bearOngoing is true, the bear cycle's final bottom is not yet confirmed
+      // (+20% recovery not achieved), so dropToBottomPct and daysToBottom remain null ("laufend").
     } else if (remainingBars >= 5 && fwdMaxDrop252dPct !== null) {
       dropToBottomPct = fwdMaxDrop252dPct;
       daysToBottom =
@@ -902,6 +919,7 @@ export function buildNoiseDataset(rawBars: readonly NoiseDayBar[]): NoiseDataset
       prior20dPct: priorWindowAt(20),
       drawdownFrom52wHighPct,
       inBearCycle: inBear,
+      bearOngoing,
       fwd3dPct,
       fwd5dPct,
       fwd21dPct,
@@ -2124,10 +2142,17 @@ function matchesReturnRule(value: number | null, rule: ReturnRule): boolean {
   return value >= rule.thresholdPct;
 }
 
+function formatRulePct(value: number): string {
+  const sign = value > 0 ? "+" : value < 0 ? "−" : "";
+  const abs = Math.abs(value);
+  const decimals = Math.abs(abs * 10 - Math.round(abs * 10)) > 1e-4 ? 2 : 1;
+  return `${sign}${abs.toFixed(decimals).replace(".", ",")} %`;
+}
+
 function describeReturnRule(rule: ReturnRule): string {
   if (rule.op === "any") return "beliebig";
   const sym = rule.op === "lte" ? "≤" : "≥";
-  return `${sym} ${formatSignedDe(rule.thresholdPct)}`;
+  return `${sym} ${formatRulePct(rule.thresholdPct)}`;
 }
 
 function summarizeHorizon(
@@ -2188,7 +2213,7 @@ export function evaluatePatternStudy(
   const ticker = (input.ticker || "Dieser Ticker").trim();
   const normRule = (rule?: ReturnRule): ReturnRule => ({
     op: rule?.op ?? "any",
-    thresholdPct: clamp(round1(rule?.thresholdPct || 0), -40, 40),
+    thresholdPct: clamp(round2(rule?.thresholdPct || 0), -40, 40),
   });
   const dayMinus4Rule = normRule(input.dayMinus4Rule);
   const dayMinus3Rule = normRule(input.dayMinus3Rule);
@@ -2198,7 +2223,7 @@ export function evaluatePatternStudy(
   const priorWinDays: PriorWindowDays = input.priorWindowRule?.days ?? 5;
   const priorWinRule: ReturnRule = {
     op: input.priorWindowRule?.op ?? "any",
-    thresholdPct: clamp(round1(input.priorWindowRule?.thresholdPct || 0), -80, 100),
+    thresholdPct: clamp(round2(input.priorWindowRule?.thresholdPct || 0), -80, 100),
   };
   const regimeFilter = input.regimeFilter ?? "all";
 
@@ -2212,8 +2237,10 @@ export function evaluatePatternStudy(
     if (!matchesReturnRule(o.dayMinus2Pct, dayMinus2Rule)) return false;
     if (!matchesReturnRule(o.prevDayCloseToClosePct, prevRule)) return false;
     if (!matchesReturnRule(o.closeToClosePct, day0Rule)) return false;
-    if (regimeFilter === "bear" && !(o.inBearCycle || o.aboveSma200 === false)) return false;
-    if (regimeFilter === "bull" && (o.inBearCycle || o.aboveSma200 === false)) return false;
+    // Regime filter strictly matches the canonical >=20% bear-cycle classifier (inBearCycle)
+    // so Bärenmarkt + Bullenmarkt partition all matches cleanly and align 1:1 with table badges & KPIs.
+    if (regimeFilter === "bear" && !o.inBearCycle) return false;
+    if (regimeFilter === "bull" && o.inBearCycle) return false;
     return true;
   });
 
@@ -2286,21 +2313,28 @@ export function evaluatePatternStudy(
     dayMinus3Rule.op !== "any" ||
     dayMinus2Rule.op !== "any";
 
+  const regimeClause =
+    regimeFilter === "bear"
+      ? " im Bärenmarkt"
+      : regimeFilter === "bull"
+        ? " im Bullenmarkt"
+        : "";
+
   let headline: string;
   if (!hasExtendedRules && prevRule.op !== "any" && day0Rule.op !== "any") {
-    headline = `${ticker} folgte auf einen ${describeReturnRule(prevRule)}-Tag genau ${n}-mal seit ${firstYear} mit einem ${describeReturnRule(day0Rule)}-Tag.`;
+    headline = `${ticker} folgte auf einen ${describeReturnRule(prevRule)}-Tag genau ${n}-mal seit ${firstYear}${regimeClause} mit einem ${describeReturnRule(day0Rule)}-Tag.`;
   } else if (!hasExtendedRules && day0Rule.op !== "any" && prevRule.op === "any") {
-    headline = `${ticker} verzeichnete einen ${describeReturnRule(day0Rule)}-Tag genau ${n}-mal seit ${firstYear}.`;
+    headline = `${ticker} verzeichnete einen ${describeReturnRule(day0Rule)}-Tag genau ${n}-mal seit ${firstYear}${regimeClause}.`;
   } else if (activeRuleParts.length > 0) {
-    headline = `${ticker} erfüllte das Muster „${ruleDescription}“ genau ${n}-mal seit ${firstYear}.`;
+    headline = `${ticker} erfüllte das Muster „${ruleDescription}“ genau ${n}-mal seit ${firstYear}${regimeClause}.`;
   } else {
-    headline = `${n} historische Treffer für ${ticker} seit ${firstYear} (${ruleDescription}).`;
+    headline = `${n} historische Treffer für ${ticker} seit ${firstYear}${regimeClause} (${ruleDescription}).`;
   }
 
   const bullets: string[] = [];
   if (n === 0) {
     bullets.push(
-      `Im geladenen Zeitraum (${firstYear}–${lastYear}, ${dataset.totalDays.toLocaleString("de-DE")} Handelstage) trat dieses exakte Muster 0-mal auf — wähle „Max“ für die komplette Historie oder lockere die Prozent-Schwellen.`,
+      `Im geladenen Zeitraum (${firstYear}–${lastYear}, ${dataset.totalDays.toLocaleString("de-DE")} Handelstage) trat dieses exakte Muster${regimeClause} 0-mal auf — wähle „Max“ für die komplette Historie oder lockere die Prozent-Schwellen.`,
     );
   } else {
     const smaPart =
@@ -2316,19 +2350,28 @@ export function evaluatePatternStudy(
         medianDaysToBottom !== null && medianDaysToBottom > 0
           ? `, Median ${medianDaysToBottom} Handelstage bis Tief`
           : "";
+      const ongoingCount = n - withBottom.length;
+      const ongoingNote = ongoingCount > 0 ? ` (${ongoingCount} laufend)` : "";
       if (droppedFurtherCount === withBottom.length && minFurtherDropPct <= -0.5) {
         bullets.push(
-          `100,0 % (${withBottom.length}/${withBottom.length}) fielen danach noch mindestens ${formatSignedDe(minFurtherDropPct)}, bevor das Tief erreicht war (Median ${formatSignedDe(medianFurtherDropPct)}, Worst-Case ${formatSignedDe(worstFurtherDropPct)}${daysPart}).`,
+          `100,0 % (${withBottom.length}/${withBottom.length}) fielen danach noch mindestens ${formatSignedDe(minFurtherDropPct)}, bevor das Tief erreicht war (Median ${formatSignedDe(medianFurtherDropPct)}, Worst-Case ${formatSignedDe(worstFurtherDropPct)}${daysPart})${ongoingNote}.`,
         );
       } else if (droppedFurtherCount > 0) {
         bullets.push(
-          `${droppedFurtherRate.toFixed(1).replace(".", ",")} % (${droppedFurtherCount}/${withBottom.length}) fielen danach noch tiefer (Median ${formatSignedDe(medianFurtherDropPct)}, Worst-Case ${formatSignedDe(worstFurtherDropPct)} · ≥ 5 % tiefer: ${droppedAtLeast5PctRate.toFixed(1).replace(".", ",")} %${daysPart}).`,
+          `${droppedFurtherRate.toFixed(1).replace(".", ",")} % (${droppedFurtherCount}/${withBottom.length}) fielen danach noch tiefer (Median ${formatSignedDe(medianFurtherDropPct)}, Worst-Case ${formatSignedDe(worstFurtherDropPct)} · ≥ 5 % tiefer: ${droppedAtLeast5PctRate.toFixed(1).replace(".", ",")} %${daysPart})${ongoingNote}.`,
         );
       } else {
         bullets.push(
-          `Keiner der ${withBottom.length} ausgewerteten Treffer schloss danach tiefer (0 % weiterer Rückgang).`,
+          `Keiner der ${withBottom.length} ausgewerteten Treffer fiel danach tiefer (0 % weiterer Rückgang)${ongoingNote}.`,
         );
       }
+    } else {
+      const ongoingBearCount = matchedObs.filter((o) => o.bearOngoing).length;
+      bullets.push(
+        ongoingBearCount > 0
+          ? `Alle ${n} Treffer liegen in einem laufenden Bärenmarkt bzw. noch ohne bestätigtes Zyklustief — „Drop bis Tief“ ist aktuell noch offen (laufend).`
+          : `Für die ${n} Treffer stehen noch zu wenige Folgetage für die Tief-Auswertung bereit (laufend).`,
+      );
     }
 
     const h1 = horizons[0];
@@ -2367,6 +2410,7 @@ export function evaluatePatternStudy(
         day0Pct: round2(o.closeToClosePct),
         priorWindowPct: priorWinVal !== null ? round2(priorWinVal) : null,
         inBearCycle: o.inBearCycle,
+        bearOngoing: o.bearOngoing,
         belowSma200: o.aboveSma200 !== null ? !o.aboveSma200 : null,
         drawdown52wPct: o.drawdownFrom52wHighPct,
         nextDayPct: o.nextDayCloseToClosePct !== null ? round2(o.nextDayCloseToClosePct) : null,

@@ -1,175 +1,18 @@
 import { isYahooTicker } from "@/lib/symbolId";
 import { logError } from "@/lib/server/logger";
 import { yahooChart } from "@/lib/server/yahoo";
-import { adjustForDividends, type YahooChart } from "@/lib/market/yahoo";
-import { buildNoiseDataset, type NoiseApiPayload, type NoiseDayBar } from "@/lib/terminal/noiseMeter";
-import type { OHLCV } from "@/types/trading";
+import { adjustForDividends } from "@/lib/market/yahoo";
+import { buildNoiseDataset, type NoiseApiPayload } from "@/lib/terminal/noiseMeter";
+import {
+  formatSessionDate,
+  isTodayRegularClosed,
+  nextTradingWeekday,
+  normalizeNoiseDailyBars,
+  resolveLiveQuote,
+} from "@/lib/terminal/noiseSession";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
-
-function formatSessionDate(ms: number, timezone: string): string {
-  try {
-    const formatter = new Intl.DateTimeFormat("en", {
-      timeZone: timezone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    });
-    const parts = formatter.formatToParts(ms);
-    const y = parts.find((p) => p.type === "year")?.value;
-    const m = parts.find((p) => p.type === "month")?.value;
-    const d = parts.find((p) => p.type === "day")?.value;
-    if (y && m && d) return `${y}-${m}-${d}`;
-  } catch {
-    /* fallback to UTC */
-  }
-  return new Date(ms).toISOString().slice(0, 10);
-}
-
-function roundPrice(v: number): number {
-  return Math.round(v * 10000) / 10000;
-}
-
-function normalizeNoiseDailyBars(
-  bars: readonly OHLCV[],
-  timezone: string,
-  now: number,
-): { completed: NoiseDayBar[]; todayBar: NoiseDayBar | null } {
-  const todaySession = formatSessionDate(now, timezone);
-  const bySession = new Map<string, NoiseDayBar>();
-  let todayBar: NoiseDayBar | null = null;
-
-  for (const bar of bars) {
-    if (!Number.isFinite(bar.time) || bar.time <= 0) continue;
-    if (![bar.open, bar.high, bar.low, bar.close].every((n) => Number.isFinite(n) && n > 0)) continue;
-    const session = formatSessionDate(bar.time, timezone);
-    const open = roundPrice(bar.open);
-    const close = roundPrice(bar.close);
-    const high = roundPrice(Math.max(bar.high, open, close));
-    const low = roundPrice(Math.min(bar.low, open, close));
-    const volume = Number.isFinite(bar.volume) && bar.volume >= 0 ? Math.round(bar.volume) : 0;
-    const clean: NoiseDayBar = { session, open, high, low, close, volume };
-    if (session >= todaySession) {
-      if (session === todaySession) todayBar = clean;
-      continue;
-    }
-    bySession.set(session, clean);
-  }
-
-  const completed = [...bySession.values()].sort((a, b) => a.session.localeCompare(b.session));
-  return { completed, todayBar };
-}
-
-function resolveLiveQuote(
-  daily: YahooChart,
-  intraday: YahooChart | null,
-  completed: readonly NoiseDayBar[],
-  todayBar: NoiseDayBar | null,
-  now: number,
-): {
-  prevClose: number;
-  lastPrice: number;
-  liveGapPct: number;
-  liveTodayReturnPct: number;
-  priceSource: "premarket" | "afterhours" | "regular" | "last-close";
-} {
-  const lastCompleted = completed.at(-1);
-  const prevClose = lastCompleted?.close ?? (Number.isFinite(daily.meta.previousClose) ? daily.meta.previousClose : daily.meta.price);
-  if (!(prevClose > 0)) {
-    return { prevClose: 0, lastPrice: 0, liveGapPct: 0, liveTodayReturnPct: 0, priceSource: "last-close" };
-  }
-
-  const latestIntraday = intraday?.bars.at(-1);
-  const computeTodayReturn = (fallbackGap: number): number => {
-    if (todayBar && todayBar.close > 0) {
-      return Math.round(((todayBar.close - prevClose) / prevClose) * 10000) / 100;
-    }
-    if (latestIntraday && Number.isFinite(latestIntraday.close) && latestIntraday.close > 0) {
-      return Math.round(((latestIntraday.close - prevClose) / prevClose) * 10000) / 100;
-    }
-    return fallbackGap;
-  };
-
-  const sessions = intraday?.meta.sessions ?? daily.meta.sessions;
-  const inTupleWindow = (list?: ReadonlyArray<readonly [number, number]>, t = now) =>
-    Boolean(list?.some(([start, end]) => t >= start && t <= end));
-
-  if (latestIntraday && Number.isFinite(latestIntraday.close) && latestIntraday.close > 0) {
-    const barTime = latestIntraday.time;
-    const matchedExtended = sessions?.extended.find(([start, end]) => barTime >= start && barTime <= end);
-    const matchingRegular = matchedExtended
-      ? sessions?.regular.find(([rStart, rEnd]) => rStart >= matchedExtended[0] && rEnd <= matchedExtended[1])
-      : undefined;
-
-    if (matchedExtended && matchingRegular && barTime < matchingRegular[0]) {
-      const gap = Math.round(((latestIntraday.close - prevClose) / prevClose) * 10000) / 100;
-      return {
-        prevClose: roundPrice(prevClose),
-        lastPrice: roundPrice(latestIntraday.close),
-        liveGapPct: gap,
-        liveTodayReturnPct: computeTodayReturn(gap),
-        priceSource: "premarket",
-      };
-    }
-    if (matchedExtended && matchingRegular && barTime >= matchingRegular[1]) {
-      const anchor = todayBar?.close ?? prevClose;
-      const gap = Math.round(((latestIntraday.close - anchor) / anchor) * 10000) / 100;
-      return {
-        prevClose: roundPrice(anchor),
-        lastPrice: roundPrice(latestIntraday.close),
-        liveGapPct: gap,
-        liveTodayReturnPct: computeTodayReturn(gap),
-        priceSource: "afterhours",
-      };
-    }
-  }
-
-  if (todayBar && todayBar.open > 0) {
-    const gap = Math.round(((todayBar.open - prevClose) / prevClose) * 10000) / 100;
-    return {
-      prevClose: roundPrice(prevClose),
-      lastPrice: roundPrice(todayBar.open),
-      liveGapPct: gap,
-      liveTodayReturnPct: computeTodayReturn(gap),
-      priceSource: "regular",
-    };
-  }
-
-  if (
-    latestIntraday &&
-    Number.isFinite(latestIntraday.close) &&
-    latestIntraday.close > 0 &&
-    Math.abs(latestIntraday.close - prevClose) / prevClose > 0.0002
-  ) {
-    const gap = Math.round(((latestIntraday.close - prevClose) / prevClose) * 10000) / 100;
-    return {
-      prevClose: roundPrice(prevClose),
-      lastPrice: roundPrice(latestIntraday.close),
-      liveGapPct: gap,
-      liveTodayReturnPct: computeTodayReturn(gap),
-      priceSource: inTupleWindow(sessions?.regular, latestIntraday.time) ? "regular" : "premarket",
-    };
-  }
-
-  return {
-    prevClose: roundPrice(prevClose),
-    lastPrice: roundPrice(prevClose),
-    liveGapPct: 0,
-    liveTodayReturnPct: 0,
-    priceSource: "last-close",
-  };
-}
-
-function nextTradingWeekday(now: number, timezone: string): number {
-  const iso = formatSessionDate(now, timezone);
-  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
-  if (!parts) return 1;
-  const d = new Date(Date.UTC(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3])));
-  const wd = d.getUTCDay();
-  if (wd === 0 || wd === 6) return 1; // Weekend -> Monday
-  return wd;
-}
 
 export async function GET(request: Request) {
   const q = new URL(request.url).searchParams;
@@ -222,8 +65,20 @@ export async function GET(request: Request) {
     ]);
 
     const timezone = daily.meta.timezone || "America/New_York";
+    const todaySession = formatSessionDate(now, timezone);
+    const sessions = intraday?.meta.sessions ?? daily.meta.sessions;
+    const regularClosed = isTodayRegularClosed(
+      todaySession,
+      timezone,
+      sessions,
+      intraday?.bars.at(-1)?.time,
+      now,
+    );
+
     const adjusted = adjustForDividends(daily.bars, daily.adjClose);
-    const { completed, todayBar } = normalizeNoiseDailyBars(adjusted, timezone, now);
+    const { completed, todayBar } = normalizeNoiseDailyBars(adjusted, timezone, now, {
+      promoteToday: regularClosed,
+    });
 
     if (completed.length < 30) {
       return Response.json(
@@ -233,7 +88,7 @@ export async function GET(request: Request) {
     }
 
     const dataset = buildNoiseDataset(completed);
-    const liveQuote = resolveLiveQuote(daily, intraday, completed, todayBar, now);
+    const liveQuote = resolveLiveQuote(daily, intraday, completed, todayBar, now, timezone);
 
     const payload: NoiseApiPayload = {
       ticker: rawTicker,
@@ -253,7 +108,7 @@ export async function GET(request: Request) {
         currentRsi14: dataset.currentRsi14,
         currentDistEma20Pct: dataset.currentDistEma20Pct,
         currentAboveSma200: dataset.currentAboveSma200,
-        nextWeekday: nextTradingWeekday(now, timezone),
+        nextWeekday: nextTradingWeekday(now, timezone, regularClosed),
       },
       bars: completed,
     };

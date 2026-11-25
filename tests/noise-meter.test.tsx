@@ -11,8 +11,16 @@ import {
   type NoiseApiPayload,
   type NoiseDayBar,
 } from "@/lib/terminal/noiseMeter";
+import {
+  formatSessionDate,
+  isTodayRegularClosed,
+  nextTradingWeekday,
+  normalizeNoiseDailyBars,
+  resolveLiveQuote,
+} from "@/lib/terminal/noiseSession";
+import type { YahooChart } from "@/lib/market/yahoo";
 import { parseTerminalCommand } from "@/lib/terminal/commands";
-import { NoiseMeterPanel } from "@/components/NoiseMeterPanel";
+import { NoiseMeterPanel, NumericPctInput } from "@/components/NoiseMeterPanel";
 import { ResearchTerminal } from "@/components/ResearchTerminal";
 import { useChartStore } from "@/stores/useChartStore";
 
@@ -446,6 +454,422 @@ describe("NoiseMeter empirical engine", () => {
     expect(suggested.prevDayRule).toEqual({ op: "lte", thresholdPct: -5 });
     expect(suggested.day0Rule).toEqual({ op: "gte", thresholdPct: 5 });
   });
+
+  it("partitions Bärenmarkt and Bullenmarkt strictly by inBearCycle without leaking below-200-SMA bull pullbacks", () => {
+    const dates = makeWeekdayDates(340, "2021-01-04");
+    const bars: NoiseDayBar[] = [];
+    let prev = 100;
+    let idx = 0;
+
+    const pushPct = (pctMove: number) => {
+      const open = Number((prev * (1 + (pctMove * 0.2) / 100)).toFixed(4));
+      const close = Number((prev * (1 + pctMove / 100)).toFixed(4));
+      const high = Number((Math.max(open, close) * 1.002).toFixed(4));
+      const low = Number((Math.min(open, close) * 0.998).toFixed(4));
+      bars.push({ session: dates[idx++], open, high, low, close, volume: 40_000_000 });
+      prev = close;
+    };
+
+    // 1. Flat-ish bull plateau for 210 days around ~110 so SMA200 is seeded (~108)
+    for (let i = 0; i < 210; i++) pushPct(i % 2 === 0 ? 0.12 : -0.08);
+
+    // 2. Mild bull pullback (-8% from peak -> NOT a >=20% bear cycle, but dips BELOW 200-SMA!)
+    for (let i = 0; i < 6; i++) pushPct(-1.2);
+    pushPct(-5.5);
+    pushPct(5.5); // Match 1: Bull market (inBearCycle === false) while below 200-SMA!
+    for (let i = 0; i < 15; i++) pushPct(0.9); // Recover back above 200-SMA to new highs
+
+    // 3. Bull-market shock well above 200-SMA
+    pushPct(-5.2);
+    pushPct(5.4); // Match 2: Bull market (inBearCycle === false, aboveSma200 === true)
+    for (let i = 0; i < 12; i++) pushPct(0.5);
+
+    // 4. Genuine >=20% bear cycle with a shock match and +30% recovery
+    for (let i = 0; i < 12; i++) pushPct(-1.6);
+    pushPct(-5.5);
+    pushPct(5.5); // Match 3: Genuine bear market (inBearCycle === true)
+    for (let i = 0; i < 10; i++) pushPct(-1.5);
+    while (idx < dates.length) pushPct(0.75);
+
+    const ds = buildNoiseDataset(bars);
+    const rule = {
+      ticker: "SPY",
+      prevDayRule: { op: "lte" as const, thresholdPct: -5 },
+      day0Rule: { op: "gte" as const, thresholdPct: 5 },
+    };
+
+    const allStudy = evaluatePatternStudy(ds, { ...rule, regimeFilter: "all" });
+    const bearStudy = evaluatePatternStudy(ds, { ...rule, regimeFilter: "bear" });
+    const bullStudy = evaluatePatternStudy(ds, { ...rule, regimeFilter: "bull" });
+
+    expect(allStudy.sampleSize).toBe(3);
+    // Verify one of the bull matches really was below 200-SMA (the exact case that previously leaked into "bear")
+    expect(allStudy.matches.some((m) => !m.inBearCycle && m.belowSma200 === true)).toBe(true);
+
+    // Bear filter MUST ONLY include genuine inBearCycle === true matches (100% bear rate)
+    expect(bearStudy.sampleSize).toBe(1);
+    expect(bearStudy.bearCycleRate).toBe(100);
+    expect(bearStudy.matches.every((m) => m.inBearCycle)).toBe(true);
+    expect(bearStudy.headline).toContain("im Bärenmarkt");
+
+    // Bull filter MUST include ALL inBearCycle === false matches (including below-200-SMA pullbacks)
+    expect(bullStudy.sampleSize).toBe(2);
+    expect(bullStudy.bearCycleRate).toBe(0);
+    expect(bullStudy.matches.every((m) => !m.inBearCycle)).toBe(true);
+    expect(bullStudy.headline).toContain("im Bullenmarkt");
+
+    // Exact partition invariant
+    expect(bearStudy.sampleSize + bullStudy.sampleSize).toBe(allStudy.sampleSize);
+  });
+
+  it("does not count the trough day's own intraday lower wick as a future drop to bottom", () => {
+    const dates = makeWeekdayDates(120, "2022-01-03");
+    const bars: NoiseDayBar[] = [];
+    let idx = 0;
+
+    // Peak at 200
+    for (let i = 0; i < 10; i++) {
+      const c = 180 + i * 2;
+      bars.push({ session: dates[idx++], open: c - 0.5, high: c + 2, low: c - 1, close: c, volume: 50_000_000 });
+    }
+    // Decline into bear market (> 20% drop from 200 peak -> below 160)
+    let prev = bars.at(-1)!.close; // 198, peak high = 200
+    for (let i = 0; i < 10; i++) {
+      const c = Number((prev * 0.975).toFixed(4));
+      bars.push({ session: dates[idx++], open: prev, high: prev * 1.002, low: c * 0.998, close: c, volume: 55_000_000 });
+      prev = c;
+    }
+    // Earlier bear-cycle shock BEFORE the trough (should measure real future drop to trough low = 110)
+    const preTroughDrop = Number((prev * 0.94).toFixed(4));
+    bars.push({ session: dates[idx++], open: prev, high: prev, low: preTroughDrop, close: preTroughDrop, volume: 65_000_000 });
+    const preTroughBounce = Number((preTroughDrop * 1.055).toFixed(4));
+    const earlierMatchSession = dates[idx];
+    bars.push({
+      session: dates[idx++],
+      open: preTroughDrop * 1.01,
+      high: preTroughBounce * 1.005,
+      low: preTroughDrop * 1.005,
+      close: preTroughBounce,
+      volume: 65_000_000,
+    });
+    prev = preTroughBounce;
+
+    // 4 more down days heading to trough
+    for (let i = 0; i < 4; i++) {
+      const c = Number((prev * 0.97).toFixed(4));
+      bars.push({ session: dates[idx++], open: prev, high: prev, low: c, close: c, volume: 60_000_000 });
+      prev = c;
+    }
+    // Day before trough: -5.5%
+    const preBottomClose = Number((prev * 0.945).toFixed(4));
+    bars.push({ session: dates[idx++], open: prev, high: prev, low: preBottomClose, close: preBottomClose, volume: 80_000_000 });
+
+    // EXACT TROUGH DAY: plunges intraday to massive lower wick (110, -14%+ below close),
+    // then reverses to close +5.8% above prevClose! Never trades lower afterwards.
+    const troughClose = Number((preBottomClose * 1.058).toFixed(4));
+    const troughWickLow = Number((troughClose * 0.85).toFixed(4)); // -15% intraday wick below close!
+    const troughSession = dates[idx];
+    bars.push({
+      session: dates[idx++],
+      open: preBottomClose * 0.96,
+      high: troughClose * 1.005,
+      low: troughWickLow,
+      close: troughClose,
+      volume: 120_000_000,
+    });
+    prev = troughClose;
+
+    // Clean +35% bull recovery -> confirms bear cycle finished at troughSession
+    while (idx < dates.length) {
+      const c = Number((prev * 1.008).toFixed(4));
+      bars.push({ session: dates[idx++], open: prev * 1.001, high: c * 1.003, low: prev * 1.001, close: c, volume: 45_000_000 });
+      prev = c;
+    }
+
+    const ds = buildNoiseDataset(bars);
+    const study = evaluatePatternStudy(ds, {
+      ticker: "QQQ",
+      prevDayRule: { op: "lte", thresholdPct: -5 },
+      day0Rule: { op: "gte", thresholdPct: 5 },
+    });
+
+    expect(study.sampleSize).toBe(2);
+    const troughMatch = study.matches.find((m) => m.session === troughSession)!;
+    const earlierMatch = study.matches.find((m) => m.session === earlierMatchSession)!;
+
+    expect(troughMatch).toBeDefined();
+    expect(troughMatch.inBearCycle).toBe(true);
+    // Trough day's OWN lower wick MUST NOT be counted as a future drop after close!
+    expect(troughMatch.dropToBottomPct).toBe(0);
+    expect(troughMatch.daysToBottom).toBe(0);
+
+    // Earlier match strictly before trough MUST measure the real future drop to troughWickLow
+    expect(earlierMatch).toBeDefined();
+    expect(earlierMatch.inBearCycle).toBe(true);
+    expect(earlierMatch.dropToBottomPct!).toBeLessThan(-10);
+    expect(earlierMatch.daysToBottom!).toBeGreaterThan(0);
+  });
+
+  it("leaves dropToBottomPct and daysToBottom null (laufend) for matches in an ongoing bear market", () => {
+    const dates = makeWeekdayDates(90, "2026-01-02");
+    const bars: NoiseDayBar[] = [];
+    let idx = 0;
+    let prev = 200;
+
+    // Peak around 220
+    for (let i = 0; i < 15; i++) {
+      const c = Number((prev * 1.006).toFixed(4));
+      bars.push({ session: dates[idx++], open: prev, high: c * 1.002, low: prev * 0.998, close: c, volume: 40_000_000 });
+      prev = c;
+    }
+    // Drop > 22% into an ongoing bear market
+    for (let i = 0; i < 18; i++) {
+      const c = Number((prev * 0.985).toFixed(4));
+      bars.push({ session: dates[idx++], open: prev, high: prev * 1.001, low: c * 0.998, close: c, volume: 55_000_000 });
+      prev = c;
+    }
+    // Pattern match [-5.5% -> +5.5%] inside the ONGOING bear market
+    const shockDown = Number((prev * 0.945).toFixed(4));
+    bars.push({ session: dates[idx++], open: prev, high: prev, low: shockDown, close: shockDown, volume: 70_000_000 });
+    const shockUp = Number((shockDown * 1.055).toFixed(4));
+    bars.push({ session: dates[idx++], open: shockDown * 1.01, high: shockUp * 1.003, low: shockDown * 1.005, close: shockUp, volume: 75_000_000 });
+    prev = shockUp;
+
+    // 20+ more bars oscillating BELOW +20% recovery (so remainingBars >= 5, yet bear market is STILL ONGOING!)
+    while (idx < dates.length) {
+      const move = idx % 2 === 0 ? 0.993 : 1.006;
+      const c = Number((prev * move).toFixed(4));
+      bars.push({ session: dates[idx++], open: prev, high: Math.max(prev, c) * 1.002, low: Math.min(prev, c) * 0.998, close: c, volume: 50_000_000 });
+      prev = c;
+    }
+
+    const ds = buildNoiseDataset(bars);
+    expect(ds.currentInBearCycle).toBe(true);
+
+    const study = evaluatePatternStudy(ds, {
+      ticker: "QQQ",
+      prevDayRule: { op: "lte", thresholdPct: -5 },
+      day0Rule: { op: "gte", thresholdPct: 5 },
+    });
+
+    expect(study.sampleSize).toBe(1);
+    expect(study.bearCycleCount).toBe(1);
+    expect(study.bottomEvaluatedCount).toBe(0);
+    expect(study.matches[0].inBearCycle).toBe(true);
+    expect(study.matches[0].bearOngoing).toBe(true);
+    expect(study.matches[0].dropToBottomPct).toBeNull();
+    expect(study.matches[0].daysToBottom).toBeNull();
+    expect(study.bullets.some((b) => b.includes("laufenden Bärenmarkt"))).toBe(true);
+  });
+});
+
+describe("NoiseMeter Regular-Close-Promotion & live quote resolution", () => {
+  const tz = "America/New_York";
+  // Monday 2026-11-23 EST (UTC-5):
+  // Premarket 04:00-09:30 ET (09:00-14:30 UTC), Regular 09:30-16:00 ET (14:30-21:00 UTC), After-hours 16:00-20:00 ET (21:00-01:00 UTC)
+  const monPreStart = Date.UTC(2026, 10, 23, 9, 0);
+  const monRegStart = Date.UTC(2026, 10, 23, 14, 30);
+  const monRegEnd = Date.UTC(2026, 10, 23, 21, 0);
+  const monPostEnd = Date.UTC(2026, 10, 24, 1, 0);
+  const friBarTime = Date.UTC(2026, 10, 20, 14, 30);
+  const monBarTime = Date.UTC(2026, 10, 23, 14, 30);
+
+  const dailyBars = [
+    { time: friBarTime, open: 590, high: 595, low: 588, close: 592, volume: 50_000_000 },
+    { time: monBarTime, open: 598, high: 604, low: 596, close: 602, volume: 60_000_000 },
+  ];
+
+  const makeChart = (
+    bars: YahooChart["bars"],
+    sessions?: YahooChart["meta"]["sessions"],
+  ): YahooChart => ({
+    meta: {
+      symbol: "SPY",
+      name: "SPY",
+      exchange: "NYSE ARCA",
+      currency: "USD",
+      type: "etf",
+      timezone: tz,
+      price: 602,
+      previousClose: 592,
+      dayHigh: 604,
+      dayLow: 596,
+      volume: 60_000_000,
+      time: monRegEnd,
+      gmtOffset: -18000,
+      sessions,
+    },
+    bars,
+    adjClose: bars.map((b) => b.close),
+    events: { dividends: [], splits: [] },
+  });
+
+  const sessionsWithExtended = {
+    regular: [[monRegStart, monRegEnd] as const],
+    extended: [[monPreStart, monPostEnd] as const],
+  };
+
+  it("keeps today's bar as in-progress during regular hours and promotes it immediately after regular close", () => {
+    const todaySession = formatSessionDate(monRegStart, tz);
+    expect(todaySession).toBe("2026-11-23");
+
+    // 1. Intraday regular session (11:30 ET = 16:30 UTC): MUST NOT promote todayBar
+    const duringRegularNow = Date.UTC(2026, 10, 23, 16, 30);
+    const closedDuring = isTodayRegularClosed(todaySession, tz, sessionsWithExtended, duringRegularNow - 300_000, duringRegularNow);
+    expect(closedDuring).toBe(false);
+
+    const normDuring = normalizeNoiseDailyBars(dailyBars, tz, duringRegularNow, { promoteToday: closedDuring });
+    expect(normDuring.promotedToday).toBe(false);
+    expect(normDuring.completed.map((b) => b.session)).toEqual(["2026-11-20"]);
+    expect(normDuring.todayBar?.session).toBe("2026-11-23");
+
+    const quoteDuring = resolveLiveQuote(
+      makeChart(dailyBars, sessionsWithExtended),
+      makeChart([{ time: duringRegularNow - 300_000, open: 600, high: 602, low: 599, close: 601, volume: 1_000_000 }], sessionsWithExtended),
+      normDuring.completed,
+      normDuring.todayBar,
+      duringRegularNow,
+      tz,
+    );
+    expect(quoteDuring.priceSource).toBe("regular");
+    expect(quoteDuring.prevClose).toBe(592);
+    expect(quoteDuring.liveGapPct).toBeCloseTo(((598 - 592) / 592) * 100, 1);
+    expect(quoteDuring.liveTodayReturnPct).toBeCloseTo(((602 - 592) / 592) * 100, 1);
+    expect(nextTradingWeekday(duringRegularNow, tz, closedDuring)).toBe(1); // Monday
+
+    // 2. After regular close in after-hours (17:15 ET = 22:15 UTC): MUST promote todayBar into completed!
+    const afterCloseNow = Date.UTC(2026, 10, 23, 22, 15);
+    const ahBarTime = Date.UTC(2026, 10, 23, 22, 10);
+    const closedAfter = isTodayRegularClosed(todaySession, tz, sessionsWithExtended, ahBarTime, afterCloseNow);
+    expect(closedAfter).toBe(true);
+
+    const normAfter = normalizeNoiseDailyBars(dailyBars, tz, afterCloseNow, { promoteToday: closedAfter });
+    expect(normAfter.promotedToday).toBe(true);
+    expect(normAfter.completed.map((b) => b.session)).toEqual(["2026-11-20", "2026-11-23"]);
+    expect(normAfter.todayBar).toBeNull();
+
+    const quoteAfter = resolveLiveQuote(
+      makeChart(dailyBars, sessionsWithExtended),
+      makeChart([{ time: ahBarTime, open: 603, high: 605, low: 602.5, close: 605, volume: 200_000 }], sessionsWithExtended),
+      normAfter.completed,
+      normAfter.todayBar,
+      afterCloseNow,
+      tz,
+    );
+    expect(quoteAfter.priceSource).toBe("afterhours");
+    expect(quoteAfter.prevClose).toBe(602); // Anchored to promoted Monday close!
+    expect(quoteAfter.lastPrice).toBe(605);
+    expect(quoteAfter.liveGapPct).toBeCloseTo(((605 - 602) / 602) * 100, 1);
+    expect(nextTradingWeekday(afterCloseNow, tz, closedAfter)).toBe(2); // Advances Mon -> Tue
+
+    // 3. Post-regular-close index without extended hours (e.g. ^GSPC at 18:00 ET, last 5m bar at 15:55 ET):
+    // MUST promote todayBar AND ignore stale 15:55 ET intraday bar -> clean last-close (0% gap)
+    const indexSessions = { regular: [[monRegStart, monRegEnd] as const], extended: [] };
+    const staleIntradayBar = { time: monRegEnd - 300_000, open: 601, high: 601.5, low: 600.5, close: 601, volume: 500_000 };
+    const indexCloseNow = Date.UTC(2026, 10, 23, 23, 0);
+    const closedIndex = isTodayRegularClosed(todaySession, tz, indexSessions, staleIntradayBar.time, indexCloseNow);
+    expect(closedIndex).toBe(true);
+    const normIndex = normalizeNoiseDailyBars(dailyBars, tz, indexCloseNow, { promoteToday: closedIndex });
+    const quoteIndex = resolveLiveQuote(
+      makeChart(dailyBars, indexSessions),
+      makeChart([staleIntradayBar], indexSessions),
+      normIndex.completed,
+      normIndex.todayBar,
+      indexCloseNow,
+      tz,
+    );
+    expect(quoteIndex.priceSource).toBe("last-close");
+    expect(quoteIndex.prevClose).toBe(602);
+    expect(quoteIndex.liveGapPct).toBe(0);
+
+    // Friday after regular close advances nextTradingWeekday to Monday (1)
+    const friAfterClose = Date.UTC(2026, 10, 20, 22, 0);
+    expect(nextTradingWeekday(friAfterClose, tz, true)).toBe(1);
+  });
+});
+
+describe("NumericPctInput component", () => {
+  afterEach(() => cleanup());
+
+  it("handles clearing, minus sign, German comma decimals, clamping, blur revert, and keyboard stepping without snapping to 0", () => {
+    const changes: number[] = [];
+    function Wrapper({ initial = -5 }: { initial?: number }) {
+      const [val, setVal] = React.useState(initial);
+      return (
+        <div>
+          <NumericPctInput
+            value={val}
+            min={-40}
+            max={40}
+            step={0.5}
+            ariaLabel="Test Prozent"
+            onChange={(next) => {
+              changes.push(next);
+              setVal(next);
+            }}
+          />
+          <button type="button" onClick={() => setVal(-10)}>
+            Set -10
+          </button>
+          <span data-testid="val">{val}</span>
+        </div>
+      );
+    }
+
+    const { getByRole, getByTestId } = render(<Wrapper />);
+    const input = getByRole("textbox", { name: "Test Prozent" }) as HTMLInputElement;
+    expect(input.value).toBe("-5");
+
+    // 1. Clearing to "" MUST NOT snap value to 0
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: "" } });
+    expect(input.value).toBe("");
+    expect(getByTestId("val").textContent).toBe("-5");
+    expect(changes).toEqual([]);
+
+    // 2. Typing "-" MUST NOT snap value to 0
+    fireEvent.change(input, { target: { value: "-" } });
+    expect(input.value).toBe("-");
+    expect(getByTestId("val").textContent).toBe("-5");
+    expect(changes).toEqual([]);
+
+    // 3. Typing German comma decimal "-7,5" updates live to -7.5 while preserving draft
+    fireEvent.change(input, { target: { value: "-7,5" } });
+    expect(input.value).toBe("-7,5");
+    expect(getByTestId("val").textContent).toBe("-7.5");
+
+    // 4. Typing Unicode minus "−3,25" parses cleanly
+    fireEvent.change(input, { target: { value: "−3,25" } });
+    expect(getByTestId("val").textContent).toBe("-3.25");
+
+    // 5. Trailing dot "-4." keeps draft while updating value to -4
+    fireEvent.change(input, { target: { value: "-4." } });
+    expect(input.value).toBe("-4.");
+    expect(getByTestId("val").textContent).toBe("-4");
+
+    // 6. Clearing and blurring reverts to last valid value (-4), never 0
+    fireEvent.change(input, { target: { value: "" } });
+    fireEvent.blur(input);
+    expect(input.value).toBe("-4");
+    expect(getByTestId("val").textContent).toBe("-4");
+
+    // 7. Out-of-range clamps on change & normalizes on blur
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: "999" } });
+    expect(getByTestId("val").textContent).toBe("40");
+    fireEvent.blur(input);
+    expect(input.value).toBe("40");
+
+    // 8. ArrowDown / ArrowUp step cleanly
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(getByTestId("val").textContent).toBe("39.5");
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    expect(getByTestId("val").textContent).toBe("40");
+
+    // 9. External prop update syncs draft
+    fireEvent.click(getByRole("button", { name: "Set -10" }));
+    expect(input.value).toBe("-10");
+  });
 });
 
 describe("NoiseMeter terminal commands", () => {
@@ -553,18 +977,46 @@ describe("NoiseMeterPanel & ResearchTerminal UI", () => {
     fireEvent.click(factorToggle);
     expect(factorToggle.getAttribute("aria-pressed")).toBe("true");
 
-    // Switch primary tab to Muster-Scanner and test multi-day lookback (4T default -> 5T Tag -4 + Vor-7T preset)
+    // Switch primary tab to Muster-Scanner and test simplified 2-mode UI (Vorlauf → Heute | Einzeltage)
     fireEvent.click(panel.getByRole("tab", { name: /Muster-Scanner/i }));
     expect(container.textContent).toContain("Historischer Muster-Scanner");
-    expect(container.textContent).toContain("Tag −3");
-    expect(container.textContent).toContain("Tag −2");
-    expect(container.textContent).toContain("Vor-Zeitraum (kumulativ vor Tag 0)");
+    // Default mode is clean 2-day Einzeltage (no cluttered Tag -3 / Tag -2 / Vorlauf cards)
+    expect(panel.getByRole("button", { name: "Einzeltage" }).getAttribute("aria-pressed")).toBe("true");
+    expect(panel.getByRole("button", { name: "Vorlauf → Heute" }).getAttribute("aria-pressed")).toBe("false");
+    expect(container.textContent).toContain("Tag −1 (Vortag)");
+    expect(container.textContent).not.toContain("Vorlauf (kumulativ vor Heute)");
+    expect(container.textContent).not.toContain("Tag −3");
+
+    // Expand Einzeltage lookback to 5 Tage
     fireEvent.click(panel.getByRole("button", { name: "5 Tage" }));
     expect(container.textContent).toContain("Tag −4");
+    expect(container.textContent).toContain("Tag −3");
+
+    // Switch to Vorlauf → Heute mode: hides Einzeltage & Rückblick, shows clean Vorlauf + Heute builder
+    fireEvent.click(panel.getByRole("button", { name: "Vorlauf → Heute" }));
+    expect(panel.getByRole("button", { name: "Vorlauf → Heute" }).getAttribute("aria-pressed")).toBe("true");
+    expect(container.textContent).toContain("Vorlauf (kumulativ vor Heute)");
+    expect(container.textContent).toContain("Heute (Tag 0)");
+    expect(container.textContent).not.toContain("Tag −4");
+    expect(container.textContent).not.toContain("Tag −1 (Vortag)");
+
+    // Edit Vorlauf threshold via NumericPctInput with German comma without snapping to 0 on "-"
+    const leadupInput = panel.getByRole("textbox", { name: "Vorlauf Schwelle Prozent" }) as HTMLInputElement;
+    fireEvent.focus(leadupInput);
+    fireEvent.change(leadupInput, { target: { value: "-" } });
+    expect(leadupInput.value).toBe("-");
+    fireEvent.change(leadupInput, { target: { value: "-8,5" } });
+    expect(container.textContent).toContain("Vor-7T ≤ −8,5 %");
+
+    // Cross-mode presets auto-switch cleanly between Vorlauf → Heute and Einzeltage
     fireEvent.click(panel.getByRole("button", { name: "Vor-7T ≤ −10 % → +5 %" }));
+    expect(panel.getByRole("button", { name: "Vorlauf → Heute" }).getAttribute("aria-pressed")).toBe("true");
     expect(container.textContent).toContain("Vor-7T ≤ −10,0 % → Tag 0 ≥ +5,0 %");
+
     fireEvent.click(panel.getByRole("button", { name: "−5 % → +5 %" }));
+    expect(panel.getByRole("button", { name: "Einzeltage" }).getAttribute("aria-pressed")).toBe("true");
     expect(container.textContent).toContain("Tag −1 ≤ −5,0 % → Tag 0 ≥ +5,0 %");
+    expect(container.textContent).not.toContain("Vorlauf (kumulativ vor Heute)");
 
     // Switch primary tab to Premarket & Gaps and verify KPIs + sub-tabs
     fireEvent.click(panel.getByRole("tab", { name: /Premarket & Gaps/i }));
@@ -582,6 +1034,62 @@ describe("NoiseMeterPanel & ResearchTerminal UI", () => {
 
     // Pure client-side recompute across all tabs and controls
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders 'laufend' (never green 0,0 %) when all pattern matches are inside an ongoing bear market", async () => {
+    const dates = makeWeekdayDates(75, "2026-01-02");
+    const ongoingBars: NoiseDayBar[] = [];
+    let idx = 0;
+    let prev = 200;
+    for (let i = 0; i < 12; i++) {
+      const c = Number((prev * 1.006).toFixed(4));
+      ongoingBars.push({ session: dates[idx++], open: prev, high: c * 1.002, low: prev * 0.998, close: c, volume: 40_000_000 });
+      prev = c;
+    }
+    for (let i = 0; i < 18; i++) {
+      const c = Number((prev * 0.985).toFixed(4));
+      ongoingBars.push({ session: dates[idx++], open: prev, high: prev * 1.001, low: c * 0.998, close: c, volume: 55_000_000 });
+      prev = c;
+    }
+    const down = Number((prev * 0.945).toFixed(4));
+    ongoingBars.push({ session: dates[idx++], open: prev, high: prev, low: down, close: down, volume: 70_000_000 });
+    const up = Number((down * 1.055).toFixed(4));
+    ongoingBars.push({ session: dates[idx++], open: down * 1.01, high: up * 1.003, low: down * 1.005, close: up, volume: 75_000_000 });
+    prev = up;
+    while (idx < dates.length) {
+      const c = Number((prev * (idx % 2 === 0 ? 0.994 : 1.005)).toFixed(4));
+      ongoingBars.push({ session: dates[idx++], open: prev, high: Math.max(prev, c) * 1.002, low: Math.min(prev, c) * 0.998, close: c, volume: 50_000_000 });
+      prev = c;
+    }
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          ...samplePayload,
+          ticker: "QQQ",
+          asOf: ongoingBars.at(-1)!.session,
+          totalDays: ongoingBars.length,
+          bars: ongoingBars,
+        }),
+      }) as Response),
+    );
+
+    const { container } = render(<NoiseMeterPanel initialTicker="QQQ" />);
+    await waitFor(() => {
+      expect(container.querySelector(".noise-hero")).not.toBeNull();
+    });
+
+    const panel = within(container);
+    fireEvent.click(panel.getByRole("tab", { name: /Muster-Scanner/i }));
+    fireEvent.click(panel.getByRole("button", { name: "−5 % → +5 %" }));
+
+    expect(container.textContent).toContain("Tiefer gefallen danach");
+    expect(container.textContent).toContain("Noch kein bestätigtes Zyklustief");
+    expect(container.textContent).toContain("0/1 Zyklen abgeschlossen");
+    expect(container.textContent).toContain("laufend");
   });
 
   it("opens NoiseMeter from ResearchTerminal command bar via SPY NOISE", async () => {
