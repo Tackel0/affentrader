@@ -772,8 +772,10 @@ export function useVelaChart(container: RefObject<HTMLDivElement | null>) {
       void navigateRecent(chart, serial);
     } else if (command.kind === "undo") chart.drawings.undo();
     else if (command.kind === "redo") chart.drawings.redo();
-    else if (command.kind === "clear")
-      chart.drawings.fromJSON({ version: 1, drawings: [] });
+    else if (command.kind === "clear") {
+      const ids = chart.drawings.toJSON().drawings.map((d) => d.id);
+      if (ids.length) chart.drawings.removeMany(ids);
+    }
     else if (command.kind === "fit") chart.setVisibleRangePreset("ALL");
     else if (command.kind === "settings") chart.renderer.openSettings();
     else if (command.kind === "snapshot") {
@@ -800,6 +802,8 @@ export function useVelaChart(container: RefObject<HTMLDivElement | null>) {
           ...state.drawings,
           [state.symbol]: chart.drawings.toJSON(),
         },
+        drawingsVersion: state.drawingsVersion + 1,
+        ...(command.kind === "clear" ? { selectedDrawings: [] } : {}),
       });
     }
   }, [chart, command]);

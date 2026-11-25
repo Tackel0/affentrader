@@ -94,9 +94,9 @@ export class FootprintHistory {
   }
   read(settings: Settings, viewId = "default"): FootprintBar[] {
     if (this.failure) throw this.failure;
-    try { return this.calculate(settings, viewId); }
-    catch (error) { this.failure = error instanceof Error ? error : new Error("Invalid footprint grid."); throw this.failure; }
+    return this.calculate(settings, viewId);
   }
+  get failed(): boolean { return Boolean(this.failure); }
   readDelta(time: number): FootprintDeltaPath | undefined {
     if (this.failure) throw this.failure;
     const bucket = this.buckets.get(time);
@@ -147,11 +147,23 @@ export class FootprintHistory {
     let view = this.views.get(viewId);
     const previous = view?.settings;
     if (!view || !previous || previous.step !== settings.step) {
-      if (view) for (const bucket of view.buckets.values()) this.rows -= bucket.rows.size;
       if (!view && this.views.size >= 5) this.fail("Footprints support at most five independent price grids.");
-      view = { grid: executionPriceGrid(settings.step), settings: { ...settings }, buckets: new Map() };
-      this.views.set(viewId, view);
-      for (const [time, bucket] of this.buckets) for (const tick of bucket.trades.values()) this.insert(view, time, tick);
+      // Validate step grid before mutating rows/views so invalid manual rowSize edits don't poison history.
+      const grid = executionPriceGrid(settings.step);
+      const savedView = view;
+      const savedRows = this.rows;
+      const nextView: View = { grid, settings: { ...settings }, buckets: new Map() };
+      if (savedView) for (const bucket of savedView.buckets.values()) this.rows -= bucket.rows.size;
+      try {
+        for (const [time, bucket] of this.buckets) for (const tick of bucket.trades.values()) this.insert(nextView, time, tick);
+      } catch (error) {
+        this.rows = savedRows;
+        if (savedView) this.views.set(viewId, savedView);
+        else this.views.delete(viewId);
+        throw error;
+      }
+      this.views.set(viewId, nextView);
+      view = nextView;
     } else if (previous.ratio !== settings.ratio || previous.minimumVolume !== settings.minimumVolume || previous.ignoreZeroOpposite !== settings.ignoreZeroOpposite) {
       view.settings = { ...settings }; view.cached = undefined;
       for (const bucket of view.buckets.values()) bucket.output = undefined;

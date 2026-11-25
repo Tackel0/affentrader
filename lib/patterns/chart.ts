@@ -51,6 +51,7 @@ interface Line {
   slope: number;
   intercept: number;
   r2: number;
+  maxResidual: number;
 }
 
 function fit(points: { x: number; y: number }[]): Line | null {
@@ -68,10 +69,16 @@ function fit(points: { x: number; y: number }[]): Line | null {
   }
   if (sxx === 0) return null;
   const slope = sxy / sxx;
+  const intercept = my - slope * mx;
+  let maxResidual = 0;
+  for (const p of points) {
+    maxResidual = Math.max(maxResidual, Math.abs(p.y - (slope * p.x + intercept)));
+  }
   return {
     slope,
-    intercept: my - slope * mx,
+    intercept,
     r2: syy === 0 ? 1 : (sxy * sxy) / (sxx * syy),
+    maxResidual,
   };
 }
 const at = (line: Line, x: number) => line.slope * x + line.intercept;
@@ -221,11 +228,15 @@ export function detectChartPatterns(
     if (last - start < strength * 3 || last - start > 400) continue;
     const upperLine = fit(highs.map((p) => ({ x: p.index, y: p.price })));
     const lowerLine = fit(lows.map((p) => ({ x: p.index, y: p.price })));
-    if (!upperLine || !lowerLine || upperLine.r2 < 0.6 || lowerLine.r2 < 0.6) continue;
+    if (!upperLine || !lowerLine) continue;
     const unit = atrAt(last);
     const upperSlope = (upperLine.slope * (last - start)) / unit;
     const lowerSlope = (lowerLine.slope * (last - start)) / unit;
     const flat = (v: number) => Math.abs(v) < 0.9;
+    const flatResidualLimit = Math.max(unit * 0.65, bars[last].close * 0.006);
+    const lineFits = (line: Line, slopeInAtr: number) =>
+      flat(slopeInAtr) ? line.maxResidual <= flatResidualLimit : line.r2 >= 0.6;
+    if (!lineFits(upperLine, upperSlope) || !lineFits(lowerLine, lowerSlope)) continue;
     const widthStart = at(upperLine, start) - at(lowerLine, start);
     const widthEnd = at(upperLine, last) - at(lowerLine, last);
     if (widthStart <= 0 || widthEnd <= 0) continue;
@@ -246,11 +257,23 @@ export function detectChartPatterns(
       else if (flat(upperSlope) && flat(lowerSlope)) id = "rectangle";
     }
     if (!id) continue;
-    const fitQuality = (upperLine.r2 + lowerLine.r2) / 2;
-    const lastClose = bars.at(-1)!.close;
-    const confirmed =
-      last < bars.length - 1 &&
-      (lastClose > at(upperLine, bars.length - 1) || lastClose < at(lowerLine, bars.length - 1));
+    const lineQuality = (line: Line, slopeInAtr: number) =>
+      flat(slopeInAtr)
+        ? Math.max(0.6, 1 - line.maxResidual / Math.max(flatResidualLimit, 1e-9))
+        : line.r2;
+    const fitQuality = (lineQuality(upperLine, upperSlope) + lineQuality(lowerLine, lowerSlope)) / 2;
+    let confirmed = false;
+    const maxConfirmIndex = Math.min(bars.length - 1, last + 25);
+    for (let i = last + 1; i <= maxConfirmIndex; i++) {
+      const upperVal = at(upperLine, i);
+      const lowerVal = at(lowerLine, i);
+      // Stop once converging lines cross their apex to prevent inverted breakouts.
+      if (upperVal <= lowerVal) break;
+      if (bars[i].close > upperVal || bars[i].close < lowerVal) {
+        confirmed = true;
+        break;
+      }
+    }
     push(id, start, last, 0.4 + fitQuality * 0.4, confirmed, [
       { from: { index: start, price: at(upperLine, start) }, to: { index: last, price: at(upperLine, last) }, label: "Resistance" },
       { from: { index: start, price: at(lowerLine, start) }, to: { index: last, price: at(lowerLine, last) }, label: "Support" },
@@ -279,9 +302,23 @@ export function detectChartPatterns(
         const upperFit = fit(flagBars.map((b, i) => ({ x: flagStart + i, y: b.high })));
         const lowerFit = fit(flagBars.map((b, i) => ({ x: flagStart + i, y: b.low })));
         if (!upperFit || !lowerFit) continue;
+        let flagConfirmed = false;
+        const flagConfirmEnd = Math.min(bars.length - 1, end + 15);
+        for (let i = end + 1; i <= flagConfirmEnd; i++) {
+          if (up) {
+            if (bars[i].close > Math.max(low, at(upperFit, i))) {
+              flagConfirmed = true;
+              break;
+            }
+          } else {
+            if (bars[i].close < Math.min(high, at(lowerFit, i))) {
+              flagConfirmed = true;
+              break;
+            }
+          }
+        }
         push(up ? "bull-flag" : "bear-flag", poleStart, end, 0.55 + Math.min(0.3, Math.abs(poleMove) / (unit * 25)),
-          up ? bars.at(-1)!.close > at(upperFit, bars.length - 1) && end < bars.length - 1
-             : bars.at(-1)!.close < at(lowerFit, bars.length - 1) && end < bars.length - 1,
+          flagConfirmed,
           [
             { from: { index: poleStart, price: bars[poleStart].close }, to: { index: flagStart, price: bars[flagStart].close }, label: "Pole" },
             { from: { index: flagStart, price: at(upperFit, flagStart) }, to: { index: end, price: at(upperFit, end) } },

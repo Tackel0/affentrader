@@ -110,7 +110,7 @@ const backupStorage = {
 } as const;
 
 export async function restoreWorkspace(data: WorkspaceBackup, canRestore = () => true): Promise<void> {
-  await editAlerts(() => {
+  const applyRestore = () => {
     if (workspaceProfile() !== readWorkspaceProfile() || !canRestore()) throw new Error("Der Workspace wurde inzwischen geändert.");
     const updates = (Object.keys(backupStorage) as (keyof typeof backupStorage)[]).flatMap(section => {
       const value = data[section];
@@ -132,7 +132,19 @@ export async function restoreWorkspace(data: WorkspaceBackup, canRestore = () =>
     browserAlertOwner().stop();
     hotStorage.discard();
     window.location.reload();
-  });
+  };
+  try {
+    await editAlerts(applyRestore);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    // A full validated backup replaces affentrader-alerts-v1 outright, so allow recovery when
+    // the previous local alert storage is corrupted or Web Locks are unavailable (non-HTTPS LAN).
+    const recoverable =
+      message.includes("Saved alerts could not be read") ||
+      message.includes("browser lock coordination");
+    if (!recoverable) throw error;
+    applyRestore();
+  }
 }
 
 /** Parse, validate and restore a backup file's text. */

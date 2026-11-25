@@ -102,8 +102,17 @@ function ScreenerView() {
     run();
     return () => controller.current?.abort();
   }, [run]);
+  const technical = s.timeframe !== "quotes";
+  const available = useMemo(
+    () => SCREENER_FIELDS.filter((f) => technical || !f.technical),
+    [technical],
+  );
+  const activeFilters = useMemo(
+    () => s.filters.filter((f) => available.some((field) => field.key === f.field)),
+    [s.filters, available],
+  );
   const rows = useMemo(() => {
-    const filtered = applyFilters(data?.rows ?? [], s.filters);
+    const filtered = applyFilters(data?.rows ?? [], activeFilters);
     return [...filtered].sort((a, b) => {
       const av = a[sort.key as keyof ScreenerRow];
       const bv = b[sort.key as keyof ScreenerRow];
@@ -112,9 +121,7 @@ function ScreenerView() {
       if (typeof bv !== "number" || !Number.isFinite(bv)) return -1;
       return sort.dir * (av - bv);
     });
-  }, [data, s.filters, sort]);
-  const technical = s.timeframe !== "quotes";
-  const available = SCREENER_FIELDS.filter((f) => technical || !f.technical);
+  }, [data, activeFilters, sort]);
   const columns = s.columns.filter((c) => available.some((f) => f.key === c) || c === "rating");
   const setFilter = (id: string, patch: Partial<ScreenerFilter>) =>
     s.set({ filters: s.filters.map((f) => (f.id === id ? { ...f, ...patch } : f)) });
@@ -147,7 +154,18 @@ function ScreenerView() {
         </label>
         <label>
           Interval
-          <select value={s.timeframe} onChange={(e) => s.set({ timeframe: e.target.value })}>
+          <select
+            value={s.timeframe}
+            onChange={(e) => {
+              const nextTf = e.target.value;
+              if (nextTf === "quotes") {
+                const quoteFields = new Set(SCREENER_FIELDS.filter((f) => !f.technical).map((f) => f.key));
+                s.set({ timeframe: nextTf, filters: s.filters.filter((f) => quoteFields.has(f.field)) });
+              } else {
+                s.set({ timeframe: nextTf });
+              }
+            }}
+          >
             <option value="quotes">24h quotes only</option>
             {QUICK_INTERVALS.filter((i) => !isTickInterval(i) && !i.endsWith("s")).map((i) => (
               <option key={i}>{i}</option>
@@ -212,7 +230,7 @@ function ScreenerView() {
         </span>
       </div>
       <div className="filter-rows">
-        {s.filters.map((f) => (
+        {activeFilters.map((f) => (
           <div className="filter-row" key={f.id}>
             <select
               aria-label="Filter field"
@@ -538,6 +556,7 @@ function PineScreenerView() {
       for (const symbol of symbols) {
         setStatus(`Running ${symbol} · ${done}/${symbols.length}`);
         let row: PineScreenRow;
+        let isScriptError = false;
         try {
           const bars = await marketService.fetchBars(symbol, timeframe, 300);
           signal.throwIfAborted();
@@ -548,6 +567,7 @@ function PineScreenerView() {
             w.onerror = (event) => reject(new Error(event.message));
             w.postMessage({ id, symbol, timeframe, source, libraries, bars });
           });
+          isScriptError = Boolean(response.error);
           row = { symbol, values: response.values, error: response.error, price: bars.at(-1)?.close };
         } catch (error) {
           row = { symbol, values: {}, error: error instanceof Error ? error.message : String(error) };
@@ -559,8 +579,9 @@ function PineScreenerView() {
         signal.throwIfAborted();
         done++;
         setRows((previous) => [...previous, row]);
-        // A script that fails to compile fails for every symbol; stop early.
-        if (row.error && done === 1) {
+        // Only abort early when the Pine script itself failed to compile/execute on the first symbol,
+        // not when a single symbol failed to fetch market bars.
+        if (isScriptError && done === 1) {
           setStatus(`Script error: ${row.error}`);
           return;
         }

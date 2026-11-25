@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { HttpError, readJson } from "@/lib/server/security";
 import { logError } from "@/lib/server/logger";
+import { CloudConflictError } from "@/lib/server/netlifyStorage";
 import { ACCOUNT_SCOPE_HEADER } from "@/lib/accountScope";
 import { ACCOUNT_COOKIE, readAccountSession } from "@/lib/server/accounts";
 import {
@@ -32,6 +33,8 @@ async function targetOf(request: NextRequest) {
 function failure(error: unknown) {
   if (error instanceof SyncError)
     return NextResponse.json({ error: error.message, current: error.current }, { status: error.status });
+  if (error instanceof CloudConflictError)
+    return NextResponse.json({ error: error.message }, { status: 409 });
   if (error instanceof HttpError)
     return NextResponse.json({ error: error.message }, { status: error.status });
   logError("api.sync.error", error);

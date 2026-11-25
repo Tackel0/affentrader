@@ -137,7 +137,7 @@ export function OpportunitiesHub({
   onCompare,
 }: {
   onSelectOpportunity?: (opportunity: TradeOpportunity, fundamentals: FundamentalSnapshot | null) => void;
-  onCompare?: (ticker: string, benchmark: string, session: string) => void;
+  onCompare?: (ticker: string, benchmark: string, retest?: string) => void;
 } = {}) {
   const [market, setMarket] = useState("us");
   const [scope, setScope] = useState<"curated" | "watchlist">("curated");
@@ -666,7 +666,7 @@ export function OpportunitiesHub({
               <button
                 type="button"
                 className="button small"
-                onClick={() => onCompare(selected.ticker, benchmarkTicker, selected.session)}
+                onClick={() => onCompare(selected.ticker, benchmarkTicker, selected.structure?.retest.session)}
               >
                 Relative Stärke vs. {result?.benchmark ?? "Benchmark"}
               </button>

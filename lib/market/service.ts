@@ -33,6 +33,7 @@ import {
   bybitMarket,
   providerOf,
   registerSymbolInfo,
+  spotQuoteCurrency,
   symbolInfo,
   tickerOf,
   type BybitCategory,
@@ -478,8 +479,16 @@ export class MarketService {
   start(symbols: string[], mode: FeedMode, quoteSymbols: string[] = [], quotePriority: string[] = quoteSymbols) {
     const nextSymbols = [...new Set(symbols)].sort();
     const nextQuotes = [...new Set(quoteSymbols)].filter(symbol => !nextSymbols.includes(symbol)).sort();
-    const nextPriority = [...new Set(quotePriority)].filter(symbol => nextQuotes.includes(symbol)).slice(0, 150).sort();
+    const nextPriority = [...new Set(quotePriority)].filter(symbol => nextQuotes.includes(symbol)).slice(0, 150);
     if (this.running && this.mode === mode && this.iexEpoch === useAlpacaStore.getState().epoch && JSON.stringify(this.symbols) === JSON.stringify(nextSymbols)) {
+      const samePriority = (prev: string[], next: string[], p: ReturnType<typeof providerOf>) => {
+        const a = prev.filter(s => providerOf(s) === p);
+        const b = next.filter(s => providerOf(s) === p);
+        if (p === "hyperliquid") {
+          return JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
+        }
+        return JSON.stringify(a) === JSON.stringify(b);
+      };
       if (JSON.stringify(this.quoteSymbols) !== JSON.stringify(nextQuotes) || JSON.stringify(this.quotePriority) !== JSON.stringify(nextPriority)) {
         const prevQuotes = this.quoteSymbols;
         const prevPriority = this.quotePriority;
@@ -488,7 +497,7 @@ export class MarketService {
         if (mode === "auto") {
           const sameFor = (p: ReturnType<typeof providerOf>) =>
             JSON.stringify(prevQuotes.filter(s => providerOf(s) === p)) === JSON.stringify(nextQuotes.filter(s => providerOf(s) === p)) &&
-            JSON.stringify(prevPriority.filter(s => providerOf(s) === p)) === JSON.stringify(nextPriority.filter(s => providerOf(s) === p));
+            samePriority(prevPriority, nextPriority, p);
           this.refreshQuoteSubscriptions({
             binance: !sameFor("binance"),
             yahoo: !sameFor("yahoo"),
@@ -1246,8 +1255,10 @@ export class MarketService {
     };
     socket.onerror = () => socket.close();
     socket.onclose = () => {
-      if (epoch !== this.generation) return;
-      useChartStore.getState().set({ feedStatus: "reconnecting" });
+      if (epoch !== this.generation || socket !== this.socket) return;
+      if (providerOf(useChartStore.getState().symbol) === "binance") {
+        useChartStore.getState().set({ feedStatus: "reconnecting" });
+      }
       this.retry = setTimeout(
         () => this.connect(epoch),
         Math.min(30000, 1000 * 2 ** this.attempts++) + Math.random() * 500,
@@ -1320,7 +1331,7 @@ export class MarketService {
     if (!wanted.size) return;
     const dexes = new Set([...wanted].map(s => { const coin = tickerOf(s); return coin.includes(":") ? coin.split(":")[0] : ""; }));
     const quoteTradeSymbols = new Set(hyperliquidQuoteTradeSymbols(this.hyperliquidSymbols(), this.quoteSymbols,
-      this.quotePriority, dexes.size, this.hlCandleSeries.size));
+      this.quotePriority, dexes.size, this.hlCandleSeries.size).sort());
     const socket = new WebSocket("wss://api.hyperliquid.xyz/ws");
     this.hlSocket = socket;
     // Pending repairs belong to their captured socket. A replacement must be
@@ -1669,7 +1680,7 @@ export class MarketService {
     try {
       return await task;
     } finally {
-      this.pending.delete(requestKey);
+      if (this.pending.get(requestKey) === task) this.pending.delete(requestKey);
     }
   }
   /** Poll Yahoo Finance for stocks, forex and indices (no push feed). */
@@ -1845,7 +1856,7 @@ export class MarketService {
     try {
       return await task;
     } finally {
-      this.pending.delete(requestKey);
+      if (this.pending.get(requestKey) === task) this.pending.delete(requestKey);
     }
   }
   private miniTicker({ symbol, last, open, high, low, volume, turnover }: NonNullable<ReturnType<typeof binanceTicker>>, now: number) {
@@ -2457,7 +2468,7 @@ export class MarketService {
     try {
       return await task;
     } finally {
-      this.pending.delete(requestKey);
+      if (this.pending.get(requestKey) === task) this.pending.delete(requestKey);
     }
   }
   private async tickHistory(
@@ -2507,9 +2518,11 @@ export class MarketService {
           first.time - TICK_BAR_SPACING,
         );
         if (!built.bars.length) return [];
-        const bars = [...built.bars, ...current.bars].slice(-MAX_HISTORY_BARS);
+        // Re-read the live tick state after await so live bars created while backfilling are preserved.
+        const latest = this.tickStates.get(key) ?? current;
+        const bars = [...built.bars, ...latest.bars].slice(-MAX_HISTORY_BARS);
         this.tickFirstGroup.set(key, firstGroup - built.bars.length);
-        publish({ bars, group: current.group }, false);
+        publish({ bars, group: latest.group }, false);
         return built.bars;
       } catch {
         return [];
@@ -2688,13 +2701,21 @@ export class MarketService {
           session: info?.type === "forex" || info?.type === "future" ? "24x5" : "regular",
         };
       }
+      const livePrice = useChartStore.getState().quotes[symbol]?.price;
+      const refPrice = livePrice && livePrice > 0 ? livePrice : getSymbol(symbol).seedPrice;
+      const mintick =
+        refPrice < 0.001
+          ? 0.00000001
+          : refPrice < 1
+            ? 0.000001
+            : 0.01;
       return {
         ticker: symbol,
         type: "crypto",
         timezone: "Etc/UTC",
-        mintick: getSymbol(symbol).seedPrice < 1 ? 0.000001 : 0.01,
-        pricescale: 100,
-        currency: "USDT",
+        mintick,
+        pricescale: Math.round(1 / mintick),
+        currency: spotQuoteCurrency(symbol) || "USDT",
         session: "24x7",
       };
     },

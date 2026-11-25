@@ -53,6 +53,27 @@ export function computeHoldings(lots: readonly Lot[]): Holding[] {
   return [...map.values()];
 }
 
+/**
+ * Maximum quantity of `symbol` that can be sold at `time` without causing the
+ * chronological holding balance to dip below zero at `time` or any later lot.
+ */
+export function maxSellableAt(lots: readonly Lot[], symbol: string, time: number): number {
+  const symbolLots = lots.filter((l) => l.symbol === symbol).sort((a, b) => a.time - b.time);
+  let qty = 0;
+  let minFuture = Infinity;
+  let reached = false;
+  for (const lot of symbolLots) {
+    if (!reached && lot.time > time) {
+      reached = true;
+      minFuture = qty;
+    }
+    if (lot.side === "buy") qty += lot.quantity;
+    else qty = Math.max(0, qty - lot.quantity);
+    if (reached) minFuture = Math.min(minFuture, qty);
+  }
+  return reached ? minFuture : qty;
+}
+
 export interface ValuedHolding extends Holding {
   price: number | null;
   value: number;

@@ -62,6 +62,8 @@ export interface NoiseObservation {
   bearOngoing: boolean; // True while inside an unconfirmed / ongoing >= 20% bear cycle
   fwd3dPct: number | null;
   fwd5dPct: number | null;
+  streakFwd3dPct: number | null; // 3-day return anchored at prev.close (end of prior streak, includes T+1)
+  streakFwd5dPct: number | null; // 5-day return anchored at prev.close (end of prior streak, includes T+1)
   fwd21dPct: number | null;
   fwd63dPct: number | null;
   fwd126dPct: number | null;
@@ -842,9 +844,16 @@ export function buildNoiseDataset(rawBars: readonly NoiseDayBar[]): NoiseDataset
 
     const fwdAt = (offset: number): number | null =>
       i + offset < bars.length ? ((bars[i + offset].close - curr.close) / curr.close) * 100 : null;
+    // Streak forward returns are anchored at `prev.close` (end of the prior streak), so 3d = T+1..T+3 (bars[i+2]) and 5d = T+1..T+5 (bars[i+4]).
+    const streakFwdAt = (daysAfterStreak: number): number | null =>
+      i + daysAfterStreak - 1 < bars.length && prev.close > 0
+        ? ((bars[i + daysAfterStreak - 1].close - prev.close) / prev.close) * 100
+        : null;
 
     const fwd3dPct = fwdAt(3);
     const fwd5dPct = fwdAt(5);
+    const streakFwd3dPct = streakFwdAt(3);
+    const streakFwd5dPct = streakFwdAt(5);
     const fwd21dPct = fwdAt(21);
     const fwd63dPct = fwdAt(63);
     const fwd126dPct = fwdAt(126);
@@ -944,6 +953,8 @@ export function buildNoiseDataset(rawBars: readonly NoiseDayBar[]): NoiseDataset
       bearOngoing,
       fwd3dPct,
       fwd5dPct,
+      streakFwd3dPct,
+      streakFwd5dPct,
       fwd21dPct,
       fwd63dPct,
       fwd126dPct,
@@ -1066,8 +1077,8 @@ function summarizeStreak(
   const redCount = matched.filter((o) => o.close < o.prevClose).length;
   const greenIntra = matched.filter((o) => o.greenIntraday).length;
   const nextReturns = matched.map((o) => o.closeToClosePct);
-  const fwd3 = matched.map((o) => o.fwd3dPct).filter((v): v is number => v !== null);
-  const fwd5 = matched.map((o) => o.fwd5dPct).filter((v): v is number => v !== null);
+  const fwd3 = matched.map((o) => o.streakFwd3dPct).filter((v): v is number => v !== null);
+  const fwd5 = matched.map((o) => o.streakFwd5dPct).filter((v): v is number => v !== null);
 
   const dirWord =
     basis === "candle"
@@ -1688,8 +1699,10 @@ export function evaluateNextDayForecast(
       (o) => matchesStreak(o, effectiveStreakDays) && matchesMove(o, effectiveThreshold),
     );
   }
+  let droppedMoveFilter = false;
   if (seqRows.length < 5) {
     usedFallback = true;
+    droppedMoveFilter = true;
     seqRows = eligible.filter((o) => matchesStreak(o, effectiveStreakDays));
   }
 
@@ -1701,7 +1714,9 @@ export function evaluateNextDayForecast(
       : moveDir === "up"
         ? `heute ≥ +${effectiveThreshold.toFixed(1).replace(".", ",")} %`
         : `heute ≤ −${effectiveThreshold.toFixed(1).replace(".", ",")} %`;
-  const seqLabel = `≥ ${effectiveStreakDays} ${dirAdj} ${basisPlural} + ${moveDesc}`;
+  const seqLabel = droppedMoveFilter
+    ? `≥ ${effectiveStreakDays} ${dirAdj} ${basisPlural} (nur Serie, zu wenig Fälle mit Tagesbewegung)`
+    : `≥ ${effectiveStreakDays} ${dirAdj} ${basisPlural} + ${moveDesc}`;
   const seqGreenProb = seqRows.length
     ? pct(seqRows.filter((o) => o.nextDayGreen === true).length, seqRows.length)
     : baseGreenProb;

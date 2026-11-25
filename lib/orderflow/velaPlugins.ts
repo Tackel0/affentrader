@@ -384,7 +384,8 @@ export function registerOrderflowPlugins() {
     placement: "above-data",
     create: () => {
       let alerts: ReturnType<typeof useAlertStore.getState>["alerts"] = [];
-      return canvasLayer((ctx, args) => {
+      let cellId: string | undefined;
+      const layer = canvasLayer((ctx, args) => {
         const { coords, scale, bounds } = args;
         for (const alert of alerts)
           for (const price of [
@@ -405,6 +406,7 @@ export function registerOrderflowPlugins() {
             ctx.fillText(`◉ ${alert.name}`, 12, y - 6);
           }
       }, (args, cell) => {
+        cellId = cell.id;
         projections.set(cell.id, args);
         auditPaint(args, cell.id, cell.replay);
         const candidates = useAlertStore.getState().alerts;
@@ -412,6 +414,14 @@ export function registerOrderflowPlugins() {
         alerts = candidates.filter(alert => alert.symbol === cell.symbol && alert.status === "active");
         return alerts.length > 0;
       });
+      return {
+        ...layer,
+        destroy() {
+          if (cellId !== undefined) projections.delete(cellId);
+          cellId = undefined;
+          layer.destroy();
+        },
+      };
     },
   });
   registerChartType({
@@ -439,7 +449,7 @@ export function registerOrderflowPlugins() {
       const stackCaches = new Map<string, ReturnType<typeof createFootprintStackedZoneCache>>();
       const displayCaches = new Map<string, { key: string; raw: readonly import("@/types/trading").FootprintBar[]; bars: import("@/types/trading").FootprintBar[] }>();
       let cachedSurface: { key: string; surface: import("./footprintReadout").FootprintSurface } | undefined;
-      let collection: { key: string; symbol: string; history: FootprintHistory; replay: boolean } | undefined;
+      let collection: { key: string; symbol: string; history: FootprintHistory; replay: boolean; failedRowSizeKey?: string } | undefined;
       const updates = footprintUpdates(receive => marketService.onTick(tick => {
         if (collection?.symbol === tick.symbol && !collection.replay) {
           studyTradeSource.observe(tick);
@@ -493,11 +503,14 @@ export function registerOrderflowPlugins() {
         let paintedCandles = false;
         runDerivedPaint(cell.id, token, { owner, symbol: cell.symbol, timeframe: cell.timeframe, type: "footprint" }, () => {
         const key = JSON.stringify([cell.symbol, cell.timeframe, state.marketEpochs[cell.symbol] ?? 0, studyTradeSource.revision(sourceSymbol), cell.replay, replay?.through]);
+        const rowSizeKey = JSON.stringify(instances.map(instance => [instance.id, instance.style.rowSize]));
         if (isTickInterval(cell.timeframe)) collection = undefined;
-        else if (!collection || collection.key !== key) {
+        else if (!collection || collection.key !== key || (collection.history.failed && collection.failedRowSizeKey !== rowSizeKey)) {
           const history = new FootprintHistory(cell.timeframe);
           history.add(replay ? replay.trades : studyTrades(cell.symbol));
-          collection = { key, symbol: stripVenue(cell.symbol), history, replay: cell.replay };
+          collection = { key, symbol: stripVenue(cell.symbol), history, replay: cell.replay, failedRowSizeKey: rowSizeKey };
+        } else if (!collection.history.failed) {
+          collection.failedRowSizeKey = rowSizeKey;
         }
         const historyNotice = backfill.read(footprintBackfillSymbol(cell), collection?.history, args);
         collection?.history.retainViews(instances.map(instance => instance.id));

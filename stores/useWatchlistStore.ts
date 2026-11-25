@@ -200,7 +200,9 @@ export const useWatchlistStore = create<WatchlistState>()(
       addSection: (name) =>
         set((s) => ({
           lists: s.lists.map((l) =>
-            l.id === s.activeId ? { ...l, symbols: [...l.symbols, makeSection(name)] } : l,
+            l.id === s.activeId && l.symbols.length < 1100
+              ? { ...l, symbols: [...l.symbols, makeSection(name)] }
+              : l,
           ),
         })),
       removeSymbol: (symbol) =>

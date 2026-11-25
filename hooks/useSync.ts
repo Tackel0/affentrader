@@ -29,13 +29,10 @@ export function useSync() {
     let disposed = false, checking = false;
     let announced = 0;
     const initial = store.getState();
-    if (account && initial.adopt) initial.set({ adopt: false, syncedFingerprint: workspaceFingerprint() });
+    // After a pull + reload, stores are synchronously hydrated from localStorage;
+    // record the restored baseline immediately so early user edits are not swallowed.
+    if (initial.adopt) initial.set({ adopt: false, syncedFingerprint: workspaceFingerprint() });
     const initialFingerprint = account && !hadLocalAccountWorkspace() && !initial.revision && !initial.syncedFingerprint ? workspaceFingerprint() : null;
-    // After a pull the restored workspace becomes the baseline once stores have settled.
-    const adopt = setTimeout(() => {
-      const s = store.getState();
-      if (s.adopt) s.set({ adopt: false, syncedFingerprint: workspaceFingerprint() });
-    }, 2500);
     const tick = async () => {
       const s = store.getState();
       if (disposed || checking || s.status === "syncing" || s.adopt || document.hidden) return;
@@ -71,7 +68,6 @@ export function useSync() {
     document.addEventListener("visibilitychange", tick);
     return () => {
       disposed = true;
-      clearTimeout(adopt);
       clearTimeout(first);
       clearInterval(remoteTimer);
       clearInterval(changeTimer);

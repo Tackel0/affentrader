@@ -1,8 +1,10 @@
 import webpush, { type PushSubscription } from "web-push";
 import { promises as fs } from "node:fs";
+import { isIP } from "node:net";
 import path from "node:path";
 import { JsonStore, dataDir } from "./storage";
 import { cloudStore, updateCloudDocument, usesNetlifyStorage, CloudConflictError } from "./netlifyStorage";
+import { allowPrivateWebhooks, isPrivateAddress, resolvePublicAddresses } from "./webhooks";
 
 export interface VapidKeys {
   publicKey: string;
@@ -72,14 +74,48 @@ export const subscriptions = new JsonStore<SubscriptionDb>("push", () => ({ subs
 
 export function validSubscription(value: unknown): value is PushSubscription {
   const s = value as PushSubscription | undefined;
-  return (
-    !!s &&
-    typeof s.endpoint === "string" &&
-    /^https:\/\//.test(s.endpoint) &&
-    s.endpoint.length < 1000 &&
-    typeof s.keys?.p256dh === "string" &&
-    typeof s.keys?.auth === "string"
-  );
+  if (
+    !s ||
+    typeof s.endpoint !== "string" ||
+    s.endpoint.length >= 1000 ||
+    typeof s.keys?.p256dh !== "string" ||
+    !s.keys.p256dh ||
+    typeof s.keys?.auth !== "string" ||
+    !s.keys.auth
+  ) {
+    return false;
+  }
+  let url: URL;
+  try {
+    url = new URL(s.endpoint);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "https:") return false;
+  if (url.username || url.password) return false;
+  if (url.hostname.includes("%")) return false;
+  const host = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  if (!host) return false;
+  if (!allowPrivateWebhooks()) {
+    if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".internal")) {
+      return false;
+    }
+    if (isIP(host) && isPrivateAddress(host)) return false;
+  }
+  return true;
+}
+
+export async function assertPublicPushEndpoint(endpoint: string): Promise<void> {
+  let url: URL;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    throw new Error("Invalid push subscription endpoint.");
+  }
+  if (url.protocol !== "https:" || url.username || url.password || url.hostname.includes("%")) {
+    throw new Error("Invalid push subscription endpoint.");
+  }
+  await resolvePublicAddresses(url);
 }
 
 export async function addSubscription(subscription: PushSubscription): Promise<void> {
@@ -111,8 +147,14 @@ export interface Sender {
 /** Deliver a notification to every registered browser; dead endpoints are dropped. */
 export async function sendPush(
   payload: PushPayload,
-  send: Sender = (s, b, o) => webpush.sendNotification(s, b, o),
+  send?: Sender,
 ): Promise<{ sent: number; removed: number }> {
+  const effectiveSend: Sender =
+    send ??
+    (async (s, b, o) => {
+      await assertPublicPushEndpoint(s.endpoint);
+      return webpush.sendNotification(s, b, o);
+    });
   const { subscriptions: list } = await subscriptions.read();
   if (!list.length) return { sent: 0, removed: 0 };
   const { publicKey, privateKey } = await vapidKeys();
@@ -127,7 +169,7 @@ export async function sendPush(
   await Promise.all(
     list.map(async (subscription) => {
       try {
-        await send(subscription, body, {
+        await effectiveSend(subscription, body, {
           vapidDetails: { subject: VAPID_SUBJECT, publicKey, privateKey },
           TTL: 3600,
         });

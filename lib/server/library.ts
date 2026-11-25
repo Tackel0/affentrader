@@ -281,6 +281,8 @@ export function validToken(token: unknown): token is string {
   return typeof token === "string" && /^[a-f0-9]{32,64}$/.test(token);
 }
 
+const MAX_LIKES_PER_SCRIPT = 5000;
+
 /** Anonymous like/unlike. One token counts once. */
 export async function setLike(
   id: string,
@@ -294,7 +296,12 @@ export async function setLike(
     if (!record || !canRead(record, invite)) throw new LibraryError(404, "Script not found.");
     const key = hash(token);
     const has = record.likes.includes(key);
-    if (liked && !has) record.likes.push(key);
+    if (liked && !has) {
+      if (record.likes.length >= MAX_LIKES_PER_SCRIPT) {
+        throw new LibraryError(429, "This script has reached the maximum recorded likes.");
+      }
+      record.likes.push(key);
+    }
     if (!liked && has) record.likes = record.likes.filter((l) => l !== key);
     likes = record.likes.length;
   });

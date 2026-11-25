@@ -149,7 +149,6 @@ const hasVolumeNodes = ({ data, bars }: RendererLayerArgs): boolean => {
  */
 export function registerOrderflowSignalPlugins({ studyTrades, subscribeTicks, replayTrades }: SignalLayerDeps): void {
   // 1. Volume Nodes (HVN / LVN)
-  const nodesCache = new FixedProfileCache();
   registerNativeIndicator({
     type: "af-volume-nodes",
     title: "Volume Nodes (HVN / LVN)",
@@ -208,8 +207,9 @@ export function registerOrderflowSignalPlugins({ studyTrades, subscribeTicks, re
   registerRendererLayer({
     id: "af-volume-nodes",
     placement: "above-data",
-    create: () =>
-      canvasLayer((ctx: CanvasRenderingContext2D, args: RendererLayerArgs) => {
+    create: () => {
+      const nodesCache = new FixedProfileCache();
+      return canvasLayer((ctx: CanvasRenderingContext2D, args: RendererLayerArgs) => {
         if (!hasVolumeNodes(args)) return;
         const cfg = args.data as VolumeNodeOptions;
         const rowsCount = Math.max(10, Math.min(120, Math.round(cfg.rows ?? 32)));
@@ -249,7 +249,8 @@ export function registerOrderflowSignalPlugins({ studyTrades, subscribeTicks, re
           pill(ctx, Math.max(24, width - 27), y, node.kind, "rgba(15,23,42,0.88)", color, color, placedNodes, minNodeY, maxNodeY);
         }
         ctx.restore();
-      }, hasVolumeNodes),
+      }, hasVolumeNodes);
+    },
   });
 
   // Shared live trade subscription helper preserving full venue symbol identity & Replay fence

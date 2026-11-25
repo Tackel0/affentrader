@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { HttpError, isAuthorized, readJson } from "@/lib/server/security";
 import { logError } from "@/lib/server/logger";
+import { CloudConflictError } from "@/lib/server/netlifyStorage";
 import {
   LibraryError,
   deleteScript,
@@ -20,6 +21,8 @@ export const dynamic = "force-dynamic";
 function failure(error: unknown) {
   if (error instanceof LibraryError || error instanceof HttpError)
     return NextResponse.json({ error: error.message }, { status: error.status });
+  if (error instanceof CloudConflictError)
+    return NextResponse.json({ error: error.message }, { status: 409 });
   logError("api.library.error", error);
   return NextResponse.json({ error: "Script library error." }, { status: 500 });
 }

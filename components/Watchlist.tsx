@@ -752,9 +752,12 @@ export function Watchlist({
   }));
   const visibleQuoteKey = visibleEntries.filter(entry => entry.startsWith("HL:")).join(",");
   useEffect(() => {
-    useChartStore.getState().set({ visibleWatchSymbols: visibleQuoteKey ? visibleQuoteKey.split(",") : [] });
-    return () => useChartStore.getState().set({ visibleWatchSymbols: [] });
+    const timer = setTimeout(() => {
+      useChartStore.getState().set({ visibleWatchSymbols: visibleQuoteKey ? visibleQuoteKey.split(",") : [] });
+    }, 250);
+    return () => clearTimeout(timer);
   }, [visibleQuoteKey]);
+  useEffect(() => () => useChartStore.getState().set({ visibleWatchSymbols: [] }), []);
   useQuoteRanges([symbol, ...(columns.some(c => ["high", "low", "range"].includes(c)) || ["high", "low", "range"].includes(store.sort?.column ?? "") ? visibleEntries.filter(e => !isSection(e)) : [])]);
   const gridColumns = `minmax(76px,1fr) ${columns.map((c) => `${COLUMN_WIDTH[c]}px`).join(" ")}`;
   const toggleSort = (column: SortSpec["column"]) => {

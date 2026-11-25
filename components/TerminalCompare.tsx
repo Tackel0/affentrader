@@ -88,7 +88,7 @@ function ComparisonChart({ result, retest }: { result: Comparison; retest?: stri
   </figure>;
 }
 
-export function TerminalCompare({ setupComparison }: { setupComparison?: readonly [string, string, string] }) {
+export function TerminalCompare({ setupComparison }: { setupComparison?: readonly [string, string, string?] }) {
   const [a, setA] = useState(setupComparison?.[0] ?? "AAPL"), [b, setB] = useState(setupComparison?.[1] ?? "^GSPC");
   const [basis, setBasis] = useState("local");
   const [result, setResult] = useState<Comparison | null>(null);
@@ -111,7 +111,7 @@ export function TerminalCompare({ setupComparison }: { setupComparison?: readonl
     setLoading(true); setResult(null); setError("");
     try {
       const params = new URLSearchParams({ a, b, basis });
-      if (setupComparison && a.trim().toUpperCase() === setupComparison[0] && b.trim().toUpperCase() === setupComparison[1]) params.set("retest", setupComparison[2]);
+      if (setupComparison?.[2] && a.trim().toUpperCase() === setupComparison[0] && b.trim().toUpperCase() === setupComparison[1]) params.set("retest", setupComparison[2]);
       const response = await fetch(`/api/terminal-compare?${params}`, { signal: controller.signal });
       const data = await response.json().catch(() => null);
       if (!response.ok || !data) throw new Error(data?.error ?? "Comparison unavailable.");

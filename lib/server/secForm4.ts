@@ -201,9 +201,9 @@ export async function resolveSecCik(
     if (!cikInFlight) {
       cikInFlight = (async () => {
         try {
+          // Shared directory fetch must not bind to one caller's AbortSignal.
           const res = await secFetch("https://www.sec.gov/files/company_tickers.json", {
             fetcher,
-            signal,
             headers: { Accept: "application/json" },
             timeoutMs: 8_000,
           });

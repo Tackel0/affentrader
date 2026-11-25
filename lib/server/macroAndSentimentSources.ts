@@ -261,8 +261,11 @@ export async function fetchNasdaqAnalystData(
     const ttl = rRes.ok || tRes.ok ? 3_600_000 : 300_000;
     setBoundedCache(nasdaqAnalystCache, clean, { expiresAt: now + ttl, value }, 250);
     return value;
-  } catch {
-    setBoundedCache(nasdaqAnalystCache, clean, { expiresAt: now + 300_000, value: null }, 250);
+  } catch (error) {
+    const aborted = error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError");
+    if (!aborted) {
+      setBoundedCache(nasdaqAnalystCache, clean, { expiresAt: now + 300_000, value: null }, 250);
+    }
     return null;
   }
 }

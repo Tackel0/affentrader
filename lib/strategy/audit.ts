@@ -1,6 +1,6 @@
 import type { OHLCV } from "@/types/trading";
 import type { StrategyReport, StrategyTrade } from "@/types/strategy";
-import { intervalMs } from "@/lib/market/intervals";
+import { intervalMs, nextBucket } from "@/lib/market/intervals";
 
 /** A finer interval to check fills against (at most a quarter of the bar). */
 export function lowerInterval(timeframe: string): string | null {
@@ -55,7 +55,7 @@ export async function auditTrades(
 ): Promise<AuditSummary> {
   const interval = lowerInterval(report.market.timeframe);
   if (!interval) throw new Error("This interval is already the finest available.");
-  const step = intervalMs(report.market.timeframe);
+  const barEnd = (start: number) => nextBucket(report.market.timeframe, start);
   const trades: StrategyTrade[] = report.trades.filter((t) => !t.open).slice(-(options.limit ?? 150));
   const results = new Array<TradeAudit>(trades.length);
   let next = 0;
@@ -66,11 +66,14 @@ export async function auditTrades(
     }
   };
   async function audit(t: StrategyTrade): Promise<TradeAudit> {
-    const lower = await load(t.entryTime, (t.exitTime ?? t.entryTime) + step);
-    const inEntryBar = lower.filter((b) => b.time >= t.entryTime && b.time < t.entryTime + step);
-    const entry = firstTouch(inEntryBar, t.entryPrice);
+    const entryEnd = barEnd(t.entryTime);
     const exitBarStart = t.exitTime ?? t.entryTime;
-    const inExitBar = lower.filter((b) => b.time >= exitBarStart && b.time < exitBarStart + step);
+    const exitEnd = barEnd(exitBarStart);
+    const lower = await load(t.entryTime, exitEnd);
+    const inEntryBar = lower.filter((b) => b.time >= t.entryTime && b.time < entryEnd);
+    const entry = firstTouch(inEntryBar, t.entryPrice);
+    const exitMinTime = entry ? Math.max(exitBarStart, entry.time) : exitBarStart;
+    const inExitBar = lower.filter((b) => b.time >= exitMinTime && b.time < exitEnd);
     const exit = t.exitPrice === null ? undefined : firstTouch(inExitBar, t.exitPrice);
     let favorable: number | null = null;
     let adverse: number | null = null;

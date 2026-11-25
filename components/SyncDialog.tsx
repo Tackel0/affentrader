@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Cloud, Copy, RefreshCw } from "lucide-react";
 import { useChartStore } from "@/stores/useChartStore";
 import { defaultDevice, newSyncKey, useAccountSyncStore, useSyncStore } from "@/stores/useSyncStore";
@@ -31,8 +31,12 @@ function SyncDialogBody() {
   const [entry, setEntry] = useState("");
   const [reveal, setReveal] = useState(false);
   const [message, setMessage] = useState("");
+  const [fingerprint, setFingerprint] = useState<string | null>(null);
+  useEffect(() => {
+    setFingerprint(workspaceFingerprint());
+  }, [s.revision, s.syncedFingerprint, s.status, s.lastSyncedAt]);
   const close = () => useChartStore.getState().set({ syncOpen: false });
-  const dirty = (account || s.key) && s.syncedFingerprint !== workspaceFingerprint();
+  const dirty = Boolean((account || s.key) && fingerprint !== null && s.syncedFingerprint !== fingerprint);
   const behind = s.remote && s.remote.revision > s.revision;
   const connect = (key: string, fresh: boolean) => {
     keys.set({ key, revision: 0, syncedFingerprint: "", device: keys.device || defaultDevice(), status: "idle", error: "", remote: null });
@@ -42,6 +46,7 @@ function SyncDialogBody() {
   const run = async (task: () => Promise<boolean>, success: string) => {
     setMessage("");
     const ok = await task();
+    setFingerprint(workspaceFingerprint());
     if (ok) setMessage(success);
   };
   return (

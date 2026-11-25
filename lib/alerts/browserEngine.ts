@@ -34,6 +34,7 @@ export class BrowserRuleEngine {
   private indexedRules?: AlertRule[];
   private index = new Map<string, Target[]>();
   private dataEpoch = 0;
+  private closedThrough = new Map<string, number>();
   private tpoHistories = new Map<string, { at: number; count: number; value?: TpoCandleSnapshot; pending: boolean }>();
   constructor(private deps: EngineDeps) {}
   private now() { return this.deps.now?.() ?? Date.now(); }
@@ -154,11 +155,22 @@ export class BrowserRuleEngine {
     }
   }
   onClose(symbol: string, timeframe: string, barTime?: number) {
+    const through = barTime === undefined ? undefined : isTickInterval(timeframe) ? barTime : nextBucket(timeframe, barTime);
+    if (through !== undefined) {
+      const key = `${symbol}|${timeframe}`;
+      this.closedThrough.set(key, Math.max(this.closedThrough.get(key) ?? -Infinity, through));
+    }
     for (const { rule, symbol: own } of this.targets(symbol)) {
       if (!closesOnly(rule)) continue;
       const cadence = ruleCadence(rule, own);
-      if (cadence.timeframe !== timeframe || !requiredViews(rule.condition, { symbol: own, timeframe: rule.scope.timeframe }).some(view => view.symbol === symbol && view.timeframe === timeframe)) continue;
-      const through = barTime === undefined ? undefined : isTickInterval(timeframe) ? barTime : nextBucket(timeframe, barTime);
+      const views = requiredViews(rule.condition, { symbol: own, timeframe: rule.scope.timeframe });
+      if (cadence.timeframe !== timeframe || !views.some(view => view.symbol === symbol && view.timeframe === timeframe)) continue;
+      if (through !== undefined) {
+        const sameCadence = views.filter(view => view.timeframe === cadence.timeframe);
+        if (sameCadence.length > 1 && !sameCadence.every(view => (this.closedThrough.get(`${view.symbol}|${view.timeframe}`) ?? -Infinity) >= through)) {
+          continue;
+        }
+      }
       this.run(rule, own, through);
     }
   }
@@ -201,6 +213,7 @@ export class BrowserRuleEngine {
   /** Source restarts discard observations while keeping the last firing's cooldown. */
   invalidateData() {
     this.dataEpoch++;
+    this.closedThrough.clear();
     this.tpoHistories.clear();
     this.ensured.clear();
     this.unavailable.clear();
@@ -213,7 +226,7 @@ export class BrowserRuleEngine {
       this.definitions.delete(ruleId);
       for (const key of this.completed) if (key.startsWith(`${ruleId}:`)) this.completed.delete(key);
     } else {
-      this.states.clear(); this.signatures.clear(); this.definitions.clear(); this.completed.clear();
+      this.states.clear(); this.closedThrough.clear(); this.signatures.clear(); this.definitions.clear(); this.completed.clear();
     }
     this.indexedRules = undefined;
   }

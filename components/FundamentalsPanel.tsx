@@ -103,11 +103,17 @@ export function FundamentalsPanel({
   };
 
   const peDiscount =
-    snapshot?.forwardPe && snapshot.sectorMedianPe
+    snapshot?.forwardPe != null &&
+    snapshot.forwardPe > 0 &&
+    snapshot.sectorMedianPe != null &&
+    snapshot.sectorMedianPe > 0
       ? ((snapshot.sectorMedianPe - snapshot.forwardPe) / snapshot.sectorMedianPe) * 100
       : null;
   const evDiscount =
-    snapshot?.evToEbitda && snapshot.sectorMedianEvEbitda
+    snapshot?.evToEbitda != null &&
+    snapshot.evToEbitda > 0 &&
+    snapshot.sectorMedianEvEbitda != null &&
+    snapshot.sectorMedianEvEbitda > 0
       ? ((snapshot.sectorMedianEvEbitda - snapshot.evToEbitda) / snapshot.sectorMedianEvEbitda) * 100
       : null;
   const modelTarget = Math.max(snapshot?.fairValue ?? 0, snapshot?.analystTarget ?? 0);

@@ -156,27 +156,20 @@ export async function runScreener(
   const key = `${market}:${timeframe}:${limit}:${minTurnover}`;
   const hit = cache.get(key);
   if (hit && now - hit.at < TTL) return hit.result;
-  const effectiveFetcher: typeof fetch = options.signal
-    ? (input, init) => {
-        const signal = init?.signal ? AbortSignal.any([init.signal, options.signal!]) : options.signal;
-        return fetcher(input, { ...init, signal });
-      }
-    : fetcher;
-  return coalesceInFlight(screenerInflight, key, async () => {
+  options.signal?.throwIfAborted();
+  const sharedTask = coalesceInFlight(screenerInflight, key, async () => {
     const fresh = cache.get(key);
     if (fresh && now - fresh.at < TTL) return fresh.result;
-    options.signal?.throwIfAborted();
     const rows = market.startsWith("stocks:")
-      ? await stocksUniverse(market.slice(7), limit, effectiveFetcher)
+      ? await stocksUniverse(market.slice(7), limit, fetcher)
       : market === "binance"
-        ? await universe(limit, minTurnover, effectiveFetcher)
-        : await hyperliquidUniverse(market as "hyperliquid" | "hyperliquid-markets", limit, minTurnover, effectiveFetcher);
+        ? await universe(limit, minTurnover, fetcher)
+        : await hyperliquidUniverse(market as "hyperliquid" | "hyperliquid-markets", limit, minTurnover, fetcher);
     const failed: string[] = [];
     if (timeframe) {
-      const pager = serverKlinePager(effectiveFetcher);
+      const pager = serverKlinePager(fetcher);
       // The public Hyperliquid endpoint rate-limits bursts, so it gets fewer parallel requests.
       await mapLimit(rows, market === "binance" ? 8 : 3, async (row) => {
-        if (options.signal?.aborted) return;
         try {
           const bars = market.startsWith("stocks:")
             ? (
@@ -187,7 +180,7 @@ export async function runScreener(
                   extended: false,
                   adjustDividends: false,
                   chartLoader: async (ticker, interval, period1, period2, extended) => {
-                    const chart = await yahooChart({ ticker, interval, period1: period1 / 1000, period2: period2 / 1000, extended }, effectiveFetcher);
+                    const chart = await yahooChart({ ticker, interval, period1: period1 / 1000, period2: period2 / 1000, extended }, fetcher);
                     return {
                       meta: chart.meta,
                       rows: chart.bars.map((b) => [b.time, b.open, b.high, b.low, b.close, b.volume]),
@@ -204,7 +197,7 @@ export async function runScreener(
                   timeframe,
                   count: 250,
                   page: async (coin, api, startTime, endTime) =>
-                    parseCandles(await hyperliquidCandles({ coin, interval: api, startTime, endTime }, effectiveFetcher)),
+                    parseCandles(await hyperliquidCandles({ coin, interval: api, startTime, endTime }, fetcher)),
                 });
           // Yahoo ends an intraday series with empty placeholder bars while a market is closed; they would zero every volume ratio.
           while (market.startsWith("stocks:") && bars.length > 60 && bars[bars.length - 1].volume === 0) bars.pop();
@@ -216,10 +209,29 @@ export async function runScreener(
         }
       });
     }
-    options.signal?.throwIfAborted();
     const result: ScreenerResult = { rows, timeframe, universe: rows.length, generatedAt: now, failed };
     setBoundedCache(cache, key, { at: now, result }, 40);
     return result;
+  });
+  if (!options.signal) return sharedTask;
+  const sig = options.signal;
+  return new Promise<ScreenerResult>((resolve, reject) => {
+    const onAbort = () => reject(sig.reason ?? new DOMException("Aborted", "AbortError"));
+    if (sig.aborted) {
+      onAbort();
+      return;
+    }
+    sig.addEventListener("abort", onAbort, { once: true });
+    sharedTask.then(
+      (res) => {
+        sig.removeEventListener("abort", onAbort);
+        resolve(res);
+      },
+      (err) => {
+        sig.removeEventListener("abort", onAbort);
+        reject(err);
+      },
+    );
   });
 }
 

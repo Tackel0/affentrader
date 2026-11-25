@@ -464,13 +464,25 @@ function validatePremium(value: unknown, backup: WorkspaceBackup) {
     )
       throw new Error("Invalid chart synchronization.");
   };
+  const minimalWatchlists = {
+    version: 0,
+    state: { lists: [{ id: "w", name: "W", symbols: ["BTCUSDT"] }], activeId: "w" },
+  };
+  const minimalAlerts = { version: 0, state: { alerts: [], rules: [], logs: [] } };
+  const minimalChartBase = {
+    symbol: backup.chart.state.symbol,
+    timeframe: backup.chart.state.timeframe,
+    chartType: backup.chart.state.chartType,
+    feedMode: backup.chart.state.feedMode,
+    indicators: [] as unknown[],
+  };
   const validateStudies = (indicators: unknown) =>
     parseWorkspace(
       JSON.stringify({
         version: 1,
-        chart: { state: { ...backup.chart.state, indicators } },
-        watchlists: backup.watchlists,
-        alerts: backup.alerts,
+        chart: { state: { ...minimalChartBase, indicators } },
+        watchlists: minimalWatchlists,
+        alerts: minimalAlerts,
       }),
     );
   const validateCells = (
@@ -496,7 +508,7 @@ function validatePremium(value: unknown, backup: WorkspaceBackup) {
           version: 1,
           chart: {
             state: {
-              ...backup.chart.state,
+              ...minimalChartBase,
               symbol: cell.symbol,
               timeframe: cell.timeframe,
               chartType: cell.chartType,
@@ -511,8 +523,8 @@ function validatePremium(value: unknown, backup: WorkspaceBackup) {
               indicators: cell.indicators,
             },
           },
-          watchlists: backup.watchlists,
-          alerts: backup.alerts,
+          watchlists: minimalWatchlists,
+          alerts: minimalAlerts,
         }),
       );
     }

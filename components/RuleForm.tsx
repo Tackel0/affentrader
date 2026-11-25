@@ -29,6 +29,7 @@ import type {
 import { AlertTimingFields } from "./AlertTimingFields";
 import { closesOnly, defaultExpiry, isExpired, timingFields } from "@/lib/alerts/schedule";
 import { freshRate } from "@/lib/alerts/rateLimit";
+import { requestNotifications, unlockAudio } from "@/lib/alerts/notifications";
 import { tpoAlertSettings } from "@/lib/alerts/tpo";
 import { TpoAlertConditionEditor } from "./TpoAlertConditionEditor";
 
@@ -561,7 +562,7 @@ export function RuleForm({
       serverSide,
       webhook: webhookUrl.trim() ? { url: webhookUrl.trim(), secret: webhookSecret || undefined } : undefined,
       createdAt: existing?.createdAt ?? Date.now(),
-      lastTriggeredAt: existing?.lastTriggeredAt,
+      lastTriggeredAt: undefined,
     });
   };
 
@@ -577,6 +578,8 @@ export function RuleForm({
     if ((serverSide || rule.webhook) && !key) return setError("Connect the alert server first (access key below).");
     setBusy(true);
     try {
+      unlockAudio();
+      if (notify && !(await requestNotifications())) rule.browserNotification = false;
       if (serverSide) {
         const saved = await serverAlerts.save(key, rule);
         await editAlerts(store=>{if(existing)store.removeRule(existing.id);store.replaceServerRules([...useAlertStore.getState().rules.filter(r=>r.serverSide&&r.id!==rule.id),saved.rule]);});

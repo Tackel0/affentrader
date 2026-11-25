@@ -87,14 +87,25 @@ export async function yahooChart(r: ChartRequest, fetcher: typeof fetch = fetch)
   return remember(key, 15_000, parseChart(json));
 }
 
+const SPARK_BATCH = 20;
+
 export async function yahooSpark(tickers: string[], fetcher: typeof fetch = fetch): Promise<Record<string, YahooQuote>> {
-  const valid = [...new Set(tickers)].filter(isYahooTicker).slice(0, 20);
+  const valid = [...new Set(tickers)].filter(isYahooTicker);
   if (!valid.length) return {};
-  const key = `spark:${valid.join(",")}`;
-  const hit = recall<Record<string, YahooQuote>>(key, 5_000);
-  if (hit) return hit;
-  const params = new URLSearchParams({ symbols: valid.join(","), range: "1d", interval: "5m" });
-  return remember(key, 5_000, parseSpark(await getJson(`/v8/finance/spark?${params}`, fetcher)));
+  const merged: Record<string, YahooQuote> = {};
+  for (let i = 0; i < valid.length; i += SPARK_BATCH) {
+    const chunk = valid.slice(i, i + SPARK_BATCH);
+    const key = `spark:${chunk.join(",")}`;
+    const hit = recall<Record<string, YahooQuote>>(key, 5_000);
+    if (hit) {
+      Object.assign(merged, hit);
+      continue;
+    }
+    const params = new URLSearchParams({ symbols: chunk.join(","), range: "1d", interval: "5m" });
+    const parsed = remember(key, 5_000, parseSpark(await getJson(`/v8/finance/spark?${params}`, fetcher)));
+    Object.assign(merged, parsed);
+  }
+  return merged;
 }
 
 export async function yahooSearch(query: string, fetcher: typeof fetch = fetch): Promise<YahooSearchHit[]> {

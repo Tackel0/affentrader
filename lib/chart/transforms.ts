@@ -121,7 +121,7 @@ export function lineBreak(bars: readonly OHLCV[], lines = 3): Brick[] {
 
 /**
  * Range bars: every bar spans exactly `size`. Each source bar contributes the
- * conventional Oâ†’Hâ†’Lâ†’C (bullish) or Oâ†’Lâ†’Hâ†’C (bearish) path.
+ * conventional O→L→H→C (bullish) or O→H→L→C (bearish) path.
  */
 export function rangeBars(bars: readonly OHLCV[], size: number): Brick[] {
   const out: Brick[] = [];
@@ -131,7 +131,7 @@ export function rangeBars(bars: readonly OHLCV[], size: number): Brick[] {
   let low = open;
   const push = (up: boolean, closePrice: number, source: number) => {
     requireMarkCapacity(out.length + 1);
-    requirePriceStep(open, closePrice);
+    requirePriceStep(low, high);
     out.push({ open, close: closePrice, high, low, up, source });
     open = closePrice;
     high = closePrice;
@@ -140,27 +140,31 @@ export function rangeBars(bars: readonly OHLCV[], size: number): Brick[] {
   bars.forEach((bar, source) => {
     const path =
       bar.close >= bar.open
-        ? [bar.open, bar.high, bar.low, bar.close]
-        : [bar.open, bar.low, bar.high, bar.close];
+        ? [bar.open, bar.low, bar.high, bar.close]
+        : [bar.open, bar.high, bar.low, bar.close];
     for (const price of path) {
-      high = Math.max(high, price);
-      low = Math.min(low, price);
-      while (high - low >= size) {
+      let targetHigh = Math.max(high, price);
+      let targetLow = Math.min(low, price);
+      while (targetHigh - targetLow >= size) {
         // Close the bar at whichever extreme was reached last.
-        if (price >= (high + low) / 2) {
-          const closePrice = low + size;
+        if (price >= (targetHigh + targetLow) / 2) {
+          const closePrice = targetLow + size;
           high = closePrice;
+          low = targetLow;
           push(true, closePrice, source);
-          low = closePrice;
-          open = closePrice;
+          targetLow = closePrice;
+          targetHigh = Math.max(closePrice, price);
         } else {
-          const closePrice = high - size;
+          const closePrice = targetHigh - size;
+          high = targetHigh;
           low = closePrice;
           push(false, closePrice, source);
-          high = closePrice;
-          open = closePrice;
+          targetHigh = closePrice;
+          targetLow = Math.min(closePrice, price);
         }
       }
+      high = targetHigh;
+      low = targetLow;
     }
   });
   return out;

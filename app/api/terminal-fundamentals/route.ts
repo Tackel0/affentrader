@@ -53,9 +53,9 @@ export async function GET(request: Request) {
       const fresh = assembledCache.get(cacheKey);
       if (fresh && Date.now() - fresh.at < FUNDAMENTALS_TTL_MS) return fresh.body;
       const now = Math.floor(Date.now() / 60_000) * 60;
-      const deadline = request.signal
-        ? AbortSignal.any([request.signal, AbortSignal.timeout(15_000)])
-        : AbortSignal.timeout(15_000);
+      // Shared coalesced work must not bind to the first caller's request.signal,
+      // otherwise a disconnecting client poisons the shared cache for other callers.
+      const deadline = AbortSignal.timeout(15_000);
       const boundedFetch: typeof fetch = (input, init) =>
         fetch(input, { ...init, signal: init?.signal ? AbortSignal.any([deadline, init.signal]) : deadline });
 
@@ -128,7 +128,10 @@ export async function GET(request: Request) {
         fundamentals: snapshot,
         quant,
       };
-      setBoundedCache(assembledCache, cacheKey, { at: Date.now(), body: assembled }, FUNDAMENTALS_CACHE_MAX);
+      const hasData = latestClose > 0 || Boolean(tvPartial || secSummary || openInsider.length || finviz || yahooInsights || nasdaqAnalyst);
+      if (!deadline.aborted && hasData) {
+        setBoundedCache(assembledCache, cacheKey, { at: Date.now(), body: assembled }, FUNDAMENTALS_CACHE_MAX);
+      }
       return assembled;
     });
 

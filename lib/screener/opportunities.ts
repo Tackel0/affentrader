@@ -736,7 +736,7 @@ export function detectValueGarpOpportunity(
 
   const buyRatio =
     analystConsensus && analystConsensus.analystCount > 0
-      ? ((analystConsensus.strongBuy ?? 0) + analystConsensus.buy) / analystConsensus.analystCount
+      ? Math.min(1, analystConsensus.buy / analystConsensus.analystCount)
       : 0;
 
   const scoreBreakdown: Record<string, number> = {

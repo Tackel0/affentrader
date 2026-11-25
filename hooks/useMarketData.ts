@@ -120,7 +120,8 @@ export function useMarketData(options?: { watchQuotesActive?: boolean; phoneMode
   }, [symbol]);
   useEffect(() => {
     if (role.status !== "primary") return;
-    const valid = () => browserAlertOwner().owns(role.epoch);
+    let disposed = false;
+    const valid = () => !disposed && browserAlertOwner().owns(role.epoch);
     const evaluator = new AlertEvaluator((symbol, timeframe) => marketService.barsFor(symbol, timeframe).at(-1)?.time);
     const evaluate = async (
       symbol: string,
@@ -165,12 +166,13 @@ export function useMarketData(options?: { watchQuotesActive?: boolean; phoneMode
     const offIex = marketService.onQuote(q => { if (q.symbol.startsWith("IEX:")) void evaluate(q.symbol, q.price, q.time, q.simulated, "tick").catch(() => useChartStore.getState().toast("Price alert not saved", "The IEX alert could not be saved.", "error")); });
     document.addEventListener("pointerdown", unlockAudio, { once: true });
     return () => {
+      disposed = true;
       offTick();
       offClose();
       offIex();
       document.removeEventListener("pointerdown", unlockAudio);
     };
-  }, [mode, symbolsKey, role.status, role.epoch]);
+  }, [mode, role.status, role.epoch]);
 }
 
 

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { HttpError, isAuthorized, readJson } from "@/lib/server/security";
 import { logError } from "@/lib/server/logger";
+import { CloudConflictError } from "@/lib/server/netlifyStorage";
+import { WebhookError } from "@/lib/server/webhooks";
 import {
   addSubscription,
   removeSubscription,
@@ -43,6 +45,10 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     if (error instanceof HttpError)
       return NextResponse.json({ error: error.message }, { status: error.status });
+    if (error instanceof WebhookError)
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    if (error instanceof CloudConflictError)
+      return NextResponse.json({ error: error.message }, { status: 409 });
     logError("api.push.post", error);
     return NextResponse.json({ error: "Push service error." }, { status: 500 });
   }
@@ -58,6 +64,8 @@ export async function DELETE(request: NextRequest) {
     await removeSubscription(endpoint);
     return NextResponse.json({ removed: true });
   } catch (error) {
+    if (error instanceof CloudConflictError)
+      return NextResponse.json({ error: error.message }, { status: 409 });
     logError("api.push.delete", error);
     return NextResponse.json({ error: "Push service error." }, { status: 500 });
   }

@@ -396,7 +396,7 @@ export function ResearchTerminal({
   onSelectSymbol?: (symbol: string) => void;
   onViewChange?: (view: TerminalView) => void;
 } = {}) {
-  const [comparison, setComparison] = useState<readonly [string, string, string]>();
+  const [comparison, setComparison] = useState<readonly [string, string, string?]>();
   const [view, setView] = useState<TerminalView>(initialView);
   const [opportunitiesVisited, setOpportunitiesVisited] = useState(initialView === "opps");
   const [layoutMode, setLayoutMode] = useState<TerminalLayoutMode>(
@@ -952,9 +952,9 @@ export function ResearchTerminal({
               onSelectOpportunity: (setup: TradeOpportunity, fundamentals: FundamentalSnapshot | null) => {
                 if (activePane === paneId && (paneId !== "p1" || view === "opps")) handleOpportunitySelect(setup, fundamentals);
               },
-              onCompare: (sym: string, bench: string, session: string) => {
+              onCompare: (sym: string, bench: string, retest?: string) => {
                 reset();
-                setComparison([sym, bench, session]);
+                setComparison(retest ? [sym, bench, retest] : [sym, bench]);
                 setPaneView(paneId, "compare");
               },
             }}

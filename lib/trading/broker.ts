@@ -215,6 +215,12 @@ function validate(account: Account, input: NewOrder, price: number | undefined):
     if(reference&&input.exitLevels.some(l=>l.takeProfit!==null&&(input.side==="buy"?l.takeProfit<=reference:l.takeProfit>=reference)||l.stopLoss!==null&&(input.side==="buy"?l.stopLoss>=reference:l.stopLoss<=reference)))return "Exit prices must be on the correct sides of the entry reference.";
   }
   if([input.price,input.stopPrice,input.takeProfit,input.stopLoss].some(value=>value!==undefined&&(!Number.isFinite(value)||value<=0)))return "Order prices must be positive finite numbers.";
+  if (
+    (input.type === "limit" && input.stopPrice !== undefined) ||
+    (input.type === "stop" && input.price !== undefined) ||
+    (input.type === "market" && (input.price !== undefined || input.stopPrice !== undefined))
+  )
+    return "The order type does not support this price field.";
   if ((input.type === "limit" || input.type === "stop_limit") && !(input.price! > 0))
     return "A limit price is required.";
   if ((input.type === "stop" || input.type === "stop_limit") && !(input.stopPrice! > 0))
@@ -307,7 +313,19 @@ export function placeOrder(
   }
   if (!price) return { account, order, fills: [] };
   // Marketable limit orders and stops already through the market execute at once.
-  const immediate = processPrice(account, input.symbol, prices[input.symbol]??price, time, true, true,undefined,executionSource,book);
+  const immediate = processPrice(account, input.symbol, prices[input.symbol]??price, time, true, true, time, executionSource, book, order.id);
+  const before = positionOf(source, input.symbol)?.quantity ?? 0;
+  const after = positionOf(immediate.account, input.symbol)?.quantity ?? 0;
+  if (immediate.fills.length && after !== 0 && (Math.abs(after) > Math.abs(before) || Math.sign(after) !== Math.sign(before))) {
+    const marks = { ...prices, [input.symbol]: book ? (after > 0 ? book.bid : book.ask) : (prices[input.symbol] ?? price) };
+    const margin = marginUsed(immediate.account, marks);
+    const equity = equityOf(immediate.account, marks);
+    if (!Number.isFinite(margin) || !Number.isFinite(equity) || margin > equity + EPSILON) {
+      const rollback = structuredClone(source);
+      rollback.seq = account.seq;
+      return reject(rollback, order, "Insufficient buying power at the current executable price.");
+    }
+  }
   return {
     account: immediate.account,
     order: immediate.account.orders.find((o) => o.id === order.id)!,
@@ -482,9 +500,10 @@ function fillOrder(
     stored.fillPrice = price;
     stored.fillSource=executionSource;
   }
-  if (position.quantity === 0) {
-    account.positions = account.positions.filter((p) => p !== position);
-    // A flat position leaves no exposure for protective orders to protect.
+  const reversed = before !== 0 && position.quantity !== 0 && Math.sign(position.quantity) !== Math.sign(before);
+  if (position.quantity === 0 || reversed) {
+    if (position.quantity === 0) account.positions = account.positions.filter((p) => p !== position);
+    // A flat or reversed position leaves no matching exposure for prior protective orders.
     for (const other of account.orders)
       if (other.status === "working" && other.symbol === order.symbol && other.reduceOnly)
         other.status = "canceled";
@@ -495,9 +514,12 @@ function fillOrder(
 }
 
 function bracket(account: Account, order: Order, time: number,executionSource?:PaperExecutionSource) {
+  const position = positionOf(account, order.symbol);
+  if (!position || Math.sign(position.quantity) !== (order.side === "buy" ? 1 : -1)) return;
+  const availableTotal = Math.min(order.quantity, Math.abs(position.quantity));
+  if (availableTotal < 1e-12) return;
   if(order.exitLevels?.length){
-    const position=positionOf(account,order.symbol);if(!position||Math.sign(position.quantity)!==(order.side==="buy"?1:-1))return;
-    let available=Math.min(order.quantity,Math.abs(position.quantity));
+    let available=availableTotal;
     order.exitLevels.forEach((level,index)=>{
       const quantity=Math.min(level.quantity,available);if(quantity<1e-12)return;available-=quantity;
       const base={symbol:order.symbol,side:order.side==="buy"?"sell" as const:"buy" as const,quantity,reduceOnly:true,status:"working" as const,createdAt:time,createdSource:executionSource,oco:`oco-${order.id}-level-${index}`};
@@ -507,7 +529,7 @@ function bracket(account: Account, order: Order, time: number,executionSource?:P
   }
   const exit: Side = order.side === "buy" ? "sell" : "buy";
   const group = `oco-${order.id}`;
-  const base = { symbol: order.symbol, side: exit, quantity: order.quantity, reduceOnly: true, status: "working" as const, createdAt: time,createdSource:executionSource, oco: group };
+  const base = { symbol: order.symbol, side: exit, quantity: availableTotal, reduceOnly: true, status: "working" as const, createdAt: time,createdSource:executionSource, oco: group };
   if (order.takeProfit)
     account.orders.push({
       ...base,
@@ -665,10 +687,16 @@ export interface AccountStats {
   maxDrawdown: number;
 }
 
+export function isClosingFill(fill: Fill): boolean {
+  const signed = fill.side === "buy" ? fill.quantity : -fill.quantity;
+  const before = fill.position - signed;
+  return Math.abs(before) >= EPSILON && Math.sign(before) !== Math.sign(signed);
+}
+
 export function accountStats(account: Account, prices: Prices): AccountStats {
   const equity = equityOf(account, prices);
   const unrealized = account.positions.reduce((s, p) => s + unrealizedPnl(p, prices[p.symbol] ?? p.avgPrice), 0);
-  const closing = account.fills.filter((f) => f.realizedPnl !== 0);
+  const closing = account.fills.filter(isClosingFill);
   const wins = closing.filter((f) => f.realizedPnl > 0);
   const gross = wins.reduce((s, f) => s + f.realizedPnl, 0);
   const loss = closing.filter((f) => f.realizedPnl < 0).reduce((s, f) => s - f.realizedPnl, 0);

@@ -11,6 +11,7 @@ import { useServerStore } from "@/stores/useServerStore";
 import { useStrategyStore } from "@/stores/useStrategyStore";
 import { useWatchlistStore } from "@/stores/useWatchlistStore";
 import { useSetupJournal } from "@/stores/useSetupJournal";
+import { useAccountSyncStore, useSyncStore } from "@/stores/useSyncStore";
 import { accountScopedName, readWorkspaceProfile, workspaceProfile } from "@/lib/accountScope";
 import { parseLinkMessage, type WorkspaceLinkAction } from "@/lib/windowLink";
 import { receiveLinkedCrosshair, subscribeLinkedCrosshair } from "@/lib/chart/crosshairLink";
@@ -45,6 +46,8 @@ const SHARED: Record<string, { persist: { rehydrate: () => Promise<void> | void 
   "affentrader-strategy-v1": useStrategyStore,
   "affentrader-watchlists-v1": useWatchlistStore,
   "affentrader-setups-v1": useSetupJournal,
+  "affentrader-sync-v1": useSyncStore,
+  "affentrader-account-sync-v1": useAccountSyncStore,
 };
 
 /**

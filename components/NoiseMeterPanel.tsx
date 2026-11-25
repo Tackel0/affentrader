@@ -556,6 +556,18 @@ export function NoiseMeterPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialTicker]);
 
+  const gapTouchedRef = useRef(gapTouched);
+  const todayMoveTouchedRef = useRef(todayMoveTouched);
+  const streakTouchedRef = useRef(streakTouched);
+  const patternTouchedRef = useRef(patternTouched);
+  const streakBasisRef = useRef(streakBasis);
+  gapTouchedRef.current = gapTouched;
+  todayMoveTouchedRef.current = todayMoveTouched;
+  streakTouchedRef.current = streakTouched;
+  patternTouchedRef.current = patternTouched;
+  streakBasisRef.current = streakBasis;
+  const [useLastCompletedAsToday, setUseLastCompletedAsToday] = useState(false);
+
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
@@ -571,21 +583,22 @@ export function NoiseMeterPanel({
         if (controller.signal.aborted) return;
         const computed = buildNoiseDataset(body.bars);
         setLoaded({ payload: body, dataset: computed });
-        if (!gapTouched) {
+        if (!gapTouchedRef.current) {
           setGapPct(body.live.liveGapPct);
         }
-        if (!todayMoveTouched) {
+        if (!todayMoveTouchedRef.current) {
+          setUseLastCompletedAsToday(false);
           setTodayMovePct(body.live.liveTodayReturnPct ?? body.live.liveGapPct);
         }
-        if (!streakTouched) {
+        if (!streakTouchedRef.current) {
           const liveStreak =
-            streakBasis === "candle"
+            streakBasisRef.current === "candle"
               ? (body.live.currentCandleStreak ?? computed.currentCandleStreak)
               : (body.live.currentStreak ?? computed.currentStreak);
           setStreakDirection(liveStreak.direction);
           setStreakDays(Math.max(1, liveStreak.count || 1));
         }
-        if (!patternTouched) {
+        if (!patternTouchedRef.current) {
           const liveRet = body.live.priceSource === "regular" ? body.live.liveTodayReturnPct : null;
           const suggested = suggestLivePattern(computed, liveRet);
           const suggestedLeadup = suggestLiveLeadupPattern(computed, liveRet);
@@ -608,7 +621,6 @@ export function NoiseMeterPanel({
       }
     })();
     return () => controller.abort();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ticker, years, reloadNonce]);
 
   const data = loaded?.payload ?? null;
@@ -631,8 +643,26 @@ export function NoiseMeterPanel({
     });
   }, [dataset, gapPct, streakDays, streakDirection, streakBasis, data?.live.nextWeekday]);
 
+  const priorCompletedDataset = useMemo(() => {
+    if (!useLastCompletedAsToday || !data || data.bars.length < 30) return null;
+    return buildNoiseDataset(data.bars.slice(0, -1));
+  }, [useLastCompletedAsToday, data]);
+
   const nextDayForecast = useMemo(() => {
     if (!dataset) return null;
+    if (useLastCompletedAsToday && priorCompletedDataset) {
+      const priorStreak =
+        streakBasis === "candle"
+          ? priorCompletedDataset.currentCandleStreak
+          : priorCompletedDataset.currentStreak;
+      return evaluateNextDayForecast(priorCompletedDataset, {
+        priorStreakDays: Math.max(1, priorStreak.count || 1),
+        priorStreakDirection: priorStreak.direction,
+        streakBasis,
+        todayMovePct,
+        useExtraFactors,
+      });
+    }
     return evaluateNextDayForecast(dataset, {
       priorStreakDays: streakDays,
       priorStreakDirection: streakDirection,
@@ -640,7 +670,7 @@ export function NoiseMeterPanel({
       todayMovePct,
       useExtraFactors,
     });
-  }, [dataset, streakDays, streakDirection, streakBasis, todayMovePct, useExtraFactors]);
+  }, [dataset, priorCompletedDataset, useLastCompletedAsToday, streakDays, streakDirection, streakBasis, todayMovePct, useExtraFactors]);
 
   const liveTodayReturn = data ? (data.live.liveTodayReturnPct ?? data.live.liveGapPct) : 0;
 
@@ -1414,6 +1444,7 @@ export function NoiseMeterPanel({
                         onClick={() => {
                           setTodayMovePct(liveTodayReturn);
                           setTodayMoveTouched(false);
+                          setUseLastCompletedAsToday(false);
                         }}
                       >
                         {liveMoveShortLabel(data.live.priceSource)} ({fmtPct(liveTodayReturn, true)})
@@ -1424,14 +1455,15 @@ export function NoiseMeterPanel({
                         <button
                           type="button"
                           className={`noise-mini-btn${
-                            todayMoveTouched && Math.abs(todayMovePct - dataset.lastDayReturnPct) < 0.05
+                            useLastCompletedAsToday && Math.abs(todayMovePct - dataset.lastDayReturnPct) < 0.05
                               ? " active"
                               : ""
                           }`}
-                          title={`Letzter abgeschlossener Börsen-Close (${dataset.lastSession})`}
+                          title={`Letzter abgeschlossener Börsen-Close (${dataset.lastSession}) als Basis für T+1 ohne Doppelzählung`}
                           onClick={() => {
                             setTodayMovePct(dataset.lastDayReturnPct!);
                             setTodayMoveTouched(true);
+                            setUseLastCompletedAsToday(true);
                           }}
                         >
                           Close {fmtShortDate(dataset.lastSession)} ({fmtPct(dataset.lastDayReturnPct, true)})
@@ -1447,6 +1479,7 @@ export function NoiseMeterPanel({
                         onChange={(val) => {
                           setTodayMovePct(val);
                           setTodayMoveTouched(true);
+                          setUseLastCompletedAsToday(false);
                         }}
                       />
                     </div>

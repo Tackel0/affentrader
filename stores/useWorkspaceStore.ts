@@ -271,14 +271,14 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             ...s.layouts,
             {
               id: crypto.randomUUID(),
-              name: name.trim() || "Unnamed layout",
+              name: name.trim().slice(0, 60) || "Unnamed layout",
               layout: s.layout,
               cells: structuredClone(s.cells),
               activeId: s.activeId,
               sync: { ...s.sync },
               savedAt: Date.now(),
             },
-          ],
+          ].slice(-50),
         });
       },
       loadLayout: (id) => {
@@ -306,11 +306,11 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             ...s.studies,
             {
               id: crypto.randomUUID(),
-              name: name.trim() || "Indicator template",
+              name: name.trim().slice(0, 60) || "Indicator template",
               indicators: structuredClone(useChartStore.getState().indicators),
               savedAt: Date.now(),
             },
-          ],
+          ].slice(-100),
         })),
       loadStudies: (id) => {
         const saved = get().studies.find((t) => t.id === id);

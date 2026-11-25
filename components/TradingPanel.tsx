@@ -17,6 +17,7 @@ import {paperSourceLabel} from "@/lib/trading/executionSource";
 import {
   accountStats,
   buyingPower,
+  isClosingFill,
   unrealizedPnl,
   type Account,
   type Order,
@@ -80,14 +81,18 @@ function OrderTicket() {
   const book=usePaperQuote(symbol),execution=book?(ticket.side==="buy"?book.ask:book.bid):price;
   const set = (patch: Partial<Ticket>) => usePaperStore.getState().setTicket(patch);
   const num = (v: string) => (v === "" ? undefined : Number(v));
-  const reference = ticket.type === "market" ? execution : (ticket.price ?? ticket.stopPrice ?? price);
+  const needsLimit = ticket.type === "limit" || ticket.type === "stop_limit";
+  const needsStop = ticket.type === "stop" || ticket.type === "stop_limit";
+  const ticketLimit = needsLimit ? ticket.price : undefined;
+  const ticketStop = needsStop ? ticket.stopPrice : undefined;
+  const reference = ticket.type === "market" ? execution : (ticketLimit ?? ticketStop ?? price);
   const notional = reference ? reference * ticket.quantity : 0;
   const fee = notional * account.feeRate;
   const power = price ? buyingPower(account, marks) : 0;
   const sizingPrice =
     ticket.type === "market"
       ? (book ? Math.max(book.ask, book.bid, price ?? 0) : price)
-      : (ticket.price ?? ticket.stopPrice ?? price);
+      : (ticketLimit ?? ticketStop ?? price);
   const effectivePrice = sizingPrice && sizingPrice > 0 ? sizingPrice : price;
   const maxOrderQty =
     effectivePrice && power > 0
@@ -108,8 +113,8 @@ function OrderTicket() {
       side,
       type: ticket.type,
       quantity: ticket.quantity,
-      price: ticket.price,
-      stopPrice: ticket.stopPrice,
+      price: ticketLimit,
+      stopPrice: ticketStop,
       takeProfit: ticket.takeProfit,
       stopLoss: ticket.stopLoss,
       exitLevels:ticket.exitLevels,
@@ -126,8 +131,6 @@ function OrderTicket() {
     });
     }finally{setBusy(false);}
   };
-  const needsLimit = ticket.type === "limit" || ticket.type === "stop_limit";
-  const needsStop = ticket.type === "stop" || ticket.type === "stop_limit";
   return (
     <form
       className="order-ticket"
@@ -157,7 +160,19 @@ function OrderTicket() {
       <p className="form-help" data-testid="paper-execution-model">{book?`Bid / Ask · spread ${formatPrice(book.ask-book.bid)}`:mode==="replay"?"Historical bar-price model":"Last-price model · no fresh matching order book"}</p>
       <label>
         Order type
-        <select aria-label="Order type" value={ticket.type} onChange={(e) => set({ type: e.target.value as Ticket["type"] })}>
+        <select
+          aria-label="Order type"
+          value={ticket.type}
+          onChange={(e) => {
+            const nextType = e.target.value as Ticket["type"];
+            set({
+              type: nextType,
+              ...(nextType === "market" ? { price: undefined, stopPrice: undefined } : {}),
+              ...(nextType === "limit" ? { stopPrice: undefined } : {}),
+              ...(nextType === "stop" ? { price: undefined } : {}),
+            });
+          }}
+        >
           <option value="market">Market</option>
           <option value="limit">Limit</option>
           <option value="stop">Stop</option>
@@ -341,7 +356,7 @@ function OrdersTable({ orders, working }: { orders: Order[]; working: boolean })
             <td className="mono">
               {o.status === "filled" && o.fillPrice
                 ? formatPrice(o.fillPrice)
-                : formatPrice(o.price ?? o.stopPrice ?? 0)}
+                : formatPrice(o.type === "stop" ? (o.stopPrice ?? 0) : (o.price ?? o.stopPrice ?? 0))}
             </td>
             <td title={o.reason}>{o.status}</td>
             <td className={`paper-source ${(o.status==="filled"?o.fillSource:o.createdSource)??"unknown"}`}>{paperSourceLabel(o.status==="filled"?o.fillSource:o.createdSource)}</td>
@@ -380,7 +395,9 @@ function FillsTable({ account }: { account: Account }) {
         </tr>
       </thead>
       <tbody>
-        {rows.map((f) => (
+        {rows.map((f) => {
+          const closing = isClosingFill(f);
+          return (
           <tr key={f.id}>
             <td className="mono">{new Date(f.time).toLocaleString()}</td>
             <td>{symbolLabel(f.symbol)}</td>
@@ -388,11 +405,12 @@ function FillsTable({ account }: { account: Account }) {
             <td className="mono">{f.quantity}</td>
             <td className="mono">{formatPrice(f.price)}</td>
             <td className="mono">{fmt(f.fee, 4)}</td>
-            <td className={`mono ${tone(f.realizedPnl)}`}>{f.realizedPnl ? signed(f.realizedPnl) : "—"}</td>
+            <td className={`mono ${closing ? tone(f.realizedPnl) : ""}`}>{closing ? signed(f.realizedPnl) : "—"}</td>
             <td>{f.priceBasis==="bid"?"Bid":f.priceBasis==="ask"?"Ask":f.priceBasis==="limit"?"Limit":f.priceBasis==="last"?"Last / bar":"Not recorded"}</td>
             <td className={`paper-source ${f.source??"unknown"}`}>{paperSourceLabel(f.source)}</td>
           </tr>
-        ))}
+          );
+        })}
       </tbody>
     </table>
   );

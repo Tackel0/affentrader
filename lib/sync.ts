@@ -138,9 +138,10 @@ export async function pullWorkspace(ifUnchanged = workspaceFingerprint()): Promi
     const parsed = body.data;
     const revision = body.revision;
     const set = target.store.getState().set;
+    let validated: import("@/lib/workspace").WorkspaceBackup;
     try {
       const { parseWorkspace } = await import("@/lib/workspace");
-      parseWorkspace(parsed);
+      validated = parseWorkspace(parsed);
     } catch (error) {
       fail(target, `Die gespeicherte Kopie ist ungültig: ${error instanceof Error ? error.message : String(error)}`);
       return false;
@@ -151,7 +152,8 @@ export async function pullWorkspace(ifUnchanged = workspaceFingerprint()): Promi
       return false;
     }
     set({ revision, lastSyncedAt: Date.now(), adopt: true, status: "idle", error: "" });
-    await restoreWorkspaceText(parsed, () => active(target) && workspaceFingerprint() === ifUnchanged);
+    const { restoreWorkspace } = await import("@/lib/workspaceBackup");
+    await restoreWorkspace(validated, () => active(target) && workspaceFingerprint() === ifUnchanged);
     return true;
   } catch (error) {
     if (active(target) && target.store.getState().adopt) target.store.getState().set({ adopt: false, revision: state.revision, lastSyncedAt: state.lastSyncedAt });

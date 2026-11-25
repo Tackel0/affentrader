@@ -373,7 +373,7 @@ export function mfi(bars: readonly OHLCV[], length = 14): Series {
   const down = sma(negative, length);
   return up.map((u, i) => {
     if (!Number.isFinite(u) || !Number.isFinite(down[i])) return Number.NaN;
-    if (down[i] === 0) return 100;
+    if (down[i] === 0) return u === 0 ? 50 : 100;
     return 100 - 100 / (1 + u / down[i]);
   });
 }
@@ -410,8 +410,10 @@ export function adx(bars: readonly OHLCV[], length = 14): AdxResult {
   const plusDi = plusSmooth.map((v, i) => (range[i] ? (100 * v) / range[i] : Number.NaN));
   const minusDi = minusSmooth.map((v, i) => (range[i] ? (100 * v) / range[i] : Number.NaN));
   const dx = plusDi.map((p, i) => {
-    const total = p + minusDi[i];
-    return total ? (100 * Math.abs(p - minusDi[i])) / total : Number.NaN;
+    const m = minusDi[i];
+    if (!Number.isFinite(p) || !Number.isFinite(m)) return Number.NaN;
+    const total = p + m;
+    return total > 0 ? (100 * Math.abs(p - m)) / total : 0;
   });
   return { adx: rma(dx, length), plusDi, minusDi };
 }

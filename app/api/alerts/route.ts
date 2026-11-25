@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { HttpError, isAuthorized, readJson } from "@/lib/server/security";
 import { logError } from "@/lib/server/logger";
+import { CloudConflictError } from "@/lib/server/netlifyStorage";
 import {
   deleteRule,
   listEvents,
@@ -23,6 +24,8 @@ function failure(error: unknown) {
     return NextResponse.json({ error: error.message }, { status: error.status });
   if (error instanceof WebhookError)
     return NextResponse.json({ error: error.message }, { status: 400 });
+  if (error instanceof CloudConflictError)
+    return NextResponse.json({ error: error.message }, { status: 409 });
   logError("api.alerts.error", error);
   return NextResponse.json({ error: "Alert service error." }, { status: 500 });
 }

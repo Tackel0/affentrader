@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { HttpError, isAuthorized, readJson } from "@/lib/server/security";
 import { logError } from "@/lib/server/logger";
+import { CloudConflictError } from "@/lib/server/netlifyStorage";
 import { listEvents, recordEvent } from "@/lib/server/alertService";
 import { WebhookError, parseWebhookUrl } from "@/lib/server/webhooks";
 import type { AlertRule, RuleEvent } from "@/types/alerts";
@@ -100,6 +101,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: error.status });
     if (error instanceof WebhookError)
       return NextResponse.json({ error: error.message }, { status: 400 });
+    if (error instanceof CloudConflictError)
+      return NextResponse.json({ error: error.message }, { status: 409 });
     logError("api.alerts.events.post", error);
     return NextResponse.json({ error: "Alert service error." }, { status: 500 });
   }

@@ -144,15 +144,6 @@ export async function proxy(request: NextRequest) {
   const settings = passwordGate ? siteAccessConfig() : null;
   if (passwordGate && !settings) return new NextResponse("Der Website-Zugang ist noch nicht konfiguriert.", { status: 503, headers: privateHeaders });
   if (ACCOUNT_ENTRY_PATHS.has(path)) return NextResponse.next();
-  if (path === "/api/asset-icon" && ["GET", "HEAD"].includes(request.method)) {
-    const response = NextResponse.next();
-    response.headers.set("X-Content-Type-Options", "nosniff");
-    response.headers.set(
-      "Content-Security-Policy",
-      "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; sandbox",
-    );
-    return response;
-  }
   if (PUBLIC_PWA_PATHS.has(path) && ["GET", "HEAD"].includes(request.method)) {
     const response = NextResponse.next();
     response.headers.set("X-Content-Type-Options", "nosniff");
@@ -231,7 +222,7 @@ export async function proxy(request: NextRequest) {
     url.searchParams.set("next", safeReturnPath(path + request.nextUrl.search));
     return NextResponse.redirect(url, { status: 303, headers: privateHeaders });
   }
-  const rateToken = account ? account.id : (sessionCookie || publicRateToken(request));
+  const rateToken = account ? account.id : (legacyAuthenticated && sessionCookie ? sessionCookie : publicRateToken(request));
   if (path.startsWith("/api/") && rateToken) {
     const writes = !["GET", "HEAD", "OPTIONS"].includes(request.method);
     const fetchSite = request.headers.get("sec-fetch-site");
@@ -257,6 +248,15 @@ export async function proxy(request: NextRequest) {
         },
       );
     }
+  }
+  if (path === "/api/asset-icon" && ["GET", "HEAD"].includes(request.method)) {
+    const response = NextResponse.next();
+    response.headers.set("X-Content-Type-Options", "nosniff");
+    response.headers.set(
+      "Content-Security-Policy",
+      "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; sandbox",
+    );
+    return response;
   }
   const response = NextResponse.next();
   const profile = request.cookies.get(ACCOUNT_SCOPE_COOKIE)?.value ?? "";

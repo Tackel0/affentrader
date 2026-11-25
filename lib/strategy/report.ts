@@ -64,10 +64,52 @@ export function buildStrategyReport(
       "This script did not produce strategy state. Use a Pine strategy() declaration.",
     );
   const bars = request.dataset.bars,
-    initial = state.initial_capital;
+    initial = state.initial_capital,
+    pointValue = request.dataset.market.pointValue ?? 1;
+  type LedgerEntry = {
+    entry_id: string;
+    entry_price: number;
+    entry_bar_index: number;
+    entry_time: number;
+    qty: number;
+    commission?: number;
+    _dir?: number;
+    _fav?: number;
+    _adv?: number;
+  };
+  const ledgerEntries = (state as unknown as { _ledger_entries?: LedgerEntry[] })._ledger_entries;
+  const posDir = Math.sign(state.position_size) || 1;
+  const openRows =
+    ledgerEntries && ledgerEntries.length > 0
+      ? ledgerEntries.map((r, idx) => {
+          const qty = r.qty;
+          const comm = r.commission ?? 0;
+          const runup =
+            r._fav === undefined || !(qty > 0) ? 0 : Math.max(0, r._fav * qty * pointValue - comm);
+          const drawdown =
+            r._adv === undefined || !(qty > 0) ? 0 : Math.max(0, r._adv * qty * pointValue + comm);
+          return {
+            id: `open_${idx}`,
+            entry_id: r.entry_id,
+            exit_id: undefined as string | undefined,
+            size: (r._dir ?? posDir) * qty,
+            entry_time: r.entry_time,
+            exit_time: undefined as number | undefined,
+            entry_bar_index: r.entry_bar_index,
+            exit_bar_index: undefined as number | undefined,
+            entry_price: r.entry_price,
+            exit_price: undefined as number | undefined,
+            profit: undefined as number | undefined,
+            commission: comm,
+            max_runup: runup,
+            max_drawdown: drawdown,
+            status: "open",
+          };
+        })
+      : state.opentrades;
   const trades: StrategyTrade[] = [
     ...state.closedtrades,
-    ...state.opentrades,
+    ...openRows,
   ].map((t, i) => ({
     id: `${t.id}-${i}`,
     entryId: t.entry_id,
@@ -84,15 +126,17 @@ export function buildStrategyReport(
       t.profit ??
       (bars.at(-1)!.close - t.entry_price) *
         t.size *
-        (request.dataset.market.pointValue ?? 1) -
+        pointValue -
         (t.commission ?? 0),
     commission: t.commission ?? 0,
     runup: t.max_runup ?? 0,
     drawdown: t.max_drawdown ?? 0,
     open: t.status !== "closed",
-    pointValue: request.dataset.market.pointValue ?? 1,
+    pointValue,
   }));
   type PlotPoint = { time: number; value: number };
+  type BarEquityPoint = { equity: number; netProfit: number; openProfit: number };
+  const barEquity = (state as unknown as { _bar_equity?: Map<number, BarEquityPoint> })._bar_equity;
   const points = (name: string) =>
     new Map<number, number>(
       ((root.plots[name]?.data as PlotPoint[]) ?? []).map((p) => [
@@ -105,7 +149,8 @@ export function buildStrategyReport(
     opens = points(OPEN_PLOT);
   let peak = initial;
   const equityCurve: EquityPoint[] = bars.map((b) => {
-    const equity = equities.get(b.time);
+    const postClose = barEquity?.get(b.time);
+    const equity = postClose ? postClose.equity : equities.get(b.time);
     if (equity === undefined || !Number.isFinite(equity))
       throw new Error(
         `Runtime equity is unavailable at ${new Date(b.time).toISOString()}.`,
@@ -115,8 +160,8 @@ export function buildStrategyReport(
     return {
       time: b.time,
       equity,
-      netProfit: nets.get(b.time) ?? 0,
-      openProfit: opens.get(b.time) ?? 0,
+      netProfit: postClose ? postClose.netProfit : (nets.get(b.time) ?? 0),
+      openProfit: postClose ? postClose.openProfit : (opens.get(b.time) ?? 0),
       drawdown,
       drawdownPercent: peak > 0 ? (drawdown / peak) * 100 : 0,
       buyHold: (initial * b.close) / bars[0].open,

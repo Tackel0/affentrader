@@ -6,13 +6,20 @@ import type { PersistStorage, StateStorage, StorageValue } from "zustand/middlew
  * script drafts included, dozens of times a second. Reads see pending writes,
  * and everything is flushed when the page is hidden or closed.
  */
-export function createDebouncedStorage(waitMs = 400, backing: () => Storage | undefined = () => (typeof localStorage === "undefined" ? undefined : localStorage)): StateStorage & {
+export interface DebouncedStorage extends StateStorage {
   flush: () => void;
   discard: () => void;
-} {
+  /** Monotonic counter invalidated on discard(), removeItem(), or flush failure (e.g. QuotaExceededError). */
+  writeToken?: (name: string) => number;
+}
+
+export function createDebouncedStorage(waitMs = 400, backing: () => Storage | undefined = () => (typeof localStorage === "undefined" ? undefined : localStorage)): DebouncedStorage {
   const pending = new Map<string, string>();
   const submitted = new Map<string, string>();
+  const tokens = new Map<string, number>();
+  let globalEpoch = 0;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  const bump = (key: string) => tokens.set(key, (tokens.get(key) ?? 0) + 1);
   const flush = () => {
     if (timer) clearTimeout(timer);
     timer = null;
@@ -20,9 +27,13 @@ export function createDebouncedStorage(waitMs = 400, backing: () => Storage | un
     for (const [key, value] of pending) {
       try {
         if (storage) storage.setItem(key, value);
-        else submitted.delete(key);
+        else {
+          submitted.delete(key);
+          bump(key);
+        }
       } catch {
         submitted.delete(key);
+        bump(key);
         /* quota or privacy mode: the next write retries */
       }
     }
@@ -33,6 +44,7 @@ export function createDebouncedStorage(waitMs = 400, backing: () => Storage | un
     timer = null;
     pending.clear();
     submitted.clear();
+    globalEpoch++;
   };
   if (typeof window !== "undefined") {
     window.addEventListener("pagehide", flush);
@@ -58,10 +70,12 @@ export function createDebouncedStorage(waitMs = 400, backing: () => Storage | un
     removeItem: (name) => {
       pending.delete(name);
       submitted.delete(name);
+      bump(name);
       backing()?.removeItem(name);
     },
     flush,
     discard,
+    writeToken: (name) => globalEpoch * 1_000_000 + (tokens.get(name) ?? 0),
   };
 }
 
@@ -89,9 +103,9 @@ function shallowEqualRecord(
  * (for example during high-frequency tick/quote/candle updates to non-persisted fields).
  */
 export function createShallowPersistStorage<S>(
-  inner: StateStorage = hotStorage,
+  inner: DebouncedStorage = hotStorage,
 ): PersistStorage<S> {
-  const cache = new Map<string, { version?: number; state: Record<string, unknown> }>();
+  const cache = new Map<string, { version?: number; state: Record<string, unknown>; token?: number }>();
 
   const parseAndCache = (name: string, raw: string | null): StorageValue<S> | null => {
     if (!raw) {
@@ -104,6 +118,7 @@ export function createShallowPersistStorage<S>(
         cache.set(name, {
           version: parsed.version,
           state: { ...(parsed.state as Record<string, unknown>) },
+          token: inner.writeToken?.(name),
         });
       }
       return parsed;
@@ -127,14 +142,18 @@ export function createShallowPersistStorage<S>(
           ? (value.state as Record<string, unknown>)
           : null;
       const prev = cache.get(name);
-      // Only skip serialization when inner storage still holds this key;
-      // if inner was cleared/discarded externally (e.g. localStorage.clear() or hotStorage.discard()),
-      // we must re-serialize and persist.
-      const existing = prev ? inner.getItem(name) : null;
+      const token = inner.writeToken?.(name);
+      const stillPresent =
+        prev !== undefined &&
+        (token !== undefined
+          ? prev.token === token
+          : (() => {
+              const existing = inner.getItem(name);
+              return existing !== null && !(existing instanceof Promise);
+            })());
       if (
         prev &&
-        existing !== null &&
-        !(existing instanceof Promise) &&
+        stillPresent &&
         nextState &&
         prev.version === value.version &&
         shallowEqualRecord(prev.state, nextState)
@@ -142,7 +161,7 @@ export function createShallowPersistStorage<S>(
         return;
       }
       if (nextState) {
-        cache.set(name, { version: value.version, state: { ...nextState } });
+        cache.set(name, { version: value.version, state: { ...nextState }, token });
       } else {
         cache.delete(name);
       }
