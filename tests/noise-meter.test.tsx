@@ -4,9 +4,14 @@ import React from "react";
 import { render, fireEvent, waitFor, cleanup, within } from "@testing-library/react";
 import {
   buildNoiseDataset,
+  buildPatternMatchesCsv,
   evaluateNextDayForecast,
   evaluateNoiseScenario,
   evaluatePatternStudy,
+  formatPatternSummaryText,
+  getLivePatternSnapshot,
+  matchesLivePatternSnapshot,
+  suggestLiveLeadupPattern,
   suggestLivePattern,
   type NoiseApiPayload,
   type NoiseDayBar,
@@ -661,6 +666,91 @@ describe("NoiseMeter empirical engine", () => {
     expect(study.matches[0].daysToBottom).toBeNull();
     expect(study.bullets.some((b) => b.includes("laufenden Bärenmarkt"))).toBe(true);
   });
+
+  it("deduplicates overlapping cluster hits via minGapDays, computes exact regimeCounts, and exports summary & CSV", () => {
+    const dates = makeWeekdayDates(70, "2024-01-02");
+    const bars: NoiseDayBar[] = [];
+    let prev = 100;
+    let idx = 0;
+
+    const pushPct = (pctMove: number) => {
+      const open = Number((prev * (1 + (pctMove * 0.2) / 100)).toFixed(4));
+      const close = Number((prev * (1 + pctMove / 100)).toFixed(4));
+      const high = Number((Math.max(open, close) * 1.002).toFixed(4));
+      const low = Number((Math.min(open, close) * 0.998).toFixed(4));
+      bars.push({ session: dates[idx++], open, high, low, close, volume: 30_000_000 });
+      prev = close;
+    };
+
+    for (let i = 0; i < 10; i++) pushPct(0.3);
+    // Cluster 1: 3 matches within 6 trading days (-3.5% drops)
+    pushPct(-3.5);
+    pushPct(0.4);
+    pushPct(-3.8);
+    pushPct(0.2);
+    pushPct(-4.1);
+    // Quiet gap of 15 trading days
+    for (let i = 0; i < 15; i++) pushPct(0.2);
+    // Cluster 2: 2 matches within 3 trading days
+    pushPct(-3.6);
+    pushPct(0.3);
+    pushPct(-3.9);
+    // End with a sharp 5-day selloff (~ -11%) + +4.5% bounce for live leadup snapshot test
+    while (idx < dates.length - 6) pushPct(0.15);
+    for (let i = 0; i < 5; i++) pushPct(-2.3);
+    pushPct(4.5);
+
+    const ds = buildNoiseDataset(bars);
+    const raw = evaluatePatternStudy(ds, {
+      ticker: "SPY",
+      prevDayRule: { op: "any", thresholdPct: -3 },
+      day0Rule: { op: "lte", thresholdPct: -3 },
+      minGapDays: 0,
+    });
+    const deduped = evaluatePatternStudy(ds, {
+      ticker: "SPY",
+      prevDayRule: { op: "any", thresholdPct: -3 },
+      day0Rule: { op: "lte", thresholdPct: -3 },
+      minGapDays: 10,
+    });
+
+    expect(raw.sampleSize).toBe(5);
+    expect(deduped.rawSampleSize).toBe(5);
+    expect(deduped.sampleSize).toBe(2); // Exactly 1 per independent cluster!
+    expect(deduped.regimeCounts.all).toBe(2);
+    expect(deduped.regimeCounts.bear + deduped.regimeCounts.bull).toBe(deduped.regimeCounts.all);
+
+    // Live snapshot & leadup auto-suggest on the final 5-day selloff + +4.5% bounce
+    const snap = getLivePatternSnapshot(ds, null);
+    expect(snap.usingLiveToday).toBe(false);
+    expect(snap.day0Pct).toBeCloseTo(4.5, 1);
+    expect(snap.priorWindow[5]!).toBeLessThan(-10);
+
+    const leadup = suggestLiveLeadupPattern(ds, null);
+    expect(leadup.priorWindowRule.op).toBe("lte");
+    expect(leadup.priorWindowRule.thresholdPct).toBeLessThanOrEqual(-8);
+    expect(leadup.day0Rule).toEqual({ op: "gte", thresholdPct: 4 });
+
+    // Current tape matches the auto-suggested leadup rule
+    expect(
+      matchesLivePatternSnapshot(snap, {
+        prevDayRule: { op: "any", thresholdPct: 0 },
+        day0Rule: leadup.day0Rule,
+        priorWindowRule: leadup.priorWindowRule,
+        regimeFilter: "all",
+      }),
+    ).toBe(true);
+
+    // Summary formatter & CSV exporter
+    const text = formatPatternSummaryText("SPY", deduped);
+    expect(text).toContain("SPY Muster-Scanner");
+    expect(text).toContain("Folge-Performance:");
+
+    const csv = buildPatternMatchesCsv(deduped, "days", 5, 2);
+    const lines = csv.split("\n");
+    expect(lines[0]).toContain("Datum,Tag-1_%,Tag0_%,Regime,T+1_%");
+    expect(lines).toHaveLength(1 + deduped.matches.length);
+  });
 });
 
 describe("NoiseMeter Regular-Close-Promotion & live quote resolution", () => {
@@ -986,21 +1076,31 @@ describe("NoiseMeterPanel & ResearchTerminal UI", () => {
     expect(container.textContent).toContain("Tag −1 (Vortag)");
     expect(container.textContent).not.toContain("Vorlauf (kumulativ vor Heute)");
     expect(container.textContent).not.toContain("Tag −3");
+    // Live context bar shows current ticker values
+    expect(container.querySelector(".noise-pattern-live-bar")).not.toBeNull();
+    // Regime filter buttons show live match counts
+    expect(panel.getByRole("button", { name: /Alle \(\d+\)/ })).not.toBeNull();
+    expect(panel.getByRole("button", { name: /Bärenmarkt \(\d+\)/ })).not.toBeNull();
+    expect(panel.getByRole("button", { name: /Bullenmarkt \(\d+\)/ })).not.toBeNull();
 
     // Expand Einzeltage lookback to 5 Tage
     fireEvent.click(panel.getByRole("button", { name: "5 Tage" }));
     expect(container.textContent).toContain("Tag −4");
     expect(container.textContent).toContain("Tag −3");
 
-    // Switch to Vorlauf → Heute mode: hides Einzeltage & Rückblick, shows clean Vorlauf + Heute builder
+    // Switch to Vorlauf → Heute mode: hides Einzeltage & Rückblick, shows Vorlauf presets & builder
     fireEvent.click(panel.getByRole("button", { name: "Vorlauf → Heute" }));
     expect(panel.getByRole("button", { name: "Vorlauf → Heute" }).getAttribute("aria-pressed")).toBe("true");
     expect(container.textContent).toContain("Vorlauf (kumulativ vor Heute)");
     expect(container.textContent).toContain("Heute (Tag 0)");
     expect(container.textContent).not.toContain("Tag −4");
     expect(container.textContent).not.toContain("Tag −1 (Vortag)");
+    expect(panel.getByRole("button", { name: "Live-Vorlauf" })).not.toBeNull();
 
-    // Edit Vorlauf threshold via NumericPctInput with German comma without snapping to 0 on "-"
+    // Select Vor-7T preset, then edit via NumericPctInput (German comma + inline +/- stepper)
+    fireEvent.click(panel.getByRole("button", { name: "Vor-7T ≤ −10 % → +5 %" }));
+    expect(container.textContent).toContain("Vor-7T ≤ −10,0 % → Tag 0 ≥ +5,0 %");
+
     const leadupInput = panel.getByRole("textbox", { name: "Vorlauf Schwelle Prozent" }) as HTMLInputElement;
     fireEvent.focus(leadupInput);
     fireEvent.change(leadupInput, { target: { value: "-" } });
@@ -1008,15 +1108,52 @@ describe("NoiseMeterPanel & ResearchTerminal UI", () => {
     fireEvent.change(leadupInput, { target: { value: "-8,5" } });
     expect(container.textContent).toContain("Vor-7T ≤ −8,5 %");
 
-    // Cross-mode presets auto-switch cleanly between Vorlauf → Heute and Einzeltage
-    fireEvent.click(panel.getByRole("button", { name: "Vor-7T ≤ −10 % → +5 %" }));
-    expect(panel.getByRole("button", { name: "Vorlauf → Heute" }).getAttribute("aria-pressed")).toBe("true");
-    expect(container.textContent).toContain("Vor-7T ≤ −10,0 % → Tag 0 ≥ +5,0 %");
+    // Inline + stepper increments Vorlauf threshold by step (1) -> -7,5 %
+    fireEvent.click(panel.getByRole("button", { name: "Vorlauf Schwelle Prozent erhöhen" }));
+    expect(container.textContent).toContain("Vor-7T ≤ −7,5 %");
 
-    fireEvent.click(panel.getByRole("button", { name: "−5 % → +5 %" }));
+    // Spiegeln button flips direction (≤ -7,5% -> ≥ +7,5% and ≥ +5% -> ≤ -5%)
+    fireEvent.click(panel.getByRole("button", { name: "Spiegeln" }));
+    expect(container.textContent).toContain("Vor-7T ≥ +7,5 % → Tag 0 ≤ −5,0 %");
+
+    // 0-Treffer empty-state provides 1-click sign-symmetric threshold relaxation
+    expect(container.textContent).toContain("0 Treffer für diese Kombination");
+    fireEvent.click(panel.getByRole("button", { name: "Schwellen lockern (−25 %)" }));
+    expect(container.textContent).toContain("Vor-7T ≥ +5,0 % → Tag 0 ≤ −3,5 %");
+
+    // Copy summary button writes report to clipboard and shows "Kopiert" feedback
+    const writeText = vi.fn(async (_text: string) => {});
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+    fireEvent.click(panel.getByRole("button", { name: "Kopieren" }));
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledTimes(1);
+    });
+    expect(writeText.mock.calls[0][0]).toContain("SPY Muster-Scanner");
+
+    // Switch back to Einzeltage, select −5 % → +5 %, and toggle cluster filter + sorting + copy
+    fireEvent.click(panel.getByRole("button", { name: "Einzeltage" }));
     expect(panel.getByRole("button", { name: "Einzeltage" }).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(panel.getByRole("button", { name: "−5 % → +5 %" }));
     expect(container.textContent).toContain("Tag −1 ≤ −5,0 % → Tag 0 ≥ +5,0 %");
     expect(container.textContent).not.toContain("Vorlauf (kumulativ vor Heute)");
+
+    // Cluster deduplication toggle works
+    const dedupBtn = panel.getByRole("button", { name: "Entclustert (≥ 10T)" });
+    fireEvent.click(dedupBtn);
+    expect(dedupBtn.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(panel.getByRole("button", { name: "Alle Tage" }));
+
+    // Relax down to matches so table sorting & CSV button can be exercised
+    fireEvent.click(panel.getByRole("button", { name: "Tag ≥ +5 %" }));
+    const tag0Input = panel.getByRole("textbox", { name: "Tag 0 Schwelle Prozent" }) as HTMLInputElement;
+    fireEvent.change(tag0Input, { target: { value: "1" } });
+    expect(container.querySelector(".noise-win-bar")).not.toBeNull();
+    expect(panel.getByRole("button", { name: "CSV" })).not.toBeNull();
+    fireEvent.click(panel.getByRole("button", { name: "Tag 0" }));
+    fireEvent.click(panel.getByRole("button", { name: "Drop bis Tief" }));
 
     // Switch primary tab to Premarket & Gaps and verify KPIs + sub-tabs
     fireEvent.click(panel.getByRole("tab", { name: /Premarket & Gaps/i }));

@@ -123,6 +123,21 @@ export interface PatternStudyInput {
   day0Rule: ReturnRule;
   priorWindowRule?: PriorWindowRule;
   regimeFilter?: "all" | "bear" | "bull";
+  /** Minimum trading days between consecutive kept matches (0 = include all overlapping cluster days). */
+  minGapDays?: number;
+}
+
+export interface LivePatternSnapshot {
+  usingLiveToday: boolean;
+  sessionLabel: string;
+  day0Pct: number | null;
+  prevDayPct: number | null;
+  dayMinus2Pct: number | null;
+  dayMinus3Pct: number | null;
+  dayMinus4Pct: number | null;
+  priorWindow: Record<PriorWindowDays, number | null>;
+  inBearCycle: boolean;
+  drawdown52wPct: number;
 }
 
 export interface PatternHorizonStat {
@@ -164,6 +179,13 @@ export interface PatternStudyResult {
   headline: string;
   bullets: string[];
   sampleSize: number;
+  rawSampleSize: number;
+  minGapDays: number;
+  regimeCounts: {
+    all: number;
+    bear: number;
+    bull: number;
+  };
   firstYear: string;
   lastYear: string;
   totalDays: number;
@@ -2226,23 +2248,56 @@ export function evaluatePatternStudy(
     thresholdPct: clamp(round2(input.priorWindowRule?.thresholdPct || 0), -80, 100),
   };
   const regimeFilter = input.regimeFilter ?? "all";
+  const minGapDays =
+    typeof input.minGapDays === "number" && Number.isFinite(input.minGapDays) && input.minGapDays > 0
+      ? Math.min(252, Math.round(input.minGapDays))
+      : 0;
 
   const firstYear = dataset.firstSession ? dataset.firstSession.slice(0, 4) : "—";
   const lastYear = dataset.lastSession ? dataset.lastSession.slice(0, 4) : "—";
 
-  const matchedObs = dataset.observations.filter((o) => {
-    if (!matchesReturnRule(priorWindowValueOf(o, priorWinDays), priorWinRule)) return false;
-    if (!matchesReturnRule(o.dayMinus4Pct, dayMinus4Rule)) return false;
-    if (!matchesReturnRule(o.dayMinus3Pct, dayMinus3Rule)) return false;
-    if (!matchesReturnRule(o.dayMinus2Pct, dayMinus2Rule)) return false;
-    if (!matchesReturnRule(o.prevDayCloseToClosePct, prevRule)) return false;
-    if (!matchesReturnRule(o.closeToClosePct, day0Rule)) return false;
-    // Regime filter strictly matches the canonical >=20% bear-cycle classifier (inBearCycle)
-    // so Bärenmarkt + Bullenmarkt partition all matches cleanly and align 1:1 with table badges & KPIs.
-    if (regimeFilter === "bear" && !o.inBearCycle) return false;
-    if (regimeFilter === "bull" && o.inBearCycle) return false;
-    return true;
-  });
+  const rawMatchedEntries: Array<{ idx: number; obs: NoiseObservation }> = [];
+  for (let idx = 0; idx < dataset.observations.length; idx++) {
+    const o = dataset.observations[idx];
+    if (!matchesReturnRule(priorWindowValueOf(o, priorWinDays), priorWinRule)) continue;
+    if (!matchesReturnRule(o.dayMinus4Pct, dayMinus4Rule)) continue;
+    if (!matchesReturnRule(o.dayMinus3Pct, dayMinus3Rule)) continue;
+    if (!matchesReturnRule(o.dayMinus2Pct, dayMinus2Rule)) continue;
+    if (!matchesReturnRule(o.prevDayCloseToClosePct, prevRule)) continue;
+    if (!matchesReturnRule(o.closeToClosePct, day0Rule)) continue;
+    rawMatchedEntries.push({ idx, obs: o });
+  }
+
+  // Optional cluster deduplication: keep independent episodes separated by >= minGapDays trading days
+  const dedupedObs: NoiseObservation[] = [];
+  if (minGapDays > 0) {
+    let lastKeptIdx = -Infinity;
+    for (const entry of rawMatchedEntries) {
+      if (entry.idx - lastKeptIdx >= minGapDays) {
+        dedupedObs.push(entry.obs);
+        lastKeptIdx = entry.idx;
+      }
+    }
+  } else {
+    for (const entry of rawMatchedEntries) dedupedObs.push(entry.obs);
+  }
+
+  // Exact partition across all / bear / bull on the deduplicated pattern pool
+  const regimeAllCount = dedupedObs.length;
+  const regimeBearCount = dedupedObs.filter((o) => o.inBearCycle).length;
+  const regimeCounts = {
+    all: regimeAllCount,
+    bear: regimeBearCount,
+    bull: regimeAllCount - regimeBearCount,
+  };
+
+  // Regime filter strictly matches the canonical >=20% bear-cycle classifier (inBearCycle)
+  // so Bärenmarkt + Bullenmarkt partition all matches cleanly and align 1:1 with table badges & KPIs.
+  const matchesRegime = (o: NoiseObservation) =>
+    regimeFilter === "bear" ? o.inBearCycle : regimeFilter === "bull" ? !o.inBearCycle : true;
+
+  const rawSampleSize = rawMatchedEntries.filter((e) => matchesRegime(e.obs)).length;
+  const matchedObs = dedupedObs.filter(matchesRegime);
 
   const n = matchedObs.length;
   const activeRuleParts: string[] = [];
@@ -2430,6 +2485,9 @@ export function evaluatePatternStudy(
     headline,
     bullets,
     sampleSize: n,
+    rawSampleSize,
+    minGapDays,
+    regimeCounts,
     firstYear,
     lastYear,
     totalDays: dataset.totalDays,
@@ -2453,5 +2511,294 @@ export function evaluatePatternStudy(
     matches,
   };
 }
+
+/**
+ * Extracts the ticker's live/latest multi-day & cumulative Vorlauf snapshot so users
+ * can see how the current tape compares against their configured Pattern Scanner rules.
+ */
+export function getLivePatternSnapshot(
+  dataset: NoiseDataset,
+  liveTodayReturnPct?: number | null,
+): LivePatternSnapshot {
+  const obs = dataset.observations;
+  const len = obs.length;
+  const lastObs = len > 0 ? obs[len - 1] : null;
+  const usingLiveToday =
+    typeof liveTodayReturnPct === "number" && Number.isFinite(liveTodayReturnPct);
+
+  const emptyPrior: Record<PriorWindowDays, number | null> = {
+    3: null,
+    5: null,
+    7: null,
+    10: null,
+    20: null,
+  };
+
+  if (!lastObs) {
+    return {
+      usingLiveToday,
+      sessionLabel: dataset.lastSession || "—",
+      day0Pct: usingLiveToday ? round2(liveTodayReturnPct!) : null,
+      prevDayPct: null,
+      dayMinus2Pct: null,
+      dayMinus3Pct: null,
+      dayMinus4Pct: null,
+      priorWindow: emptyPrior,
+      inBearCycle: dataset.currentInBearCycle,
+      drawdown52wPct: dataset.currentDrawdown52wPct,
+    };
+  }
+
+  if (usingLiveToday) {
+    const cumBeforeLive = (w: PriorWindowDays): number | null => {
+      if (len < w) return null;
+      const baseClose = obs[len - w].prevClose;
+      return baseClose > 0 ? round2(((lastObs.close - baseClose) / baseClose) * 100) : null;
+    };
+    const obsAt = (offsetFromEnd: number): number | null => {
+      const idx = len - 1 - offsetFromEnd;
+      return idx >= 0 ? round2(obs[idx].closeToClosePct) : null;
+    };
+    return {
+      usingLiveToday: true,
+      sessionLabel: "Heute Live",
+      day0Pct: round2(liveTodayReturnPct!),
+      prevDayPct: obsAt(0),
+      dayMinus2Pct: obsAt(1),
+      dayMinus3Pct: obsAt(2),
+      dayMinus4Pct: obsAt(3),
+      priorWindow: {
+        3: cumBeforeLive(3),
+        5: cumBeforeLive(5),
+        7: cumBeforeLive(7),
+        10: cumBeforeLive(10),
+        20: cumBeforeLive(20),
+      },
+      inBearCycle: dataset.currentInBearCycle,
+      drawdown52wPct: dataset.currentDrawdown52wPct,
+    };
+  }
+
+  return {
+    usingLiveToday: false,
+    sessionLabel: lastObs.session,
+    day0Pct: round2(lastObs.closeToClosePct),
+    prevDayPct: lastObs.prevDayCloseToClosePct !== null ? round2(lastObs.prevDayCloseToClosePct) : null,
+    dayMinus2Pct: lastObs.dayMinus2Pct !== null ? round2(lastObs.dayMinus2Pct) : null,
+    dayMinus3Pct: lastObs.dayMinus3Pct !== null ? round2(lastObs.dayMinus3Pct) : null,
+    dayMinus4Pct: lastObs.dayMinus4Pct !== null ? round2(lastObs.dayMinus4Pct) : null,
+    priorWindow: {
+      3: lastObs.prior3dPct !== null ? round2(lastObs.prior3dPct) : null,
+      5: lastObs.prior5dPct !== null ? round2(lastObs.prior5dPct) : null,
+      7: lastObs.prior7dPct !== null ? round2(lastObs.prior7dPct) : null,
+      10: lastObs.prior10dPct !== null ? round2(lastObs.prior10dPct) : null,
+      20: lastObs.prior20dPct !== null ? round2(lastObs.prior20dPct) : null,
+    },
+    inBearCycle: lastObs.inBearCycle,
+    drawdown52wPct: lastObs.drawdownFrom52wHighPct,
+  };
+}
+
+/**
+ * Checks whether the ticker's current/latest tape (`LivePatternSnapshot`) currently
+ * satisfies the active Pattern Scanner rules (requires at least one non-"any" return rule).
+ */
+export function matchesLivePatternSnapshot(
+  snapshot: LivePatternSnapshot,
+  input: PatternStudyInput,
+): boolean {
+  const norm = (rule?: ReturnRule): ReturnRule => ({
+    op: rule?.op ?? "any",
+    thresholdPct: clamp(round2(rule?.thresholdPct || 0), -40, 40),
+  });
+  const d4 = norm(input.dayMinus4Rule);
+  const d3 = norm(input.dayMinus3Rule);
+  const d2 = norm(input.dayMinus2Rule);
+  const prev = norm(input.prevDayRule);
+  const day0 = norm(input.day0Rule);
+  const priorWinDays: PriorWindowDays = input.priorWindowRule?.days ?? 5;
+  const priorWin: ReturnRule = {
+    op: input.priorWindowRule?.op ?? "any",
+    thresholdPct: clamp(round2(input.priorWindowRule?.thresholdPct || 0), -80, 100),
+  };
+
+  const hasAnyActiveRule =
+    priorWin.op !== "any" ||
+    d4.op !== "any" ||
+    d3.op !== "any" ||
+    d2.op !== "any" ||
+    prev.op !== "any" ||
+    day0.op !== "any";
+  if (!hasAnyActiveRule) return false;
+
+  if (!matchesReturnRule(snapshot.priorWindow[priorWinDays], priorWin)) return false;
+  if (!matchesReturnRule(snapshot.dayMinus4Pct, d4)) return false;
+  if (!matchesReturnRule(snapshot.dayMinus3Pct, d3)) return false;
+  if (!matchesReturnRule(snapshot.dayMinus2Pct, d2)) return false;
+  if (!matchesReturnRule(snapshot.prevDayPct, prev)) return false;
+  if (!matchesReturnRule(snapshot.day0Pct, day0)) return false;
+
+  const regimeFilter = input.regimeFilter ?? "all";
+  if (regimeFilter === "bear" && !snapshot.inBearCycle) return false;
+  if (regimeFilter === "bull" && snapshot.inBearCycle) return false;
+  return true;
+}
+
+function snapLeadupThreshold(pctVal: number): number | null {
+  const abs = Math.abs(pctVal);
+  if (abs < 2.0) return null;
+  const sign = pctVal < 0 ? -1 : 1;
+  if (abs >= 20) return sign * 20;
+  if (abs >= 15) return sign * 15;
+  if (abs >= 12) return sign * 12;
+  if (abs >= 10) return sign * 10;
+  if (abs >= 8) return sign * 8;
+  if (abs >= 6) return sign * 6;
+  if (abs >= 5) return sign * 5;
+  if (abs >= 4) return sign * 4;
+  if (abs >= 3) return sign * 3;
+  return sign * 2;
+}
+
+/**
+ * Derives a clean cumulative `Vorlauf → Heute` rule from the ticker's actual recent
+ * multi-day move (picking the clearest 5T/7T/10T/3T move) and latest Tag 0 return.
+ */
+export function suggestLiveLeadupPattern(
+  dataset: NoiseDataset,
+  liveTodayReturnPct?: number | null,
+): { priorWindowRule: PriorWindowRule; day0Rule: ReturnRule; usedLiveToday: boolean } {
+  const snap = getLivePatternSnapshot(dataset, liveTodayReturnPct);
+  const candidateWindows: PriorWindowDays[] = [5, 7, 10, 3];
+  let bestWindow: PriorWindowDays | null = null;
+  let bestSnapped: number | null = null;
+  let bestScore = -1;
+
+  for (const w of candidateWindows) {
+    const val = snap.priorWindow[w];
+    if (val === null) continue;
+    const snapped = snapLeadupThreshold(val);
+    if (snapped === null) continue;
+    // Slight preference for stronger cumulative moves normalized by sqrt(window)
+    const score = Math.abs(val) / Math.sqrt(w);
+    if (score > bestScore) {
+      bestScore = score;
+      bestWindow = w;
+      bestSnapped = snapped;
+    }
+  }
+
+  const snappedDay0 = snap.day0Pct !== null ? snapShockThreshold(snap.day0Pct) : null;
+
+  if (bestWindow !== null && bestSnapped !== null) {
+    return {
+      priorWindowRule: {
+        days: bestWindow,
+        op: bestSnapped < 0 ? "lte" : "gte",
+        thresholdPct: bestSnapped,
+      },
+      day0Rule:
+        snappedDay0 !== null
+          ? { op: snappedDay0 < 0 ? "lte" : "gte", thresholdPct: snappedDay0 }
+          : { op: "any", thresholdPct: 3 },
+      usedLiveToday: snap.usingLiveToday,
+    };
+  }
+
+  if (snappedDay0 !== null) {
+    return {
+      priorWindowRule: { days: 5, op: "any", thresholdPct: -8 },
+      day0Rule: { op: snappedDay0 < 0 ? "lte" : "gte", thresholdPct: snappedDay0 },
+      usedLiveToday: snap.usingLiveToday,
+    };
+  }
+
+  return {
+    priorWindowRule: { days: 7, op: "lte", thresholdPct: -10 },
+    day0Rule: { op: "gte", thresholdPct: 5 },
+    usedLiveToday: snap.usingLiveToday,
+  };
+}
+
+/** Formats an OddStats-style plain-text Pattern Scanner report for clipboard sharing / journaling. */
+export function formatPatternSummaryText(ticker: string, study: PatternStudyResult): string {
+  const lines: string[] = [
+    `${ticker} Muster-Scanner (${study.ruleDescription})`,
+    study.headline,
+  ];
+  for (const b of study.bullets) {
+    lines.push(`• ${b}`);
+  }
+  const activeHorizons = study.horizons.filter((h) => h.sampleSize > 0);
+  if (activeHorizons.length > 0) {
+    lines.push("");
+    lines.push("Folge-Performance:");
+    for (const h of activeHorizons) {
+      lines.push(
+        `  ${h.label}: ${h.winRate.toFixed(1).replace(".", ",")} % pos. | Ø ${formatSignedDe(h.avgPct)} | Median ${formatSignedDe(h.medianPct)} (n=${h.sampleSize})`,
+      );
+    }
+  }
+  return lines.join("\n");
+}
+
+/** Builds a clean CSV export string for all matched Pattern Scanner occurrences. */
+export function buildPatternMatchesCsv(
+  study: PatternStudyResult,
+  mode: "leadup" | "days",
+  priorWindowDays: PriorWindowDays,
+  lookbackDays: 2 | 3 | 4 | 5,
+): string {
+  const num = (v: number | null) => (v === null || !Number.isFinite(v) ? "" : String(v));
+  const headers: string[] = ["Datum"];
+  if (mode === "leadup") {
+    headers.push(`Vor-${priorWindowDays}T_%`);
+  } else {
+    if (lookbackDays >= 5) headers.push("Tag-4_%");
+    if (lookbackDays >= 4) headers.push("Tag-3_%");
+    if (lookbackDays >= 3) headers.push("Tag-2_%");
+    headers.push("Tag-1_%");
+  }
+  headers.push(
+    "Tag0_%",
+    "Regime",
+    "T+1_%",
+    "5T_%",
+    "1M_%",
+    "3M_%",
+    "6M_%",
+    "1J_%",
+    "DropBisTief_%",
+    "TageBisTief",
+  );
+
+  const rows = study.matches.map((m) => {
+    const cols: string[] = [m.session];
+    if (mode === "leadup") {
+      cols.push(num(m.priorWindowPct));
+    } else {
+      if (lookbackDays >= 5) cols.push(num(m.dayMinus4Pct));
+      if (lookbackDays >= 4) cols.push(num(m.dayMinus3Pct));
+      if (lookbackDays >= 3) cols.push(num(m.dayMinus2Pct));
+      cols.push(num(m.prevDayPct));
+    }
+    cols.push(
+      num(m.day0Pct),
+      m.inBearCycle ? "Bärenmarkt" : "Bullenmarkt",
+      num(m.nextDayPct),
+      num(m.fwd5dPct),
+      num(m.fwd21dPct),
+      num(m.fwd63dPct),
+      num(m.fwd126dPct),
+      num(m.fwd252dPct),
+      m.dropToBottomPct !== null ? num(m.dropToBottomPct) : "laufend",
+      m.daysToBottom !== null ? String(m.daysToBottom) : "",
+    );
+    return cols.join(",");
+  });
+
+  return [headers.join(","), ...rows].join("\n");
+}
+
 
 
