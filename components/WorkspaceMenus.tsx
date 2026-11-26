@@ -25,6 +25,7 @@ import {
   Scale,
   ShieldAlert,
   FileText,
+  Sparkles,
 } from "lucide-react";
 import type { DrawingTypeKey } from "@luxalgo/vela";
 import { LAYOUTS, useWorkspaceStore } from "@/stores/useWorkspaceStore";
@@ -37,6 +38,7 @@ import { workspaceProfile } from "@/lib/accountScope";
 import { Modal, IconButton } from "./ui";
 import { useAlpacaStore } from "@/stores/useAlpacaStore";
 import { useTradeArchiveStore } from "@/stores/useTradeArchiveStore";
+import { hasUnreadChangelog, markChangelogSeen } from "@/lib/changelog";
 export function useDismiss(open: boolean, close: () => void) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -217,6 +219,18 @@ function MainMenuContent({
         </>
       )}
       <div className="popover-label">App</div>
+      <button
+        type="button"
+        onClick={() => {
+          markChangelogSeen();
+          useChartStore.getState().set({ changelogOpen: true });
+          close();
+        }}
+      >
+        <Sparkles size={16} />
+        <span>Updates &amp; Changelog</span>
+        {hasUnreadChangelog() ? <span className="menu-new-badge">Neu</span> : null}
+      </button>
       {pwa.installable ? (
         <button
           onClick={() => {

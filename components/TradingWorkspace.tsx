@@ -43,6 +43,7 @@ import { BottomPanel } from "./BottomPanel";
 import { ModuleErrorBoundary } from "./ModuleErrorBoundary";
 import { downloadFile } from "@/lib/files";
 import { useSetupJournal } from "@/stores/useSetupJournal";
+import { CHANGELOG_RELEASES } from "@/lib/changelog";
 import type { BottomTab } from "@/types/trading";
 
 const LazyTradeArchive = lazy(() => import("./TradeArchive").then(({ TradeArchive }) => ({ default: TradeArchive })));
@@ -58,6 +59,7 @@ const LazyObjectSidebar = lazy(() => import("./ObjectSidebar").then(({ ObjectSid
 const LazyIndicatorPicker = lazy(() => import("./Indicators").then(({ IndicatorPicker }) => ({ default: IndicatorPicker })));
 const LazyIndicatorSettings = lazy(() => import("./Indicators").then(({ IndicatorSettings }) => ({ default: IndicatorSettings })));
 const LazySymbolSearch = lazy(() => import("./SymbolSearch").then(({ SymbolSearch }) => ({ default: SymbolSearch })));
+const LazyChangelogDialog = lazy(() => import("./ChangelogDialog").then(({ ChangelogDialog }) => ({ default: ChangelogDialog })));
 
 interface WorkspaceProps {
   deployment?: ReactNode;
@@ -505,7 +507,14 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
         </nav>
         <span className="status-divider">|</span>
         <span>Browser workspace</span>
-        <span className="status-version">v1.0</span>
+        <button
+          type="button"
+          className="status-version"
+          title="Updates & Changelog anzeigen"
+          onClick={() => useChartStore.getState().set({ changelogOpen: true })}
+        >
+          {CHANGELOG_RELEASES[0]?.version ?? "v1.0"}
+        </button>
         {deployment}
       </footer>
       <WorkspaceDialogs />
@@ -531,6 +540,7 @@ function WorkspaceDialogs() {
   const compareOpen = useChartStore((s) => s.compareOpen);
   const derivedOpen = useChartStore((s) => s.derivedOpen);
   const syncOpen = useChartStore((s) => s.syncOpen);
+  const changelogOpen = useChartStore((s) => s.changelogOpen);
 
   return (
     <ModuleErrorBoundary moduleName="Workspace Dialogs" compact>
@@ -546,6 +556,7 @@ function WorkspaceDialogs() {
         {compareOpen ? <LazyCompareDialog /> : null}
         {derivedOpen || settingsKind === "derived" ? <LazyDerivedDialog /> : null}
         {syncOpen ? <LazySyncDialog /> : null}
+        {changelogOpen ? <LazyChangelogDialog /> : null}
       </Suspense>
     </ModuleErrorBoundary>
   );

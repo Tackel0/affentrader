@@ -4467,3 +4467,163 @@ body {
 
 
 
+
+.menu-new-badge {
+  margin-left: auto;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: #ffffff;
+  background: var(--accent, #2962ff);
+}
+
+.changelog-modal {
+  width: min(640px, 94vw);
+  max-height: min(82vh, 720px);
+  display: flex;
+  flex-direction: column;
+}
+
+.changelog-intro {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.changelog-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 16px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.changelog-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px 16px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.changelog-release {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 92%, var(--hover));
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.changelog-release-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.changelog-release-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.changelog-version {
+  font-weight: 700;
+  color: var(--accent, #2962ff);
+  background: color-mix(in srgb, var(--accent, #2962ff) 14%, transparent);
+  padding: 1px 7px;
+  border-radius: 999px;
+}
+
+.changelog-release-head h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.changelog-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.changelog-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.changelog-tag {
+  flex-shrink: 0;
+  min-width: 72px;
+  text-align: center;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  margin-top: 1px;
+}
+
+.changelog-tag.tag-feature {
+  color: var(--green, #089981);
+  background: color-mix(in srgb, var(--green, #089981) 14%, transparent);
+}
+
+.changelog-tag.tag-improvement {
+  color: var(--accent, #2962ff);
+  background: color-mix(in srgb, var(--accent, #2962ff) 14%, transparent);
+}
+
+.changelog-tag.tag-fix {
+  color: #d9822b;
+  background: rgba(217, 130, 43, 0.16);
+}
+
+.changelog-tag.tag-security {
+  color: var(--red, #f23645);
+  background: color-mix(in srgb, var(--red, #f23645) 14%, transparent);
+}
+
+.changelog-item-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.changelog-item-copy strong {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.changelog-item-copy p {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+@media (max-width: 600px) {
+  .changelog-item {
+    flex-direction: column;
+    gap: 4px;
+  }
+  .changelog-tag {
+    min-width: auto;
+  }
+}
