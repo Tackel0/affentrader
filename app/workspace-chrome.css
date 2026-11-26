@@ -4619,6 +4619,9 @@ body {
 }
 
 @media (max-width: 600px) {
+  .changelog-filters > .button {
+    min-height: 36px;
+  }
   .changelog-item {
     flex-direction: column;
     gap: 4px;

@@ -2857,6 +2857,7 @@ svg {
     justify-content: center;
     padding: 0;
   }
+  .search-field .icon-button,
   .toast > .icon-button,
   .alert-card-footer .icon-button {
     width: 36px;
