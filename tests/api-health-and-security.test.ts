@@ -18,7 +18,7 @@ import { clearHyperliquidCache } from "@/lib/server/hyperliquid";
 import { pushSync, SyncError } from "@/lib/server/sync";
 import { publishScript } from "@/lib/server/library";
 import { GET as healthGet, HEAD as healthHead } from "@/app/api/health/route";
-import { GET as alertsGet, DELETE as alertsDelete, PATCH as alertsPatch, POST as alertsPost, PUT as alertsPut } from "@/app/api/alerts/route";
+import { DELETE as alertsDelete, PATCH as alertsPatch, POST as alertsPost, PUT as alertsPut } from "@/app/api/alerts/route";
 import { GET as eventsGet, POST as eventsPost } from "@/app/api/alerts/events/route";
 import { DELETE as pushDelete, POST as pushPost } from "@/app/api/push/route";
 import { GET as libraryGet, PUT as libraryPut, DELETE as libraryDelete } from "@/app/api/library/route";

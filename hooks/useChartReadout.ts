@@ -60,9 +60,9 @@ export function useIndicatorLegendRows(id: string) {
 }
 export function openTpoSnapshotAlert(candidate: TpoAlertCandidate): void {
   const state = useChartStore.getState(), chart = getPrimaryChart(), key = `${state.symbol}:${state.timeframe}`;
-  const refuse = () => state.toast("TPO reference unavailable", "The selected completed profile changed. Inspect the current values.");
+  const refuse = () => { state.toast("TPO reference unavailable", "The selected completed profile changed. Inspect the current values."); };
   if (!chart || state.chartType !== "tpo" || state.chartError || state.candleRecoveries[key] ||
-    useWorkspaceStore.getState().replay.active || chart.replay.state.active || chart.market.symbol !== state.symbol || chart.market.timeframe !== state.timeframe) return refuse();
+    useWorkspaceStore.getState().replay.active || chart.replay.state.active || chart.market.symbol !== state.symbol || chart.market.timeframe !== state.timeframe) { refuse(); return; }
   const native = chart.renderer.dataWindowReadout() as ChartReadout;
   const style = readSeriesPreferences(chart.renderer.getConfig())?.tpo;
   const readout = readTpoSurface("primary", { symbol: state.symbol, timeframe: state.timeframe, epoch: state.marketEpochs[state.symbol] ?? 0,
@@ -70,18 +70,18 @@ export function openTpoSnapshotAlert(candidate: TpoAlertCandidate): void {
   const enabled = style?.[candidate.level === "poc" ? "extendPoc" : candidate.level === "vah" ? "extendVah" : "extendVal"];
   const source = state.dataSources[key];
   const draft = source && enabled ? tpoSnapshotDraft(candidate, readout.alertCandidates ?? [], source) : null;
-  if (!draft) return refuse();
+  if (!draft) { refuse(); return; }
   state.set({ alertDraft: draft });
 }
 export function openTpoFollowingAlert(): void {
   const state = useChartStore.getState(), chart = getPrimaryChart(), key = `${state.symbol}:${state.timeframe}`;
-  const refuse = () => state.toast("TPO alert unavailable", "Wait for the current live TPO profile outside Replay.");
+  const refuse = () => { state.toast("TPO alert unavailable", "Wait for the current live TPO profile outside Replay."); };
   if (!chart || state.chartType !== "tpo" || state.chartError || state.candleRecoveries[key] || !state.dataSources[key] ||
-    useWorkspaceStore.getState().replay.active || chart.replay.state.active || chart.market.symbol !== state.symbol || chart.market.timeframe !== state.timeframe) return refuse();
+    useWorkspaceStore.getState().replay.active || chart.replay.state.active || chart.market.symbol !== state.symbol || chart.market.timeframe !== state.timeframe) { refuse(); return; }
   const style = readSeriesPreferences(chart.renderer.getConfig())?.tpo, native = chart.renderer.dataWindowReadout() as ChartReadout;
   const view = readTpoSurface("primary", { symbol: state.symbol, timeframe: state.timeframe, epoch: state.marketEpochs[state.symbol] ?? 0,
     replay: false, seriesRange: native.seriesRange, style }, native.barTime);
-  if (!style || view.status !== "ready") return refuse();
+  if (!style || view.status !== "ready") { refuse(); return; }
   state.set({ alertDraft: { symbol: state.symbol, timeframe: state.timeframe, name: "Following TPO reference", ruleCondition: {
     op: "leaf", leaf: { type: "tpo", level: "poc", direction: "crossing", settings: tpoAlertSettings(style, state.symbol) } } } });
 }

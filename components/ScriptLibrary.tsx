@@ -101,7 +101,7 @@ export function ScriptLibrary({ name, source, onLoad, onClose }: Props) {
     }
   };
 
-  const useScript = (script: ScriptDetail) => {
+  const loadScript = (script: ScriptDetail) => {
     onLoad(script.title, script.source);
     useChartStore.getState().toast("Script loaded", `${script.title} v${script.version} is in the editor. Review the source, then add it to the chart.`, "success");
     onClose();
@@ -319,7 +319,7 @@ export function ScriptLibrary({ name, source, onLoad, onClose }: Props) {
               </ul>
             </details>
             <div className="sync-actions">
-              <button className="button primary small" onClick={() => useScript(selected)}>
+              <button className="button primary small" onClick={() => loadScript(selected)}>
                 Load into editor
               </button>
               <button className="button small" onClick={() => void like(selected)}>

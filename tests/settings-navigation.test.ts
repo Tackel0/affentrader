@@ -63,11 +63,11 @@ describe("native mobile settings navigation", () => {
       expect(callback).toBeTruthy(); const click = vi.fn(), preventDefault = vi.fn(); let palette = false, menu = true, focusedSettings = true;
       const settings = { querySelector: (selector: string) => selector.endsWith(".open") ? menu ? {} : null : { click } };
       const doc = { activeElement: { closest: () => focusedSettings ? settings : null } };
-      const escape = new Function("isPopoverOpen", "document", `return ${callback}`)(() => palette, doc);
-      escape({ preventDefault }); expect(preventDefault).toHaveBeenCalledOnce(); expect(click).toHaveBeenCalledOnce();
-      palette = true; escape({ preventDefault }); expect(click).toHaveBeenCalledOnce();
-      palette = false; menu = false; preventDefault.mockClear(); escape({ preventDefault }); expect(preventDefault).not.toHaveBeenCalled();
-      menu = true; focusedSettings = false; escape({ preventDefault }); expect(preventDefault).not.toHaveBeenCalled(); tested++;
+      const onEscape = new Function("isPopoverOpen", "document", `return ${callback}`)(() => palette, doc);
+      onEscape({ preventDefault }); expect(preventDefault).toHaveBeenCalledOnce(); expect(click).toHaveBeenCalledOnce();
+      palette = true; onEscape({ preventDefault }); expect(click).toHaveBeenCalledOnce();
+      palette = false; menu = false; preventDefault.mockClear(); onEscape({ preventDefault }); expect(preventDefault).not.toHaveBeenCalled();
+      menu = true; focusedSettings = false; onEscape({ preventDefault }); expect(preventDefault).not.toHaveBeenCalled(); tested++;
     }
     expect(tested).toBe(6);
   });

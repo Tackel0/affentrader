@@ -26,11 +26,6 @@ import { hyperliquidCatalog } from "@/hooks/useHyperliquidCatalog";
 import { buildMissingOrderflowIndicators, resolveOrderflowTarget } from "@/lib/orderflow/equityOrderflow";
 import { broadcastWorkspaceAction } from "@/hooks/useWindowLink";
 import { openAffenTerminalWindow } from "@/lib/windowScope";
-import { InsiderResearch } from "./InsiderResearch";
-import { OptionsFlowPanel } from "./OptionsFlowPanel";
-import { SocialResearch } from "./SocialResearch";
-import { NewsPanel } from "./NewsPanel";
-import { TerminalMarkets } from "./TerminalMarkets";
 import { ModuleErrorBoundary } from "./ModuleErrorBoundary";
 import { TerminalModulePicker, TerminalShortcuts } from "./TerminalNavigation";
 import { COMPACT_WORKSPACE_QUERY } from "@/lib/chart/bottomPanelResize";
@@ -44,6 +39,11 @@ const loadFundamentalsPanel = () => import("./FundamentalsPanel").then(({ Fundam
 const loadCalendarPanel = () => import("./CalendarPanel").then(({ CalendarPanel }) => ({ default: CalendarPanel }));
 const loadSetupResearch = () => import("./SetupResearch").then(({ SetupResearch }) => ({ default: SetupResearch }));
 const loadTerminalCompare = () => import("./TerminalCompare").then(({ TerminalCompare }) => ({ default: TerminalCompare }));
+const loadInsiderResearch = () => import("./InsiderResearch").then(({ InsiderResearch }) => ({ default: InsiderResearch }));
+const loadOptionsFlowPanel = () => import("./OptionsFlowPanel").then(({ OptionsFlowPanel }) => ({ default: OptionsFlowPanel }));
+const loadSocialResearch = () => import("./SocialResearch").then(({ SocialResearch }) => ({ default: SocialResearch }));
+const loadNewsPanel = () => import("./NewsPanel").then(({ NewsPanel }) => ({ default: NewsPanel }));
+const loadTerminalMarkets = () => import("./TerminalMarkets").then(({ TerminalMarkets }) => ({ default: TerminalMarkets }));
 
 function DeferredTerminalView<P extends object>({
   label,
@@ -971,11 +971,29 @@ export function ResearchTerminal({
       case "journal":
         return <DeferredTerminalView label="setup journal" load={loadSetupResearch} props={{ externalWindow }} />;
       case "insiders":
-        return <InsiderResearch initialTicker={ticker} onTickerSelect={selectResearchTicker} />;
+        return (
+          <DeferredTerminalView
+            label="insiders"
+            load={loadInsiderResearch}
+            props={{ initialTicker: ticker, onTickerSelect: selectResearchTicker }}
+          />
+        );
       case "optionsflow":
-        return <OptionsFlowPanel initialTicker={ticker} onTickerSelect={selectResearchTicker} />;
+        return (
+          <DeferredTerminalView
+            label="options flow"
+            load={loadOptionsFlowPanel}
+            props={{ initialTicker: ticker, onTickerSelect: selectResearchTicker }}
+          />
+        );
       case "social":
-        return <SocialResearch activeTicker={ticker} requestedTicker={socialTicker} />;
+        return (
+          <DeferredTerminalView
+            label="social"
+            load={loadSocialResearch}
+            props={{ activeTicker: ticker, requestedTicker: socialTicker }}
+          />
+        );
       case "scan":
         return (
           <DeferredTerminalView
@@ -991,7 +1009,7 @@ export function ResearchTerminal({
           />
         );
       case "news":
-        return <NewsPanel />;
+        return <DeferredTerminalView label="news" load={loadNewsPanel} props={{}} />;
       case "macro":
         return <DeferredTerminalView label="calendar" load={loadCalendarPanel} props={{}} />;
       case "heatmap":
@@ -1003,15 +1021,15 @@ export function ResearchTerminal({
           return (
             <>
               <ModuleErrorBoundary moduleName="Markets" resetKey={`${paneId}:markets:primary:${refreshNonce}`} compact>
-                <TerminalMarkets openChart={openChart} />
+                <DeferredTerminalView label="markets" load={loadTerminalMarkets} props={{ openChart }} />
               </ModuleErrorBoundary>
               <ModuleErrorBoundary moduleName="News" resetKey={`${paneId}:markets:news:${refreshNonce}`} compact>
-                <NewsPanel />
+                <DeferredTerminalView label="news" load={loadNewsPanel} props={{}} />
               </ModuleErrorBoundary>
             </>
           );
         }
-        return <TerminalMarkets openChart={openChart} />;
+        return <DeferredTerminalView label="markets" load={loadTerminalMarkets} props={{ openChart }} />;
       case "compare":
         return (
           <DeferredTerminalView

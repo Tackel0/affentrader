@@ -3,7 +3,6 @@ import { defaultDevice, useAccountSyncStore, useSyncStore, type RemoteInfo } fro
 import { ACCOUNT_SCOPE_HEADER, readWorkspaceProfile, workspaceProfile } from "@/lib/accountScope";
 import {
   createWorkspaceBackup,
-  restoreWorkspaceText,
   workspaceFingerprint,
 } from "@/lib/workspaceBackup";
 

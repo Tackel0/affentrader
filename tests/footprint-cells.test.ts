@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import type { Tick, FootprintLevel } from "@/types/trading";
+import type { Tick, } from "@/types/trading";
 import type { RendererLayerArgs } from "@luxalgo/vela";
 import { footprints } from "@/lib/orderflow/math";
 import { FootprintHistory } from "@/lib/orderflow/footprintHistory";

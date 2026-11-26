@@ -1,5 +1,5 @@
 import {describe,it,expect} from "vitest";
-import {createAccount,placeOrder,processPrice,positionOf,type Account} from "@/lib/trading/broker";
+import {createAccount,placeOrder,processPrice,positionOf,} from "@/lib/trading/broker";
 import {setPositionProtection,protectionLevels,protectionSignature,type PositionExitLevel} from "@/lib/trading/protection";
 import {validPaperAccount} from "@/lib/trading/paperPersistence";
 const symbol="BTCUSDT",prices={[symbol]:100},open=(side:"buy"|"sell"="buy")=>placeOrder(createAccount({feeRate:0,slippageBps:0}),{symbol,side,type:"market",quantity:2},prices,1,"market").account;

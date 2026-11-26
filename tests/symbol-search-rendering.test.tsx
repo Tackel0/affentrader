@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import React, { Profiler, type ReactNode } from "react";
+import { Profiler, type ReactNode } from "react";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { SymbolSearch } from "@/components/SymbolSearch";

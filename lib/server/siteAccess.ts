@@ -53,6 +53,7 @@ export function validSiteSession(token: string | undefined, config: SiteAccessCo
 }
 
 export function safeReturnPath(value: string | null): string {
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: intentional null-byte rejection
   if (!value || !value.startsWith("/") || value.startsWith("//") || /[\\\r\n\u0000]/.test(value)) return "/";
   try {
     const parsed = new URL(value, "http://local.invalid");

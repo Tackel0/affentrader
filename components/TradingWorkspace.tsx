@@ -1,19 +1,16 @@
 "use client";
 import { MarketConnections } from "./MarketConnections";
-import { TradeArchive } from "./TradeArchive";
 import { useTradeArchiveStore } from "@/stores/useTradeArchiveStore";
 import { useAlpacaStore } from "@/stores/useAlpacaStore";
 import {currentPriceAlertDraft} from "@/lib/alerts/priceDraft";
 import {NativeChartDialogs} from "./NativeChartDialogs";
 import {OrderPresetSync} from "./OrderPresets";
-import {ChartSnapshotDialog} from "./ChartSnapshotDialog";
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { bindSidebarChartBounds } from "@/lib/chart/sidebarBounds";
 import { bindSidebarResize, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } from "@/lib/chart/sidebarResize";
 import { bindBottomPanelResize, COMPACT_WORKSPACE_QUERY, TABLET_WORKSPACE_QUERY } from "@/lib/chart/bottomPanelResize";
 import {
   Activity,
-  ChevronDown,
   Bell,
   List,
   Layers,
@@ -29,32 +26,39 @@ import { getPrimaryChart } from "@/hooks/useVelaChart";
 import { useChartStore } from "@/stores/useChartStore";
 
 import { useAlertStore } from "@/stores/useAlertStore";
-import { getSymbol, describeSymbol } from "@/lib/symbols";
+import { describeSymbol } from "@/lib/symbols";
 import { IconButton } from "./ui";
 import { ChartGrid } from "./ChartGrid";
 import { PhoneChartActions, WorkspaceToolbar } from "./WorkspaceToolbar";
 import { MainMenu } from "./WorkspaceMenus";
 import { PhoneWorkspacePanels } from "./WorkspacePanelTabs";
-import { DrawingFavoritesPicker } from "./DrawingFavorites";
-import { ChartDataExportDialog } from "./ChartDataExportDialog";
 import { ReplayBar } from "./ReplayBar";
 import { DrawingRail } from "./DrawingRail";
 import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
 import { Watchlist } from "./Watchlist";
-import { ObjectSidebar } from "./ObjectSidebar";
-import { CompareDialog, DerivedDialog, useChartToolHotkeys } from "./ChartTools";
-import { SyncDialog } from "./SyncDialog";
 import {RangeToolbar} from "./RangeToolbar";
 import { useSync } from "@/hooks/useSync";
 import { useWindowLink } from "@/hooks/useWindowLink";
-import { AlertDialog, AlertsPanel } from "./Alerts";
-import { IndicatorPicker, IndicatorSettings } from "./Indicators";
-import { SymbolSearch } from "./SymbolSearch";
 import { BottomPanel } from "./BottomPanel";
 import { ModuleErrorBoundary } from "./ModuleErrorBoundary";
 import { downloadFile } from "@/lib/files";
 import { useSetupJournal } from "@/stores/useSetupJournal";
 import type { BottomTab } from "@/types/trading";
+
+const LazyTradeArchive = lazy(() => import("./TradeArchive").then(({ TradeArchive }) => ({ default: TradeArchive })));
+const LazyChartSnapshotDialog = lazy(() => import("./ChartSnapshotDialog").then(({ ChartSnapshotDialog }) => ({ default: ChartSnapshotDialog })));
+const LazyDrawingFavoritesPicker = lazy(() => import("./DrawingFavorites").then(({ DrawingFavoritesPicker }) => ({ default: DrawingFavoritesPicker })));
+const LazyChartDataExportDialog = lazy(() => import("./ChartDataExportDialog").then(({ ChartDataExportDialog }) => ({ default: ChartDataExportDialog })));
+const LazyCompareDialog = lazy(() => import("./ChartTools").then(({ CompareDialog }) => ({ default: CompareDialog })));
+const LazyDerivedDialog = lazy(() => import("./ChartTools").then(({ DerivedDialog }) => ({ default: DerivedDialog })));
+const LazySyncDialog = lazy(() => import("./SyncDialog").then(({ SyncDialog }) => ({ default: SyncDialog })));
+const LazyAlertDialog = lazy(() => import("./Alerts").then(({ AlertDialog }) => ({ default: AlertDialog })));
+const LazyAlertsPanel = lazy(() => import("./Alerts").then(({ AlertsPanel }) => ({ default: AlertsPanel })));
+const LazyObjectSidebar = lazy(() => import("./ObjectSidebar").then(({ ObjectSidebar }) => ({ default: ObjectSidebar })));
+const LazyIndicatorPicker = lazy(() => import("./Indicators").then(({ IndicatorPicker }) => ({ default: IndicatorPicker })));
+const LazyIndicatorSettings = lazy(() => import("./Indicators").then(({ IndicatorSettings }) => ({ default: IndicatorSettings })));
+const LazySymbolSearch = lazy(() => import("./SymbolSearch").then(({ SymbolSearch }) => ({ default: SymbolSearch })));
+
 interface WorkspaceProps {
   deployment?: ReactNode;
   initialSidebar?: "watchlist" | "alerts";
@@ -100,7 +104,6 @@ function WorkspaceRuntime({
   watchQuotesActive: boolean;
 }) {
   useMarketData({ phoneMode, watchQuotesActive });
-  useChartToolHotkeys();
   useSync();
   useWindowLink();
   return null;
@@ -235,8 +238,6 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
     setDrawingToolsOpen(!drawingToolsOpen);
   };
   const workspaceFile = useRef<HTMLInputElement>(null);
-  const command = (kind: "undo" | "redo" | "clear" | "settings" | "fit") =>
-    useChartStore.getState().set({ command: { kind, id: Date.now() } });
   const createAlert = () =>
     useChartStore.getState().set({
       alertDraft: currentPriceAlertDraft(),
@@ -258,6 +259,10 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
       if (e.altKey && e.key.toLowerCase() === "a") {
         e.preventDefault();
         createAlert();
+      }
+      if (e.altKey && e.key.toLowerCase() === "c") {
+        e.preventDefault();
+        store.set({ compareOpen: true });
       }
       if (e.altKey && e.key.toLowerCase() === "t") {
         e.preventDefault();
@@ -304,9 +309,7 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
       <WorkspaceRuntime phoneMode={phoneChart} watchQuotesActive={watchQuotesActive} />
       <NativeChartDialogs/>
       <MarketConnections/>
-      <TradeArchive/>
       <OrderPresetSync/>
-      <ChartSnapshotDialog/>
       {!phoneChart ? (
         <WorkspaceToolbar
           onExport={save}
@@ -438,9 +441,13 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
                   onClose={phoneChart || isTablet ? () => setSidebarOpen(false) : undefined}
                 />
               ) : sidebar === "alerts" ? (
-                <AlertsPanel onClose={phoneChart || isTablet ? () => setSidebarOpen(false) : undefined} />
+                <Suspense fallback={<p className="form-help" role="status">Loading alerts…</p>}>
+                  <LazyAlertsPanel onClose={phoneChart || isTablet ? () => setSidebarOpen(false) : undefined} />
+                </Suspense>
               ) : (
-                <ObjectSidebar onClose={phoneChart || isTablet ? () => setSidebarOpen(false) : undefined} />
+                <Suspense fallback={<p className="form-help" role="status">Loading object tree…</p>}>
+                  <LazyObjectSidebar onClose={phoneChart || isTablet ? () => setSidebarOpen(false) : undefined} />
+                </Suspense>
               )}
             </ModuleErrorBoundary>
           </aside>
@@ -501,17 +508,46 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
         <span className="status-version">v1.0</span>
         {deployment}
       </footer>
-      <SymbolSearch />
-      <IndicatorPicker />
-      <IndicatorSettings />
-      <DrawingFavoritesPicker />
-      <ChartDataExportDialog />
-      <AlertDialog />
-      <CompareDialog />
-      <DerivedDialog />
-      <SyncDialog />
+      <WorkspaceDialogs />
       <ToastManager />
     </main>
+  );
+}
+
+function WorkspaceDialogs() {
+  const tradeArchiveOpen = useTradeArchiveStore((s) => s.open);
+  const snapshotOpen = useChartStore((s) => Boolean(s.snapshot));
+  const searchOpen = useChartStore((s) => s.searchOpen);
+  const indicatorsOpen = useChartStore((s) => s.indicatorsOpen);
+  const settingsKind = useChartStore((s) => {
+    if (!s.settingsId) return null;
+    const ind = s.indicators.find((i) => i.id === s.settingsId);
+    if (!ind) return null;
+    return ind.definitionId === "derived" ? "derived" : "standard";
+  });
+  const drawingFavoritesOpen = useChartStore((s) => s.drawingFavoritesOpen);
+  const chartExportOpen = useChartStore((s) => s.chartExportOpen);
+  const alertDraftOpen = useChartStore((s) => Boolean(s.alertDraft));
+  const compareOpen = useChartStore((s) => s.compareOpen);
+  const derivedOpen = useChartStore((s) => s.derivedOpen);
+  const syncOpen = useChartStore((s) => s.syncOpen);
+
+  return (
+    <ModuleErrorBoundary moduleName="Workspace Dialogs" compact>
+      <Suspense fallback={null}>
+        {tradeArchiveOpen ? <LazyTradeArchive /> : null}
+        {snapshotOpen ? <LazyChartSnapshotDialog /> : null}
+        {searchOpen ? <LazySymbolSearch /> : null}
+        {indicatorsOpen ? <LazyIndicatorPicker /> : null}
+        {settingsKind === "standard" ? <LazyIndicatorSettings /> : null}
+        {drawingFavoritesOpen ? <LazyDrawingFavoritesPicker /> : null}
+        {chartExportOpen ? <LazyChartDataExportDialog /> : null}
+        {alertDraftOpen ? <LazyAlertDialog /> : null}
+        {compareOpen ? <LazyCompareDialog /> : null}
+        {derivedOpen || settingsKind === "derived" ? <LazyDerivedDialog /> : null}
+        {syncOpen ? <LazySyncDialog /> : null}
+      </Suspense>
+    </ModuleErrorBoundary>
   );
 }
 function ToastManager() {

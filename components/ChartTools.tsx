@@ -5,7 +5,6 @@ import {
   Check,
   Eye,
   EyeOff,
-  GitCompare,
   ScanSearch,
   Settings2,
   Star,

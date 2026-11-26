@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import React, { Profiler } from "react";
+import { Profiler } from "react";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { PortfolioPanel } from "@/components/PortfolioPanel";

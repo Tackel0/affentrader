@@ -1,4 +1,4 @@
-import { atr, bollinger, ema, rsi, sma } from "@/lib/ta";
+import { atr, bollinger, ema, rsi, } from "@/lib/ta";
 import { csvEscape } from "@/lib/watchlist";
 import type { DailyStockBar } from "./stockBase";
 

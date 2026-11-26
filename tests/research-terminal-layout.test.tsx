@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import React from "react";
 import { render, fireEvent, act, within, cleanup, screen } from "@testing-library/react";
 import { ResearchTerminal } from "@/components/ResearchTerminal";
 import { useChartStore } from "@/stores/useChartStore";
@@ -112,14 +111,14 @@ describe("ResearchTerminal Layout & Pane Management", () => {
       expect(document.activeElement).toBe(launcher);
     });
 
-    it("carries an explicitly selected Optionsflow ticker into Insider research", () => {
+    it("carries an explicitly selected Optionsflow ticker into Insider research", async () => {
       const { container } = render(<ResearchTerminal initialView="optionsflow" initialTicker="AAPL" />);
-      const flow = within(container).getByRole("region", { name: "Optionsflow" });
+      const flow = await within(container).findByRole("region", { name: "Optionsflow" });
       fireEvent.change(within(flow).getByRole("textbox", { name: "US-Ticker" }), { target: { value: "MSFT" } });
       fireEvent.click(within(flow).getByRole("button", { name: "Optionsflow anzeigen" }));
       const shortcuts = within(container.querySelector(".terminal-shortcuts") as HTMLElement);
       fireEvent.click(shortcuts.getByRole("button", { name: "Insider" }));
-      const insiders = within(container).getByRole("region", { name: "Insider-Recherche" });
+      const insiders = await within(container).findByRole("region", { name: "Insider-Recherche" });
       expect((within(insiders).getByRole("textbox", { name: "US-Aktie" }) as HTMLInputElement).value).toBe("MSFT");
       expect(useChartStore.getState().symbol).toBe("YF:MSFT");
     });

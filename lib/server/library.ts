@@ -90,6 +90,7 @@ function canRead(record: ScriptRecord, invite?: string): boolean {
 const KINDS: ScriptKind[] = ["indicator", "strategy", "library"];
 
 function clean(text: unknown, max: number): string {
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: intentional control-character sanitization
   return typeof text === "string" ? text.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "").trim().slice(0, max) : "";
 }
 

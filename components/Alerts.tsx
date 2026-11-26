@@ -30,7 +30,7 @@ import { describeCondition } from "@/lib/alerts/rules";
 import type { AlertRule, RuleKind } from "@/types/alerts";
 import type { AlertTrigger } from "@/types/alerts";
 import { AlertTimingFields } from "./AlertTimingFields";
-import { closesOnly, isExpired, timingFields, timingLabel, validateTiming } from "@/lib/alerts/schedule";
+import { isExpired, timingFields, timingLabel, validateTiming } from "@/lib/alerts/schedule";
 import { freshRate, restartRule, resumeRate, stopMessage } from "@/lib/alerts/rateLimit";
 import type { AlertRateFields } from "@/types/alerts";
 import { PineAlertForm } from "./PineAlertForm";

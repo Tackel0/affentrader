@@ -2,7 +2,7 @@ import { Drawing, registerDrawingType, getDrawingType, type DrawingTypeKey, type
 import { contextForCanvas } from "@/lib/chart/cellContext";
 import { clearStudyNotice, drawingNoticeAlive, drawingNoticeOwner, routeStudyNotice } from "@/lib/chart/studyNotices";
 import { executionRangeSource, watchExecutionRange } from "@/lib/orderflow/executionRangeSource";
-import { defaultTails, resolveTails, type TailsSettings, type TailDrawing } from "@/lib/orderflow/volumeTails";
+import { defaultTails, resolveTails, type TailDrawing } from "@/lib/orderflow/volumeTails";
 import { paintTailDrawing } from "@/lib/orderflow/volumeTailsRenderer";
 import { FixedTailsCache } from "@/lib/orderflow/fixedTails";
 import { ProfileTradeCollection } from "@/lib/orderflow/profileTradeCollection";

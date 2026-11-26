@@ -1,6 +1,6 @@
 import type { InputSchema, InputValue, OHLCV } from "@luxalgo/vela";
 import type { Tick } from "@/types/trading";
-import { bucketStart, nextBucket, parseInterval } from "@/lib/market/intervals";
+import { nextBucket, parseInterval } from "@/lib/market/intervals";
 import { resolveVolumeProfile, volumeProfileInputs, volumeProfileInputVisible } from "./volumeProfileSettings";
 import { ExecutionRangeTree } from "./executionRangeTree";
 import { rangeExecutions } from "./executionRangeProfile";

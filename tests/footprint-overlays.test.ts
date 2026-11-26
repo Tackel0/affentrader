@@ -4,7 +4,7 @@ import type { Tick } from "@/types/trading";
 import { FOOTPRINT_OVERLAY_IDS, footprintOverlayDescriptor, footprintOverlayInputs, footprintOverlayInputVisible, resolveFootprintOverlay, type FootprintOverlayChannel, type FootprintOverlayKind } from "@/lib/orderflow/footprintOverlay";
 import { createFootprintOverlayCache, paintFootprintOverlay } from "@/lib/orderflow/footprintOverlayRenderer";
 import { FootprintHistory } from "@/lib/orderflow/footprintHistory";
-import { defaultFootprint, footprintPlacements, paintFootprintBar } from "@/lib/orderflow/footprint";
+import { footprintPlacements, paintFootprintBar } from "@/lib/orderflow/footprint";
 import { footprintDisplayBar } from "@/lib/orderflow/footprintCells";
 import { clearFootprintSurface, publishFootprintSurface, readFootprintOverlaySurfaces } from "@/lib/orderflow/footprintReadout";
 import { INDICATORS } from "@/lib/indicators/catalog";

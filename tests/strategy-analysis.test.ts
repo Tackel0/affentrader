@@ -3,6 +3,8 @@ import {
   bestIndex,
   extendedMetrics,
   histogram,
+  inOutOfSampleSplit,
+  monteCarloDrawdown,
   summarizeReport,
   tradePercent,
 } from "@/lib/strategy/analysis";
@@ -170,5 +172,72 @@ describe("intrabar audit", () => {
     const summary = await auditTrades(r, async () => []);
     expect(summary.unverified).toEqual(["t0"]);
     await expect(auditTrades(report([1], { market: { ...report([]).market, timeframe: "1s" } }), async () => [])).rejects.toThrow(/finest/);
+  });
+});
+
+describe("walk-forward in-sample / out-of-sample split", () => {
+  it("classifies a consistent edge across IS and OOS as robust", () => {
+    // 36 trades across 400 bars (bars 0..350), split 70/30 at bar 280 -> 28 IS, 8 OOS
+    const nets = Array.from({ length: 36 }, (_, i) => (i % 3 === 0 ? -40 : 120));
+    const res = inOutOfSampleSplit(report(nets), 0.7);
+    expect(res).not.toBeNull();
+    expect(res!.inSample.trades).toBe(28);
+    expect(res!.outOfSample.trades).toBe(8);
+    expect(res!.inSample.netProfit).toBeGreaterThan(0);
+    expect(res!.outOfSample.netProfit).toBeGreaterThan(0);
+    expect(res!.status).toBe("robust");
+    expect(res!.oosRetentionRatio).not.toBeNull();
+    expect(res!.oosRetentionRatio!).toBeGreaterThan(0.5);
+  });
+
+  it("flags positive IS followed by negative OOS as overfit_risk", () => {
+    const nets = [
+      ...Array.from({ length: 28 }, (_, i) => (i % 4 === 0 ? -30 : 150)),
+      ...Array.from({ length: 8 }, () => -120),
+    ];
+    const res = inOutOfSampleSplit(report(nets), 0.7);
+    expect(res).not.toBeNull();
+    expect(res!.inSample.netProfit).toBeGreaterThan(0);
+    expect(res!.outOfSample.netProfit).toBeLessThan(0);
+    expect(res!.status).toBe("overfit_risk");
+  });
+
+  it("returns insufficient when either window has fewer than 5 trades, and null on tiny curves", () => {
+    const small = inOutOfSampleSplit(report([100, -20, 80]), 0.7);
+    expect(small?.status).toBe("insufficient");
+    const tiny = report([]);
+    expect(inOutOfSampleSplit({ ...tiny, equityCurve: tiny.equityCurve.slice(0, 3) })).toBeNull();
+  });
+});
+
+describe("Monte-Carlo bootstrap drawdown confidence band", () => {
+  it("produces deterministic monotonic drawdown & return quantiles and bounded bands", () => {
+    const nets = [200, -150, 300, -100, 180, -220, 250, -80, 190, -140, 210, -90];
+    const r = report(nets);
+    const a = monteCarloDrawdown(r, { iterations: 400, seed: 42 });
+    const b = monteCarloDrawdown(r, { iterations: 400, seed: 42 });
+    expect(a).toEqual(b);
+    expect(a).not.toBeNull();
+    expect(a!.medianDrawdownPercent).toBeLessThanOrEqual(a!.p90DrawdownPercent);
+    expect(a!.p90DrawdownPercent).toBeLessThanOrEqual(a!.p95DrawdownPercent);
+    expect(a!.p95DrawdownPercent).toBeLessThanOrEqual(a!.p99DrawdownPercent);
+    expect(a!.p5ReturnPercent).toBeLessThanOrEqual(a!.p50ReturnPercent);
+    expect(a!.p50ReturnPercent).toBeLessThanOrEqual(a!.p95ReturnPercent);
+    expect(a!.probabilityOfProfit).toBeGreaterThan(50);
+    expect(a!.probabilityOfRuin).toBeGreaterThanOrEqual(0);
+    expect(a!.probabilityOfRuin).toBeLessThanOrEqual(100);
+    expect(a!.bands[0]).toMatchObject({ tradeIndex: 0, p5: 0, p50: 0, p95: 0, actual: 0 });
+    expect(a!.bands.at(-1)!.tradeIndex).toBe(nets.length);
+    for (const pt of a!.bands) {
+      expect(pt.p5).toBeLessThanOrEqual(pt.p25 + 1e-9);
+      expect(pt.p25).toBeLessThanOrEqual(pt.p50 + 1e-9);
+      expect(pt.p50).toBeLessThanOrEqual(pt.p75 + 1e-9);
+      expect(pt.p75).toBeLessThanOrEqual(pt.p95 + 1e-9);
+    }
+  });
+
+  it("returns null when fewer than 3 closed trades exist or initialCapital <= 0", () => {
+    expect(monteCarloDrawdown(report([100, -50]))).toBeNull();
+    expect(monteCarloDrawdown(report([100, 100, 100], { initialCapital: 0 }))).toBeNull();
   });
 });

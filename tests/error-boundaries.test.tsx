@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import React from "react";
 import { act, cleanup, fireEvent, render, within } from "@testing-library/react";
 
 import { ModuleErrorBoundary } from "@/components/ModuleErrorBoundary";

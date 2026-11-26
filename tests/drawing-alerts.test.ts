@@ -8,7 +8,7 @@ import { stepRule } from "@/lib/alerts/runtime";
 import { validateRuleShape,requiredHistoryViews,type MarketView } from "@/lib/alerts/rules";
 import { restartRule } from "@/lib/alerts/rateLimit";
 import { parseWorkspace } from "@/lib/workspace";
-import type { DrawingAlertCondition,DrawingAlertGeometry } from "@/types/drawingAlerts";
+import type { DrawingAlertCondition,} from "@/types/drawingAlerts";
 import type { AlertRule,RuleEvent } from "@/types/alerts";
 import type { DrawingTypeKey } from "@luxalgo/vela";
 const start=1_800_000_000_000,minute=60000;

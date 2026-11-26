@@ -336,3 +336,358 @@ export function bestIndex(
   });
   return key === "trades" ? -1 : best;
 }
+
+export interface SampleSegmentMetrics {
+  fromTime: number;
+  toTime: number;
+  bars: number;
+  trades: number;
+  winRate: number | null;
+  profitFactor: number | null;
+  netProfit: number;
+  returnPercent: number;
+  maxDrawdownPercent: number;
+  sharpe: number | null;
+  expectancy: number | null;
+}
+
+export type WalkForwardStatus =
+  | "insufficient"
+  | "robust"
+  | "degraded"
+  | "overfit_risk"
+  | "unprofitable";
+
+export interface InOutOfSampleResult {
+  splitRatio: number;
+  splitTime: number;
+  inSample: SampleSegmentMetrics;
+  outOfSample: SampleSegmentMetrics;
+  /** Out-of-sample Sharpe divided by In-sample Sharpe (or per-bar return ratio fallback), when IS is positive. */
+  oosRetentionRatio: number | null;
+  status: WalkForwardStatus;
+}
+
+function segmentPerYear(report: StrategyReport): number {
+  const curve = report.equityCurve;
+  return (report.market.provider === "yahoo" || report.market.provider === "alpaca") &&
+    curve.length > 1 &&
+    curve.at(-1)!.time > curve[0].time
+    ? ((curve.length - 1) * YEAR_MS) / (curve.at(-1)!.time - curve[0].time)
+    : barsPerYear(report.market.timeframe);
+}
+
+function computeSegment(
+  points: StrategyReport["equityCurve"],
+  trades: StrategyTrade[],
+  startEquity: number,
+  perYear: number,
+): SampleSegmentMetrics {
+  const returns: number[] = [];
+  let peak = Math.max(startEquity, points[0]?.equity ?? startEquity);
+  let maxDdPct = 0;
+  for (let i = 0; i < points.length; i++) {
+    const eq = points[i].equity;
+    if (eq > peak) peak = eq;
+    if (peak > 0) {
+      const ddPct = ((peak - eq) / peak) * 100;
+      if (ddPct > maxDdPct) maxDdPct = ddPct;
+    }
+    const prevEq = i === 0 ? startEquity : points[i - 1].equity;
+    if (prevEq > 0) returns.push(eq / prevEq - 1);
+  }
+  const average = mean(returns);
+  const deviation =
+    returns.length > 1 && average !== null
+      ? Math.sqrt(
+          returns.reduce((s, r) => s + (r - average) ** 2, 0) /
+            (returns.length - 1),
+        )
+      : null;
+  const wins = trades.filter((t) => t.netProfit > 0);
+  const losses = trades.filter((t) => t.netProfit < 0);
+  const grossWin = wins.reduce((s, t) => s + t.netProfit, 0);
+  const grossLoss = losses.reduce((s, t) => s - t.netProfit, 0);
+  const endEquity = points.at(-1)?.equity ?? startEquity;
+  const netProfit = trades.reduce((s, t) => s + t.netProfit, 0);
+  const returnPercent =
+    startEquity > 0 ? ((endEquity - startEquity) / startEquity) * 100 : 0;
+  return {
+    fromTime: points[0].time,
+    toTime: points.at(-1)!.time,
+    bars: points.length,
+    trades: trades.length,
+    winRate: trades.length ? (wins.length / trades.length) * 100 : null,
+    profitFactor:
+      grossLoss > 0 ? grossWin / grossLoss : grossWin > 0 ? null : null,
+    netProfit,
+    returnPercent,
+    maxDrawdownPercent: maxDdPct,
+    sharpe: finite(
+      deviation && average !== null
+        ? (average / deviation) * Math.sqrt(perYear)
+        : null,
+    ),
+    expectancy: trades.length ? netProfit / trades.length : null,
+  };
+}
+
+/**
+ * Chronological In-Sample / Out-of-Sample split of a backtest run to detect
+ * performance degradation or curve-fitting outside the training window.
+ */
+export function inOutOfSampleSplit(
+  report: StrategyReport,
+  splitRatio = 0.7,
+): InOutOfSampleResult | null {
+  const curve = report.equityCurve;
+  if (curve.length < 4) return null;
+  const ratio = Math.min(0.9, Math.max(0.3, splitRatio));
+  const splitIdx = Math.min(
+    curve.length - 2,
+    Math.max(2, Math.floor(curve.length * ratio)),
+  );
+  const splitTime = curve[splitIdx].time;
+  const perYear = segmentPerYear(report);
+  const closed = report.trades.filter((t) => !t.open);
+  const isTrades = closed.filter((t) => t.entryTime < splitTime);
+  const oosTrades = closed.filter((t) => t.entryTime >= splitTime);
+  const isCurve = curve.slice(0, splitIdx);
+  const oosCurve = curve.slice(splitIdx);
+  const isStartEquity = report.initialCapital;
+  const oosStartEquity = isCurve.at(-1)?.equity ?? report.initialCapital;
+  const inSample = computeSegment(isCurve, isTrades, isStartEquity, perYear);
+  const outOfSample = computeSegment(
+    oosCurve,
+    oosTrades,
+    oosStartEquity,
+    perYear,
+  );
+
+  let oosRetentionRatio: number | null = null;
+  if (
+    inSample.sharpe !== null &&
+    inSample.sharpe > 0 &&
+    outOfSample.sharpe !== null
+  ) {
+    oosRetentionRatio = finite(outOfSample.sharpe / inSample.sharpe);
+  } else if (inSample.returnPercent > 0 && inSample.bars > 0 && outOfSample.bars > 0) {
+    const isPerBar = inSample.returnPercent / inSample.bars;
+    const oosPerBar = outOfSample.returnPercent / outOfSample.bars;
+    oosRetentionRatio = finite(oosPerBar / isPerBar);
+  }
+
+  let status: WalkForwardStatus;
+  if (inSample.trades < 5 || outOfSample.trades < 5) {
+    status = "insufficient";
+  } else if (inSample.netProfit <= 0 && outOfSample.netProfit <= 0) {
+    status = "unprofitable";
+  } else if (inSample.netProfit > 0 && outOfSample.netProfit <= 0) {
+    status = "overfit_risk";
+  } else if (
+    outOfSample.netProfit > 0 &&
+    (outOfSample.profitFactor === null || outOfSample.profitFactor >= 1.1) &&
+    (oosRetentionRatio === null || oosRetentionRatio >= 0.5)
+  ) {
+    status = "robust";
+  } else {
+    status = "degraded";
+  }
+
+  return {
+    splitRatio: ratio,
+    splitTime,
+    inSample,
+    outOfSample,
+    oosRetentionRatio,
+    status,
+  };
+}
+
+export interface MonteCarloBandPoint {
+  tradeIndex: number;
+  p5: number;
+  p25: number;
+  p50: number;
+  p75: number;
+  p95: number;
+  actual: number;
+}
+
+export interface MonteCarloResult {
+  iterations: number;
+  tradeCount: number;
+  seed: number;
+  actualDrawdownPercent: number;
+  /** Percentage of simulated paths whose max drawdown was <= actual trade-sequence drawdown. */
+  actualDrawdownPercentile: number;
+  medianDrawdownPercent: number;
+  p90DrawdownPercent: number;
+  p95DrawdownPercent: number;
+  p99DrawdownPercent: number;
+  p5ReturnPercent: number;
+  p50ReturnPercent: number;
+  p95ReturnPercent: number;
+  /** Share of bootstrap paths finishing above initial capital, in percent. */
+  probabilityOfProfit: number;
+  /** Share of bootstrap paths experiencing >= 50% peak-to-trough drawdown or capital depletion, in percent. */
+  probabilityOfRuin: number;
+  p95ConsecutiveLosses: number;
+  /** Equity percentile fan bands (as % return from initial capital) sampled along trade index 0..N. */
+  bands: MonteCarloBandPoint[];
+}
+
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function quantile(sorted: readonly number[], q: number): number {
+  if (!sorted.length) return 0;
+  const idx = Math.min(
+    sorted.length - 1,
+    Math.max(0, q * (sorted.length - 1)),
+  );
+  const lo = Math.floor(idx);
+  const hi = Math.ceil(idx);
+  if (lo === hi) return sorted[lo];
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
+}
+
+/**
+ * Bootstrap Monte-Carlo simulation resampling realized closed-trade PnLs with
+ * replacement to estimate drawdown tail risk and equity confidence bands.
+ */
+export function monteCarloDrawdown(
+  report: StrategyReport,
+  options: { iterations?: number; seed?: number; maxPoints?: number } = {},
+): MonteCarloResult | null {
+  const closed = report.trades.filter((t) => !t.open);
+  const n = closed.length;
+  const initial = report.initialCapital;
+  if (n < 3 || !Number.isFinite(initial) || initial <= 0) return null;
+
+  const iterations = Math.min(
+    2000,
+    Math.max(50, Math.round(options.iterations ?? 500)),
+  );
+  const seed = (options.seed ?? 0x51a7e123) >>> 0;
+  const maxPoints = Math.max(8, Math.min(80, Math.round(options.maxPoints ?? 48)));
+  const pnls = closed.map((t) => t.netProfit);
+
+  // Build evenly spaced sample indices in [0..n] including both endpoints.
+  const stepSet = new Set<number>([0, n]);
+  if (n <= maxPoints) {
+    for (let i = 1; i < n; i++) stepSet.add(i);
+  } else {
+    for (let k = 1; k < maxPoints; k++) {
+      stepSet.add(Math.round((k * n) / maxPoints));
+    }
+  }
+  const sampleSteps = [...stepSet].sort((a, b) => a - b);
+  const stepToCol = new Map<number, number>();
+  sampleSteps.forEach((step, col) => stepToCol.set(step, col));
+
+  // Realized trade-by-trade path (for apples-to-apples comparison on the same axis).
+  const actualByCol = new Float64Array(sampleSteps.length);
+  actualByCol[0] = 0;
+  let actualEq = initial;
+  let actualPeak = initial;
+  let actualMaxDd = 0;
+  for (let i = 0; i < n; i++) {
+    actualEq = Math.max(0, actualEq + pnls[i]);
+    if (actualEq > actualPeak) actualPeak = actualEq;
+    if (actualPeak > 0) {
+      const dd = ((actualPeak - actualEq) / actualPeak) * 100;
+      if (dd > actualMaxDd) actualMaxDd = dd;
+    }
+    const col = stepToCol.get(i + 1);
+    if (col !== undefined) {
+      actualByCol[col] = ((actualEq - initial) / initial) * 100;
+    }
+  }
+
+  const rand = mulberry32(seed);
+  const maxDrawdowns = new Float64Array(iterations);
+  const finalReturns = new Float64Array(iterations);
+  const lossStreaks = new Int32Array(iterations);
+  const colBuffers = sampleSteps.map(() => new Float64Array(iterations));
+  let profitableRuns = 0;
+  let ruinRuns = 0;
+  let ddAtOrBelowActual = 0;
+
+  for (let iter = 0; iter < iterations; iter++) {
+    let eq = initial;
+    let peak = initial;
+    let maxDd = 0;
+    let curLoss = 0;
+    let maxLoss = 0;
+    colBuffers[0][iter] = 0;
+    for (let i = 0; i < n; i++) {
+      const pnl = pnls[Math.floor(rand() * n)];
+      eq = Math.max(0, eq + pnl);
+      if (pnl < 0) {
+        curLoss++;
+        if (curLoss > maxLoss) maxLoss = curLoss;
+      } else {
+        curLoss = 0;
+      }
+      if (eq > peak) peak = eq;
+      if (peak > 0) {
+        const dd = ((peak - eq) / peak) * 100;
+        if (dd > maxDd) maxDd = dd;
+      }
+      const col = stepToCol.get(i + 1);
+      if (col !== undefined) {
+        colBuffers[col][iter] = ((eq - initial) / initial) * 100;
+      }
+    }
+    maxDrawdowns[iter] = maxDd;
+    finalReturns[iter] = ((eq - initial) / initial) * 100;
+    lossStreaks[iter] = maxLoss;
+    if (eq > initial) profitableRuns++;
+    if (eq <= 0 || maxDd >= 50) ruinRuns++;
+    if (maxDd <= actualMaxDd + 1e-9) ddAtOrBelowActual++;
+  }
+
+  const sortedDd = Array.from(maxDrawdowns).sort((a, b) => a - b);
+  const sortedRet = Array.from(finalReturns).sort((a, b) => a - b);
+  const sortedStreaks = Array.from(lossStreaks).sort((a, b) => a - b);
+
+  const bands: MonteCarloBandPoint[] = sampleSteps.map((tradeIndex, col) => {
+    const sorted = Array.from(colBuffers[col]).sort((a, b) => a - b);
+    return {
+      tradeIndex,
+      p5: quantile(sorted, 0.05),
+      p25: quantile(sorted, 0.25),
+      p50: quantile(sorted, 0.5),
+      p75: quantile(sorted, 0.75),
+      p95: quantile(sorted, 0.95),
+      actual: actualByCol[col],
+    };
+  });
+
+  return {
+    iterations,
+    tradeCount: n,
+    seed,
+    actualDrawdownPercent: actualMaxDd,
+    actualDrawdownPercentile: (ddAtOrBelowActual / iterations) * 100,
+    medianDrawdownPercent: quantile(sortedDd, 0.5),
+    p90DrawdownPercent: quantile(sortedDd, 0.9),
+    p95DrawdownPercent: quantile(sortedDd, 0.95),
+    p99DrawdownPercent: quantile(sortedDd, 0.99),
+    p5ReturnPercent: quantile(sortedRet, 0.05),
+    p50ReturnPercent: quantile(sortedRet, 0.5),
+    p95ReturnPercent: quantile(sortedRet, 0.95),
+    probabilityOfProfit: (profitableRuns / iterations) * 100,
+    probabilityOfRuin: (ruinRuns / iterations) * 100,
+    p95ConsecutiveLosses: Math.round(quantile(sortedStreaks, 0.95)),
+    bands,
+  };
+}

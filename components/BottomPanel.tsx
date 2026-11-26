@@ -1,7 +1,6 @@
 "use client";
 import { baseVolume, periodLabel, quoteRange, rangeDescription } from "@/lib/market/quoteMetrics";
 import { useQuoteRanges } from "@/hooks/useQuoteRanges";
-import { symbolLabel } from "@/lib/symbolId";
 import { lazy, Suspense, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { bindBottomPanelResize, COMPACT_WORKSPACE_QUERY } from "@/lib/chart/bottomPanelResize";
 import {

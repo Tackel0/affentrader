@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OHLCV } from "@/types/trading";
-import type { StrategyDataset, StrategyRunRequest } from "@/types/strategy";
+import type { StrategyRunRequest } from "@/types/strategy";
 import { executeStrategy } from "@/lib/strategy/engine";
 import { strategyEquityCSV, strategyTradesCSV } from "@/lib/strategy/report";
 import { summarizeReport } from "@/lib/strategy/analysis";

@@ -11,6 +11,7 @@ export function captureChartSnapshot(renderer:{screenshotCanvas:()=>HTMLCanvasEl
   let label=text;if(ctx.measureText(label).width>width){let low=0,high=text.length;while(low<high){const mid=Math.ceil((low+high)/2);if(ctx.measureText(text.slice(0,mid)+"…").width<=width)low=mid;else high=mid-1;}label=low?text.slice(0,low)+"…":"";}
   ctx.fillText(label,10,17);ctx.restore();
   const image=canvas.toDataURL("image/png");if(!image.startsWith("data:image/png;base64,"))throw new Error("The browser did not produce a PNG snapshot.");
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: intentional filename control-character sanitization
   const safe=(value:string)=>value.replace(/[<>:"/\\|?*\x00-\x1f]/g,"_");
   return{image,filename:safe(`${options.symbol}-${options.timeframe}-${options.source}.png`),width:canvas.width,height:canvas.height,title:options.title,source:options.source,capturedAt};
 }

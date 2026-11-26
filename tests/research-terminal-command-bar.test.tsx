@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import React from "react";
 import { render, fireEvent, act, within, cleanup } from "@testing-library/react";
 import { ResearchTerminal } from "@/components/ResearchTerminal";
 import { parseTerminalCommand } from "@/lib/terminal/commands";

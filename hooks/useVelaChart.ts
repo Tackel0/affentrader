@@ -17,7 +17,7 @@ import { INDICATORS } from "@/lib/indicators/catalog";
 import { nativeIndicatorInputs as makeInputs } from "@/lib/indicators/nativeInputs";
 import { bindPineEngine, type PineEngineBinding } from "@/lib/indicators/engineOptions";
 import {installTradingSettings} from "@/lib/chart/tradingSettings";
-import {rangePlan,navigationDepth,dateWindow,recentWindow} from "@/lib/chart/ranges";
+import {rangePlan,navigationDepth,dateWindow} from "@/lib/chart/ranges";
 import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
 import { bindDrawingDocuments } from "@/lib/drawings/documentBinding";
 import { bindReplayCommands } from "@/lib/chart/replayCommands";

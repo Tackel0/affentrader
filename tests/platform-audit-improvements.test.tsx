@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import React from "react";
 import { render, fireEvent, cleanup, screen, waitFor, within } from "@testing-library/react";
 import { AlertsPanel, AlertDialog } from "@/components/Alerts";
 import { Modal } from "@/components/ui";

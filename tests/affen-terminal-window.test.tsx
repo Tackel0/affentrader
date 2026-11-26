@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import React from "react";
 import { render, screen, fireEvent, act, within, cleanup } from "@testing-library/react";
 import { AffenTerminalWindow } from "@/components/AffenTerminalWindow";
 import { OpportunitiesHub } from "@/components/OpportunitiesHub";

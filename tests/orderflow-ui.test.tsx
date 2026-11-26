@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import React, { Profiler } from "react";
+import { Profiler } from "react";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { OrderFlowPanel } from "@/components/OrderFlowPanel";
 import { FootprintInspector } from "@/components/FootprintInspector";

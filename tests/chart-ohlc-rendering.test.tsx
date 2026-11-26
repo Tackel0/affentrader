@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import React, { Profiler } from "react";
+import { Profiler } from "react";
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { createStore } from "zustand/vanilla";

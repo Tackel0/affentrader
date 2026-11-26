@@ -97,7 +97,7 @@ describe("personal workspaces", () => {
     const callback = (state: string, cookie: string) => new NextRequest(`${origin}/api/account/google/callback?${new URLSearchParams({ state, code: "fixture-code" })}`, { headers: { cookie } });
     const fetcher = vi.fn(async (target: string | URL | Request, options?: RequestInit) => {
       if (String(target) === "https://oauth2.googleapis.com/token") {
-        const verifier = (options?.body as URLSearchParams).get("code_verifier")!;
+        const verifier = (options?.body as URLSearchParams | undefined)?.get("code_verifier") ?? "";
         expect(createHash("sha256").update(verifier).digest("base64url")).toBe(auth.searchParams.get("code_challenge"));
         return Response.json({ access_token: "fixture-oauth-session" });
       }

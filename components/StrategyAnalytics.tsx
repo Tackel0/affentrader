@@ -1,13 +1,17 @@
 "use client";
 import { useMemo, useState } from "react";
-import { Save, ScanSearch, Trash2 } from "lucide-react";
+import { RefreshCw, Save, ScanSearch, Trash2 } from "lucide-react";
 import type { StrategyReport } from "@/types/strategy";
 import {
   bestIndex,
   extendedMetrics,
+  inOutOfSampleSplit,
+  monteCarloDrawdown,
   summarizeReport,
   type ComparisonKey,
+  type MonteCarloBandPoint,
   type SavedReport,
+  type WalkForwardStatus,
 } from "@/lib/strategy/analysis";
 import {
   auditTrades,
@@ -281,6 +285,328 @@ function AuditPanel({ report }: { report: StrategyReport }) {
   );
 }
 
+const WF_STATUS_META: Record<
+  WalkForwardStatus,
+  { label: string; tone: string; hint: string }
+> = {
+  robust: {
+    label: "Robust OOS",
+    tone: "positive",
+    hint: "Out-of-sample profitability and risk-adjusted return hold up relative to in-sample.",
+  },
+  degraded: {
+    label: "Degraded OOS",
+    tone: "warn",
+    hint: "Still profitable out-of-sample, but edge weakened noticeably vs. in-sample.",
+  },
+  overfit_risk: {
+    label: "Overfit risk",
+    tone: "negative",
+    hint: "Profitable in-sample but unprofitable out-of-sample — inspect parameters for curve fitting.",
+  },
+  unprofitable: {
+    label: "Unprofitable",
+    tone: "negative",
+    hint: "Negative net profit in both in-sample and out-of-sample windows.",
+  },
+  insufficient: {
+    label: "Small sample",
+    tone: "muted",
+    hint: "Need at least 5 closed trades in both windows for a reliable OOS verdict.",
+  },
+};
+
+const SPLIT_PRESETS = [0.6, 0.7, 0.8] as const;
+
+function shortIsoDate(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+function WalkForwardPanel({ report }: { report: StrategyReport }) {
+  const [splitRatio, setSplitRatio] = useState<number>(0.7);
+  const split = useMemo(
+    () => inOutOfSampleSplit(report, splitRatio),
+    [report, splitRatio],
+  );
+  const currency = strategyCurrency(report.market);
+  if (!split) return null;
+  const meta = WF_STATUS_META[split.status];
+  const isPct = Math.round(split.splitRatio * 100);
+  const oosPct = 100 - isPct;
+
+  return (
+    <section className="strategy-quant-card" aria-label="In-Sample vs Out-of-Sample split">
+      <div className="screener-toolbar">
+        <strong>Walk-Forward Split (IS / OOS)</strong>
+        <span className={`strategy-status-pill ${meta.tone}`} title={meta.hint}>
+          {meta.label}
+        </span>
+        {split.oosRetentionRatio !== null ? (
+          <span className="screener-count">
+            OOS retention: {(split.oosRetentionRatio * 100).toFixed(0)}%
+          </span>
+        ) : null}
+        <span className="flex-1" />
+        <div className="strategy-pill-group" role="group" aria-label="In-Sample split ratio">
+          {SPLIT_PRESETS.map((ratio) => {
+            const p = Math.round(ratio * 100);
+            return (
+              <button
+                key={ratio}
+                type="button"
+                className="button small"
+                aria-pressed={splitRatio === ratio}
+                onClick={() => setSplitRatio(ratio)}
+              >
+                {p}/{100 - p}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <div className="strategy-table-scroll">
+        <table className="data-table compare-table">
+          <thead>
+            <tr>
+              <th>Window</th>
+              <th>Period</th>
+              <th>Trades</th>
+              <th>Return</th>
+              <th>Net profit ({currency})</th>
+              <th>Win rate</th>
+              <th>Profit factor</th>
+              <th>Max DD</th>
+              <th>Sharpe</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>In-Sample ({isPct}%)</td>
+              <td className="mono">
+                {shortIsoDate(split.inSample.fromTime)} → {shortIsoDate(split.inSample.toTime)}
+              </td>
+              <td className="mono">{split.inSample.trades}</td>
+              <td className={`mono ${tone(split.inSample.returnPercent)}`}>
+                {signed(split.inSample.returnPercent, 2, "%")}
+              </td>
+              <td className={`mono ${tone(split.inSample.netProfit)}`}>
+                {signed(split.inSample.netProfit, 2)}
+              </td>
+              <td className="mono">{fmt(split.inSample.winRate, 1, "%")}</td>
+              <td className="mono">{fmt(split.inSample.profitFactor, 2)}</td>
+              <td className="mono negative">{fmt(split.inSample.maxDrawdownPercent, 2, "%")}</td>
+              <td className="mono">{fmt(split.inSample.sharpe, 2)}</td>
+            </tr>
+            <tr>
+              <td>Out-of-Sample ({oosPct}%)</td>
+              <td className="mono">
+                {shortIsoDate(split.outOfSample.fromTime)} → {shortIsoDate(split.outOfSample.toTime)}
+              </td>
+              <td className="mono">{split.outOfSample.trades}</td>
+              <td className={`mono ${tone(split.outOfSample.returnPercent)}`}>
+                {signed(split.outOfSample.returnPercent, 2, "%")}
+              </td>
+              <td className={`mono ${tone(split.outOfSample.netProfit)}`}>
+                {signed(split.outOfSample.netProfit, 2)}
+              </td>
+              <td className="mono">{fmt(split.outOfSample.winRate, 1, "%")}</td>
+              <td className="mono">{fmt(split.outOfSample.profitFactor, 2)}</td>
+              <td className="mono negative">{fmt(split.outOfSample.maxDrawdownPercent, 2, "%")}</td>
+              <td className="mono">{fmt(split.outOfSample.sharpe, 2)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p className="form-help">{meta.hint}</p>
+    </section>
+  );
+}
+
+function MonteCarloFanChart({ bands }: { bands: MonteCarloBandPoint[] }) {
+  if (bands.length < 2) return null;
+  const width = 560;
+  const height = 155;
+  const padLeft = 40;
+  const padRight = 10;
+  const padTop = 10;
+  const padBottom = 20;
+  const allVals = bands.flatMap((b) => [b.p5, b.p95, b.actual, 0]);
+  const min = Math.min(...allVals);
+  const max = Math.max(...allVals);
+  const maxTrade = Math.max(1, bands.at(-1)!.tradeIndex);
+  const x = (t: number) =>
+    padLeft + (t / maxTrade) * (width - padLeft - padRight);
+  const y = (v: number) =>
+    height - padBottom - ((v - min) / Math.max(1e-6, max - min)) * (height - padTop - padBottom);
+
+  const areaPath = (
+    upper: (b: MonteCarloBandPoint) => number,
+    lower: (b: MonteCarloBandPoint) => number,
+  ) => {
+    const top = bands
+      .map((b, i) => `${i === 0 ? "M" : "L"}${x(b.tradeIndex).toFixed(1)},${y(upper(b)).toFixed(1)}`)
+      .join(" ");
+    const bot = [...bands]
+      .reverse()
+      .map((b) => `L${x(b.tradeIndex).toFixed(1)},${y(lower(b)).toFixed(1)}`)
+      .join(" ");
+    return `${top} ${bot} Z`;
+  };
+  const linePath = (pick: (b: MonteCarloBandPoint) => number) =>
+    bands
+      .map((b, i) => `${i === 0 ? "M" : "L"}${x(b.tradeIndex).toFixed(1)},${y(pick(b)).toFixed(1)}`)
+      .join(" ");
+
+  return (
+    <svg
+      className="yield-chart mc-fan-chart"
+      viewBox={`0 0 ${width} ${height}`}
+      role="img"
+      aria-label="Monte-Carlo equity confidence bands"
+    >
+      <line
+        x1={padLeft}
+        x2={width - padRight}
+        y1={y(0)}
+        y2={y(0)}
+        stroke="currentColor"
+        strokeOpacity={0.25}
+        strokeDasharray="3 3"
+      />
+      {[min, 0, max].map((v, i) => (
+        <text
+          key={i}
+          x={2}
+          y={y(v) + 3}
+          fontSize={9}
+          fill="currentColor"
+          opacity={0.65}
+        >
+          {v >= 0 ? `+${v.toFixed(0)}%` : `${v.toFixed(0)}%`}
+        </text>
+      ))}
+      <path d={areaPath((b) => b.p95, (b) => b.p5)} fill="#2962ff" opacity={0.14} />
+      <path d={areaPath((b) => b.p75, (b) => b.p25)} fill="#2962ff" opacity={0.24} />
+      <path
+        d={linePath((b) => b.p50)}
+        fill="none"
+        stroke="#2962ff"
+        strokeWidth={1.4}
+        strokeDasharray="4 3"
+      />
+      <path
+        d={linePath((b) => b.actual)}
+        fill="none"
+        stroke="#089981"
+        strokeWidth={1.9}
+      />
+      <text x={padLeft} y={height - 4} fontSize={8} fill="currentColor" opacity={0.6}>
+        Trade 0
+      </text>
+      <text
+        x={width - padRight}
+        y={height - 4}
+        fontSize={8}
+        textAnchor="end"
+        fill="currentColor"
+        opacity={0.6}
+      >
+        Trade {maxTrade}
+      </text>
+    </svg>
+  );
+}
+
+const MC_ITERATIONS = [250, 500, 1000] as const;
+
+function MonteCarloPanel({ report }: { report: StrategyReport }) {
+  const [iterations, setIterations] = useState<number>(500);
+  const [seed, setSeed] = useState<number>(0x51a7e123);
+  const mc = useMemo(
+    () => monteCarloDrawdown(report, { iterations, seed }),
+    [report, iterations, seed],
+  );
+
+  return (
+    <section className="strategy-quant-card" aria-label="Monte-Carlo drawdown confidence band">
+      <div className="screener-toolbar">
+        <strong>Monte-Carlo Bootstrap ({iterations} paths)</strong>
+        <span className="screener-count">
+          Resamples realized trades with replacement to bound drawdown tail risk
+        </span>
+        <span className="flex-1" />
+        <div className="strategy-pill-group" role="group" aria-label="Monte-Carlo iterations">
+          {MC_ITERATIONS.map((n) => (
+            <button
+              key={n}
+              type="button"
+              className="button small"
+              aria-pressed={iterations === n}
+              onClick={() => setIterations(n)}
+            >
+              {n}×
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          className="button small"
+          onClick={() => setSeed((prev) => (prev + 0x9e3779b9) >>> 0)}
+          title="Run with a fresh random seed"
+        >
+          <RefreshCw size={12} /> Resample
+        </button>
+      </div>
+      {!mc ? (
+        <p className="form-help">
+          Need at least 3 closed trades to run Monte-Carlo bootstrap resampling.
+        </p>
+      ) : (
+        <>
+          <div className="metrics-grid">
+            <Metric
+              label="Actual trade DD"
+              value={`${fmt(mc.actualDrawdownPercent, 2, "%")} (P${Math.round(mc.actualDrawdownPercentile)})`}
+              className="negative"
+            />
+            <Metric
+              label="Median DD (P50)"
+              value={fmt(mc.medianDrawdownPercent, 2, "%")}
+            />
+            <Metric
+              label="Tail DD (P95 / P99)"
+              value={`${fmt(mc.p95DrawdownPercent, 2, "%")} / ${fmt(mc.p99DrawdownPercent, 2, "%")}`}
+              className="negative"
+            />
+            <Metric
+              label="Return P5 / P50 / P95"
+              value={`${signed(mc.p5ReturnPercent, 1, "%")} / ${signed(mc.p50ReturnPercent, 1, "%")} / ${signed(mc.p95ReturnPercent, 1, "%")}`}
+              className={tone(mc.p50ReturnPercent)}
+            />
+            <Metric
+              label="P(Profit)"
+              value={fmt(mc.probabilityOfProfit, 1, "%")}
+              className={mc.probabilityOfProfit >= 60 ? "positive" : mc.probabilityOfProfit < 45 ? "negative" : ""}
+            />
+            <Metric
+              label="P(DD ≥ 50%) · P95 streak"
+              value={`${fmt(mc.probabilityOfRuin, 1, "%")} · ${mc.p95ConsecutiveLosses} L`}
+              className={mc.probabilityOfRuin > 5 ? "negative" : ""}
+            />
+          </div>
+          <MonteCarloFanChart bands={mc.bands} />
+          <div className="mc-legend">
+            <span><i style={{ background: "#089981" }} /> Actual trade curve</span>
+            <span><i style={{ background: "#2962ff" }} /> P50 median</span>
+            <span><i style={{ background: "#2962ff55" }} /> P25–P75 IQR</span>
+            <span><i style={{ background: "#2962ff26" }} /> P5–P95 confidence band</span>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
 export function AnalyticsView({ report }: { report: StrategyReport }) {
   const m = useMemo(() => extendedMetrics(report), [report]);
   const save = useReportStore((s) => s.save);
@@ -375,6 +701,8 @@ export function AnalyticsView({ report }: { report: StrategyReport }) {
           <Histogram bins={m.distribution} />
         </div>
       </div>
+      <WalkForwardPanel report={report} />
+      <MonteCarloPanel report={report} />
       <AuditPanel report={report} />
     </div>
   );

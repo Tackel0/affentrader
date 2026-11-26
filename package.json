@@ -7,6 +7,7 @@
     "build": "node scripts/patch-vela-viewport.mjs && node scripts/build-strategy-runtime.mjs && node scripts/build-pine-alert-runtime.mjs && next build --webpack",
     "start": "next start --hostname 0.0.0.0",
     "typecheck": "node scripts/patch-vela-viewport.mjs && node scripts/build-strategy-runtime.mjs && node scripts/build-pine-alert-runtime.mjs && tsc --noEmit",
+    "lint": "biome lint",
     "test": "node scripts/patch-vela-viewport.mjs && node scripts/build-strategy-runtime.mjs && node scripts/build-pine-alert-runtime.mjs && vitest run"
   },
   "dependencies": {
@@ -33,6 +34,7 @@
     "zustand": "^5.0.8"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.6.9",
     "@tailwindcss/postcss": "^4.1.0",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",

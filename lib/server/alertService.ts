@@ -30,7 +30,7 @@ import { PineJournalSession } from "@/lib/alerts/pineJournal";
 import { pineRunEpoch, pineOwner, pineMarketSource } from "@/lib/alerts/pineRecoveryState";
 import { loadPineJournal, appendPineJournal, acknowledgePineJournal, prunePineJournals } from "./pineJournalStore";
 import type { PineSeries, PineSignal, PineDeliveryBatch } from "@/types/pineAlerts";
-import { drawingCondition, drawingFingerprint, drawingSourceRevision, drawingSync, validateDrawingGeometry } from "@/lib/alerts/drawing";
+import { drawingCondition, drawingSourceRevision, drawingSync, validateDrawingGeometry } from "@/lib/alerts/drawing";
 import type { DrawingAlertGeometry } from "@/types/drawingAlerts";
 import { yahooChart, yahooSpark } from "./yahoo";
 import { loadKlines, MAX_HISTORY_BARS } from "@/lib/market/klines";
