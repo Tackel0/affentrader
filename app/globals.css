@@ -2820,7 +2820,8 @@ svg {
   padding: 12px;
   white-space: pre;
 }
-.vela-container [tabindex="0"]:focus:not(:focus-visible) {
+.vela-container [tabindex="0"]:focus,
+.vela-container [tabindex="0"]:focus-visible {
   outline: none;
 }
 .derived-chart-issue { position:absolute; z-index:5; top:126px; left:14px; max-width:calc(100% - 28px); width:360px; padding:14px; border:1px solid var(--border); border-radius:6px; background:var(--surface); color:var(--text); box-shadow:0 4px 18px #0004; font-size:12px; }

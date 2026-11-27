@@ -2,6 +2,33 @@
 
 A self-hosted charting workspace for crypto, stocks from 18 exchanges, ETFs, indices, forex and Hyperliquid perpetual futures, built with Next.js App Router, TypeScript, Tailwind CSS, Zustand, Vela 0.9.0 and Vela-PineTS 0.3.0. The interface follows the observed TradingView chart layout and design language, with its own Affentrader identity. The [parity audit](docs/tradingview-parity.md) lists every TradingView capability against what is implemented, how it was checked, and what cannot be delivered from a repository (native mobile apps, user accounts, hosted infrastructure, third-party protected scripts).
 
+![Affentrader Dark Charting Workspace](docs/screenshots/workspace-dark.png)
+
+## Screenshots
+
+<table>
+  <tr>
+    <td align="center">
+      <strong>AffenTerminal — 3-Pane Research Workstation</strong><br />
+      <img src="docs/screenshots/terminal.png" alt="AffenTerminal 3-Pane Research Workstation with Setups, Fundamentals and Global Markets" width="100%" />
+    </td>
+    <td align="center">
+      <strong>NoiseMeter — T+1 Volatility &amp; Pattern Scanner</strong><br />
+      <img src="docs/screenshots/noisemeter.png" alt="NoiseMeter empirical T+1 probability, expected volatility and pattern scanner" width="100%" />
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <strong>Light Theme Workspace</strong><br />
+      <img src="docs/screenshots/workspace-light.png" alt="Affentrader Light Theme Charting Workspace" width="100%" />
+    </td>
+    <td align="center">
+      <strong>Mobile / PWA Charting</strong><br />
+      <img src="docs/screenshots/mobile.png" alt="Affentrader Mobile Charting Workspace" width="220" />
+    </td>
+  </tr>
+</table>
+
 ## Run
 
 Current work prioritizes the core chart and TradingView layout: navigation, market data, indicators, drawings, watchlists and alerts. Live broker trading and social features are deferred. See the [core verification record](docs/core-functions.md) for actual tests, browser checks and remaining limits.

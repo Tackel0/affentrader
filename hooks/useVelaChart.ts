@@ -576,7 +576,7 @@ export function useVelaChart(container: RefObject<HTMLDivElement | null>) {
   useEffect(() => {
     if (chart) {
       if (chart.drawings.getTool() !== nativeDrawingTool(drawing)) chart.drawings.setTool(nativeDrawingTool(drawing));
-      chart.renderer.focus();
+      if (drawing !== "cursor") chart.renderer.focus();
     }
   }, [chart, drawing]);
   useEffect(() => {
