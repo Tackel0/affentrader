@@ -60,6 +60,7 @@ const LazyIndicatorPicker = lazy(() => import("./Indicators").then(({ IndicatorP
 const LazyIndicatorSettings = lazy(() => import("./Indicators").then(({ IndicatorSettings }) => ({ default: IndicatorSettings })));
 const LazySymbolSearch = lazy(() => import("./SymbolSearch").then(({ SymbolSearch }) => ({ default: SymbolSearch })));
 const LazyChangelogDialog = lazy(() => import("./ChangelogDialog").then(({ ChangelogDialog }) => ({ default: ChangelogDialog })));
+const LazyCommandPalette = lazy(() => import("./CommandPalette").then(({ CommandPalette }) => ({ default: CommandPalette })));
 
 interface WorkspaceProps {
   deployment?: ReactNode;
@@ -246,13 +247,18 @@ function Workspace({ deployment, initialSidebar }: WorkspaceProps) {
     });
   useEffect(() => {
     const keyboard = (e: KeyboardEvent) => {
+      const store = useChartStore.getState();
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        store.set({ commandPaletteOpen: !store.commandPaletteOpen });
+        return;
+      }
       if (
         (e.target as HTMLElement).closest(
           'input,textarea,select,[contenteditable="true"]',
         )
       )
         return;
-      const store = useChartStore.getState();
       if (e.key === "/" && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
         store.set({ searchOpen: true, searchTarget: "chart" });
@@ -541,6 +547,7 @@ function WorkspaceDialogs() {
   const derivedOpen = useChartStore((s) => s.derivedOpen);
   const syncOpen = useChartStore((s) => s.syncOpen);
   const changelogOpen = useChartStore((s) => s.changelogOpen);
+  const commandPaletteOpen = useChartStore((s) => s.commandPaletteOpen);
 
   return (
     <ModuleErrorBoundary moduleName="Workspace Dialogs" compact>
@@ -557,6 +564,7 @@ function WorkspaceDialogs() {
         {derivedOpen || settingsKind === "derived" ? <LazyDerivedDialog /> : null}
         {syncOpen ? <LazySyncDialog /> : null}
         {changelogOpen ? <LazyChangelogDialog /> : null}
+        {commandPaletteOpen ? <LazyCommandPalette /> : null}
       </Suspense>
     </ModuleErrorBoundary>
   );

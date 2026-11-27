@@ -4630,3 +4630,158 @@ body {
     min-width: auto;
   }
 }
+
+.menu-shortcut-kbd {
+  margin-left: auto;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  font-size: 10px;
+  font-family: inherit;
+  color: var(--muted);
+  background: var(--surface);
+}
+
+.command-palette-modal {
+  width: min(560px, 94vw);
+  max-height: min(76vh, 620px);
+  display: flex;
+  flex-direction: column;
+}
+
+.command-palette-input {
+  border-bottom: 1px solid var(--border);
+}
+
+.command-palette-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px 8px 10px;
+}
+
+.command-palette-group {
+  padding: 8px 10px 4px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.command-palette-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.command-palette-item:hover,
+.command-palette-item.active {
+  background: var(--tv-hover, var(--hover));
+}
+
+.command-palette-item.active svg {
+  color: var(--accent);
+}
+
+.command-palette-label {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.command-palette-label strong {
+  font-size: 12px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-palette-label small {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.command-palette-item kbd {
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  font-size: 10px;
+  color: var(--muted);
+  background: var(--surface);
+}
+
+.ticket-risk-sizer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--surface) 88%, var(--hover));
+}
+
+.ticket-risk-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.ticket-risk-head > span:first-child {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.ticket-risk-readout {
+  color: var(--red, #f23645);
+  font-size: 10px;
+}
+
+.ticket-risk-hint {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.ticket-risk-buttons {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(62px, 1.3fr) minmax(42px, 0.9fr);
+  gap: 4px;
+}
+
+.ticket-risk-input {
+  min-width: 0;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 11px;
+}
+
+.ticket-risk-note {
+  margin: 0;
+  font-size: 10px;
+}
+
+@media (max-width: 600px) {
+  .phone-workspace .chart-heading {
+    padding-top: max(4px, env(safe-area-inset-top));
+  }
+  .command-palette-item {
+    min-height: 40px;
+  }
+}

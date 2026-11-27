@@ -2,13 +2,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
+  Bell,
+  Check,
   Gauge,
   History,
+  Plus,
   RefreshCw,
   Sparkles,
   Target,
   Zap,
 } from "lucide-react";
+import { useChartStore } from "@/stores/useChartStore";
+import { useWatchlistStore } from "@/stores/useWatchlistStore";
 import { isYahooTicker } from "@/lib/symbolId";
 import {
   buildNoiseDataset,
@@ -624,6 +629,7 @@ export function NoiseMeterPanel({
           >
             <RefreshCw size={14} className={loading ? "spin" : ""} />
           </button>
+          <NoiseMeterQuickActions ticker={ticker} livePrice={data?.live.lastPrice ?? data?.live.prevClose} />
           {onOpenChart ? (
             <button type="button" className="button small" onClick={() => onOpenChart(ticker)}>
               Chart
@@ -945,5 +951,54 @@ export function NoiseMeterPanel({
         </>
       ) : null}
     </section>
+  );
+}
+
+function NoiseMeterQuickActions({
+  ticker,
+  livePrice,
+}: {
+  ticker: string;
+  livePrice?: number;
+}) {
+  const symbolId = `YF:${ticker}`;
+  const inWatchlist = useWatchlistStore((s) => {
+    const active = s.lists.find((l) => l.id === s.activeId) ?? s.lists[0];
+    return Boolean(active?.symbols.includes(symbolId));
+  });
+
+  return (
+    <>
+      <button
+        type="button"
+        className="button small"
+        title={inWatchlist ? `${ticker} ist in der aktiven Watchlist` : `${ticker} zur aktiven Watchlist hinzufügen`}
+        onClick={() => {
+          if (inWatchlist) return;
+          useWatchlistStore.getState().addSymbol(symbolId);
+          useChartStore.getState().toast("Watchlist", `${ticker} zur aktiven Watchlist hinzugefügt.`, "success");
+        }}
+      >
+        {inWatchlist ? <Check size={13} /> : <Plus size={13} />}
+        <span>{inWatchlist ? "In Liste" : "Watchlist"}</span>
+      </button>
+      <button
+        type="button"
+        className="button small"
+        title={`Preis-Alert für ${ticker} erstellen`}
+        onClick={() => {
+          useChartStore.getState().set({
+            alertDraft: {
+              symbol: symbolId,
+              timeframe: "1D",
+              price: livePrice && Number.isFinite(livePrice) ? livePrice : undefined,
+            },
+          });
+        }}
+      >
+        <Bell size={13} />
+        <span>Alert</span>
+      </button>
+    </>
   );
 }

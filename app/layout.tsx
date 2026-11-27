@@ -25,13 +25,18 @@ export const metadata: Metadata = {
   },
   appleWebApp: { capable: true, title: "AffenTerminal", statusBarStyle: "black-translucent" },
 };
+const THEME_BOOT_SCRIPT = `(function(){try{var c=document.cookie.split(";").map(function(s){return s.trim()}).find(function(s){return s.indexOf("affentrader-workspace-profile=")===0});var p=c?c.slice(30):"";var prof=/^[a-f0-9]{32}$/.test(p)?"affentrader-profile-"+p+":":"";var base=prof+"affentrader-premium-v1";var qs=new URLSearchParams(location.search).get("window");var win=qs&&/^[a-z0-9]{4,24}$/.test(qs)?qs:(location.pathname==="/terminal"||location.pathname.indexOf("/terminal/")===0?"affen-terminal":"");var raw=(win&&localStorage.getItem(base+"@"+win))||localStorage.getItem(base)||localStorage.getItem("affentrader-premium-v1");var parsed=raw?JSON.parse(raw):null;var t=parsed&&parsed.state&&parsed.state.theme==="dark"?"dark":"light";var el=document.documentElement;el.dataset.theme=t;el.style.colorScheme=t;var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content",t==="dark"?"#000000":"#ffffff");}catch(e){}})();`;
+
 export default function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
+      </head>
       <body>{children}</body>
     </html>
   );

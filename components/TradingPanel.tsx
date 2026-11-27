@@ -17,11 +17,13 @@ import {paperSourceLabel} from "@/lib/trading/executionSource";
 import {
   accountStats,
   buyingPower,
+  equityOf,
   isClosingFill,
   unrealizedPnl,
   type Account,
   type Order,
 } from "@/lib/trading/broker";
+import { calculateRiskPositionSize, evaluateTicketRisk } from "@/lib/trading/riskSizing";
 import { formatPrice, formatVolume, getSymbol } from "@/lib/symbols";
 
 const fmt = (value: number, digits = 2) =>
@@ -89,6 +91,9 @@ function OrderTicket() {
   const notional = reference ? reference * ticket.quantity : 0;
   const fee = notional * account.feeRate;
   const power = price ? buyingPower(account, marks) : 0;
+  const accountEquity = equityOf(account, marks);
+  const [riskDollarDraft, setRiskDollarDraft] = useState("");
+  const [riskNote, setRiskNote] = useState<string | null>(null);
   const sizingPrice =
     ticket.type === "market"
       ? (book ? Math.max(book.ask, book.bid, price ?? 0) : price)
@@ -98,6 +103,44 @@ function OrderTicket() {
     effectivePrice && power > 0
       ? power / (effectivePrice * (1 + Math.max(0, account.feeRate) * account.leverage))
       : 0;
+  const ticketRisk = evaluateTicketRisk({
+    side: ticket.side,
+    entryPrice: reference,
+    stopLoss: ticket.stopLoss,
+    takeProfit: ticket.takeProfit,
+    quantity: ticket.quantity,
+    accountEquity,
+    feeRate: account.feeRate,
+  });
+  const applyRiskAmount = (riskAmount: number) => {
+    const sized = calculateRiskPositionSize({
+      side: ticket.side,
+      entryPrice: reference,
+      stopLoss: ticket.stopLoss,
+      takeProfit: ticket.takeProfit,
+      accountEquity,
+      riskAmount,
+      maxQuantity: maxOrderQty > 0 ? maxOrderQty : undefined,
+      feeRate: account.feeRate,
+    });
+    if (!sized.ok) {
+      setRiskNote(sized.reason);
+      return;
+    }
+    const prevQty = lastPositiveQtyRef.current;
+    const hasLevels = Boolean(ticket.exitLevels?.length);
+    const scaled = sized.quantity > 0 && hasLevels ? scaleExitLevels(ticket.exitLevels, prevQty, sized.quantity) : undefined;
+    setQtyDraft(String(sized.quantity));
+    set({
+      quantity: sized.quantity,
+      ...(sized.quantity > 0 && hasLevels ? { exitLevels: scaled } : {}),
+    });
+    setRiskNote(
+      sized.cappedByPower
+        ? `Capped by buying power (${fmt(sized.actualRiskAmount)} USDT · ${fmt(sized.actualRiskPercent, 2)}%)`
+        : null,
+    );
+  };
   const lastPositiveQtyRef = useRef(ticket.quantity > 0 ? ticket.quantity : 0.01);
   useEffect(() => {
     if (Number.isFinite(ticket.quantity) && ticket.quantity > 0) {
@@ -250,16 +293,78 @@ function OrderTicket() {
           <input aria-label="Limit price" type="number" step="any" min={0} value={ticket.price ?? ""} placeholder={price ? String(price) : ""} onChange={(e) => set({ price: num(e.target.value) })} />
         </label>
       ) : null}
-      {!ticket.exitLevels?.length?<div className="form-grid">
-        <label>
-          Take profit
-          <input aria-label="Take profit" type="number" step="any" min={0} value={ticket.takeProfit ?? ""} onChange={(e) => set({ takeProfit: num(e.target.value) })} />
-        </label>
-        <label>
-          Stop loss
-          <input aria-label="Stop loss" type="number" step="any" min={0} value={ticket.stopLoss ?? ""} onChange={(e) => set({ stopLoss: num(e.target.value) })} />
-        </label>
-      </div>:null}
+      {!ticket.exitLevels?.length ? (
+        <>
+          <div className="form-grid">
+            <label>
+              Take profit
+              <input aria-label="Take profit" type="number" step="any" min={0} value={ticket.takeProfit ?? ""} onChange={(e) => { set({ takeProfit: num(e.target.value) }); setRiskNote(null); }} />
+            </label>
+            <label>
+              Stop loss
+              <input aria-label="Stop loss" type="number" step="any" min={0} value={ticket.stopLoss ?? ""} onChange={(e) => { set({ stopLoss: num(e.target.value) }); setRiskNote(null); }} />
+            </label>
+          </div>
+          <div className="ticket-risk-sizer" role="group" aria-label="Risk-based position sizer">
+            <div className="ticket-risk-head">
+              <span>Risk sizer</span>
+              {ticketRisk.valid ? (
+                <span className="mono ticket-risk-readout">
+                  -{fmt(ticketRisk.riskAmount ?? 0)} USDT ({fmt(ticketRisk.riskPercent ?? 0, 2)}%)
+                  {ticketRisk.riskRewardRatio !== null ? ` · R:R ${fmt(ticketRisk.riskRewardRatio, 2)}` : ""}
+                </span>
+              ) : (
+                <span className="ticket-risk-hint">
+                  {ticketRisk.reason ?? "Set Stop loss to size by risk"}
+                </span>
+              )}
+            </div>
+            <div className="quick-sizes ticket-risk-buttons">
+              {[0.5, 1, 2, 5].map((pct) => (
+                <button
+                  key={pct}
+                  type="button"
+                  disabled={!ticketRisk.valid || !(accountEquity > 0)}
+                  title={`Size position to risk ${pct}% of account equity (${fmt((accountEquity * pct) / 100)} USDT)`}
+                  onClick={() => applyRiskAmount((accountEquity * pct) / 100)}
+                >
+                  {pct}%
+                </button>
+              ))}
+              <input
+                type="text"
+                inputMode="decimal"
+                className="ticket-risk-input"
+                aria-label="Custom risk amount (USDT)"
+                placeholder="Risk $"
+                value={riskDollarDraft}
+                onChange={(e) => {
+                  const next = e.target.value.replace(",", ".");
+                  if (next === "" || /^\d*\.?\d*$/.test(next)) setRiskDollarDraft(next);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    const parsed = Number(riskDollarDraft);
+                    if (Number.isFinite(parsed) && parsed > 0) applyRiskAmount(parsed);
+                  }
+                }}
+              />
+              <button
+                type="button"
+                disabled={!ticketRisk.valid || !(Number(riskDollarDraft) > 0)}
+                onClick={() => {
+                  const parsed = Number(riskDollarDraft);
+                  if (Number.isFinite(parsed) && parsed > 0) applyRiskAmount(parsed);
+                }}
+              >
+                Size
+              </button>
+            </div>
+            {riskNote ? <p className="form-help ticket-risk-note">{riskNote}</p> : null}
+          </div>
+        </>
+      ) : null}
       <button type="button" className="button" disabled={busy||ticket.reduceOnly} onClick={()=>setLevelsOpen(true)}>{ticket.exitLevels?.length?`Edit ${ticket.exitLevels.length} exit levels`:"Configure exit levels"}</button>
       {levelsOpen?<OrderExitLevelsDialog symbol={symbol} quantity={ticket.quantity} levels={ticket.exitLevels} contextKey={JSON.stringify([symbol,mode,contextEpoch,ticket])} onClose={()=>setLevelsOpen(false)} onApply={exitLevels=>{set({exitLevels,...(exitLevels?.length?{takeProfit:undefined,stopLoss:undefined}:{})});setLevelsOpen(false);}}/>:null}
       <label className="check">

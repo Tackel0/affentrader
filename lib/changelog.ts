@@ -23,6 +23,39 @@ export const CHANGELOG_CATEGORY_LABELS: Record<ChangelogCategory, string> = {
 
 export const CHANGELOG_RELEASES: readonly ChangelogRelease[] = [
   {
+    id: "2026-11-27-command-risk-boot",
+    date: "2026-11-27",
+    version: "v1.5",
+    headline: "Globale Command Palette (⌘K), Risiko-Positionsgrößenrechner & sauberer Dark-Mode-Start",
+    items: [
+      {
+        category: "feature",
+        title: "Globale Command Palette (⌘K / Ctrl+K)",
+        detail: "Symbole, Timeframes (z. B. 15m, 4h, 1D), Indikatoren, Alerts, Workspace-Module und Theme-Wechsel blitzschnell per Tastatur steuern.",
+      },
+      {
+        category: "feature",
+        title: "1-Klick Risiko-Positionsgrößenrechner im Paper-Trading-Ticket",
+        detail: "Berechnet aus Depot-Risiko (0,5 % / 1 % / 2 % / 5 % oder Wunsch-$) und Stop-Loss inkl. Gebühren automatisch die exakte Stückzahl samt live R:R-Vorschau.",
+      },
+      {
+        category: "feature",
+        title: "NoiseMeter → Watchlist & Alert in 1 Klick",
+        detail: "Analysierte Ticker lassen sich direkt aus dem NoiseMeter zur aktiven Watchlist hinzufügen oder als vorbereiteter Preis-Alert anlegen.",
+      },
+      {
+        category: "improvement",
+        title: "Kein weißer Lade-Flash im Dark Mode & Mobile-Feinschliff",
+        detail: "Pre-Paint-Theme-Erkennung beim Laden verhindert weißes Aufblitzen im Dark Mode; zusätzlicher Safe-Area-Abstand am iPhone-Chart.",
+      },
+      {
+        category: "fix",
+        title: "Orangener Balken am linken Chart-Rand beim Start entfernt",
+        detail: "Automatischer Initial-Fokus und abgeclippte Canvas-Outline beim Laden wurden entfernt.",
+      },
+    ],
+  },
+  {
     id: "2026-11-26-quant-perf",
     date: "2026-11-26",
     version: "v1.4",

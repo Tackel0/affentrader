@@ -17,6 +17,7 @@ import {
   ExternalLink,
   PenTool,
   List,
+  Command,
 } from "lucide-react";
 import { useChartStore } from "@/stores/useChartStore";
 import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
@@ -182,6 +183,16 @@ export function WorkspaceToolbar({
       <div className="desktop-chart-tools"><LayoutMenu /><SavedLayoutsMenu /></div>
       {tabletStatus ? <div className="tablet-layout-control"><LayoutMenu /></div> : null}
       <span className="toolbar-divider" />
+      <div className="desktop-chart-tools">
+        <IconButton
+          label="Command palette (Ctrl+K)"
+          onClick={() =>
+            useChartStore.getState().set({ commandPaletteOpen: true })
+          }
+        >
+          <Command size={18} />
+        </IconButton>
+      </div>
       <IconButton
         label="Quick search"
         onClick={() =>

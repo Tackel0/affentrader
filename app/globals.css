@@ -2116,17 +2116,18 @@ svg {
   align-items: center;
   justify-content: center;
   flex-direction: column;
-  gap: 16px;
-  color: #9a91f5;
+  gap: 14px;
+  background: var(--bg);
+  color: var(--accent);
 }
 .boot-screen strong {
   font-size: 22px;
   letter-spacing: -0.5px;
-  color: #d8ddea;
+  color: var(--text);
 }
 .boot-screen span {
-  font-size: 11px;
-  color: #687c9c;
+  font-size: 12px;
+  color: var(--muted);
 }
 .spin {
   animation: spin 1.3s linear infinite;

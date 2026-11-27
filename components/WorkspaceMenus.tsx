@@ -26,6 +26,7 @@ import {
   ShieldAlert,
   FileText,
   Sparkles,
+  Command,
 } from "lucide-react";
 import type { DrawingTypeKey } from "@luxalgo/vela";
 import { LAYOUTS, useWorkspaceStore } from "@/stores/useWorkspaceStore";
@@ -219,6 +220,17 @@ function MainMenuContent({
         </>
       )}
       <div className="popover-label">App</div>
+      <button
+        type="button"
+        onClick={() => {
+          useChartStore.getState().set({ commandPaletteOpen: true });
+          close();
+        }}
+      >
+        <Command size={16} />
+        <span>Command Palette</span>
+        <kbd className="menu-shortcut-kbd">⌘K</kbd>
+      </button>
       <button
         type="button"
         onClick={() => {
