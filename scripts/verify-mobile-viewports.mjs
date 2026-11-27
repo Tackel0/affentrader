@@ -1502,7 +1502,7 @@ async function run() {
       })).result.value;
       if (phone) {
         const hubTrigger = '.phone-chart-actions [aria-label="More chart controls"]';
-        if (tap) await tapWorkspaceTarget(cdp, hubTrigger);
+        if (tap) await tapWorkspaceTarget(cdp, hubTrigger, 36);
         else await cdp.send("Runtime.evaluate", { expression: `document.querySelector(${JSON.stringify(hubTrigger)}).click()` });
         const trigger = '.phone-chart-actions .mobile-chart-controls [aria-label="More workspace panels"]';
         await waitForPagePredicate(cdp, `!!document.querySelector(${JSON.stringify(trigger)})`, "phone hub offers workspace modules");
@@ -1670,7 +1670,7 @@ async function run() {
       }
       if (vp.width === 390 && !opts.liveApis) {
         activeLabel = "phone chart type popover";
-        await tapWorkspaceTarget(cdp, '.phone-chart-actions .chart-type-button');
+        await tapWorkspaceTarget(cdp, '.phone-chart-actions .chart-type-button', 36);
         await waitForPagePredicate(cdp, `(() => {
           const pop = document.querySelector(".phone-chart-actions .chart-type-popover");
           if (!pop) return false;
@@ -1680,12 +1680,12 @@ async function run() {
           return r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight
             && br && br.left >= r.left && br.right <= r.right && br.width >= 180;
         })()`, "phone chart type menu opens cleanly above the bottom bar without clipping");
-        await tapWorkspaceTarget(cdp, '.phone-chart-actions .chart-type-button');
+        await tapWorkspaceTarget(cdp, '.phone-chart-actions .chart-type-button', 36);
         await waitForPagePredicate(cdp, '!document.querySelector(".phone-chart-actions .chart-type-popover")', "phone chart type menu closes");
         activeLabel = "phone range controls and chart trading";
         const chartTools = '.phone-chart-actions [aria-label="More chart controls"]';
         const openPhoneHub = async () => {
-          await tapWorkspaceTarget(cdp, chartTools);
+          await tapWorkspaceTarget(cdp, chartTools, 36);
           await waitForPagePredicate(cdp, '!!document.querySelector(".phone-chart-actions .mobile-chart-controls")', "phone chart hub opens");
         };
         const tapPhoneHubRow = async (text) => {
@@ -1704,7 +1704,7 @@ async function run() {
         await tapPhoneHubRow("Chart-Handel");
         await waitForPagePredicate(cdp, '!document.querySelector(".chart-trading-controls")', "chart trading controls collapse again");
         activeLabel = "mobile liquidation heatmap study";
-        await tapWorkspaceTarget(cdp, '.phone-chart-actions [aria-label="Indicators"]');
+        await tapWorkspaceTarget(cdp, '.phone-chart-actions [aria-label="Indicators"]', 36);
         await waitForPagePredicate(cdp, '!!document.querySelector(\'.indicator-modal input[aria-label="Search indicators"]\')', "indicator picker opens");
         await cdp.send("Runtime.evaluate", { expression: `document.querySelector('.indicator-modal input').focus()` });
         await cdp.send("Input.insertText", { text: "Liquidation Levels" });
@@ -1733,7 +1733,7 @@ async function run() {
         const beforeFootprint = requestedTradePages.length;
         await cdp.send("Runtime.evaluate", { expression: `window.__sizedBeforeFootprint = new Set([...document.querySelectorAll('.vela-container canvas')].filter(canvas => canvas.width && canvas.height))` });
         const chooseType = async (name) => {
-          await tapWorkspaceTarget(cdp, ".phone-chart-actions .chart-type-button", 44);
+          await tapWorkspaceTarget(cdp, ".phone-chart-actions .chart-type-button", 36);
           const selector = `.chart-type-popover [title="${name}"]`;
           await waitForPagePredicate(cdp, `!!document.querySelector(${JSON.stringify(selector)})`, `chart type picker offers ${name}`);
           await cdp.send("Runtime.evaluate", { expression: `document.querySelector(${JSON.stringify(selector)}).scrollIntoView({ block: 'nearest' })` });
@@ -1930,7 +1930,7 @@ async function run() {
             await tapWorkspaceTarget(cdp, ".phone-watchlist-actions button:first-child", 44);
             await tapWorkspaceTarget(cdp, ".phone-watchlist .watchlist-asset", 36);
             await waitForPagePredicate(cdp, '!document.querySelector(".right-sidebar") && document.querySelector(\'.phone-chart-actions [aria-label="Watchlists"]\')?.getAttribute("aria-pressed") === "false"', "tapping an instrument returns to the chart");
-            await tapWorkspaceTarget(cdp, '.phone-chart-actions [aria-label="Watchlists"]');
+            await tapWorkspaceTarget(cdp, '.phone-chart-actions [aria-label="Watchlists"]', 36);
             await waitForPagePredicate(cdp, '!!document.querySelector(".phone-watchlist .sidebar-sheet-resizer[aria-valuenow]")', "watchlist reopens with its height controls");
             liquidMarketsWatchlistChecked = true;
           }
