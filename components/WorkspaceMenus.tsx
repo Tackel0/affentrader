@@ -40,6 +40,7 @@ import { Modal, IconButton } from "./ui";
 import { useAlpacaStore } from "@/stores/useAlpacaStore";
 import { useTradeArchiveStore } from "@/stores/useTradeArchiveStore";
 import { hasUnreadChangelog, markChangelogSeen } from "@/lib/changelog";
+import { AffenMark } from "./BrandMark";
 export function useDismiss(open: boolean, close: () => void) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -82,7 +83,10 @@ function MainMenuContent({
   return (
     <>
       <div className="menu-product">
-        AffenTerminal<span>Pro Market &amp; Orderflow GUI</span>
+        <AffenMark size={34} variant="tile" />
+        <div>
+          AffenTerminal<span>Pro Market &amp; Orderflow GUI</span>
+        </div>
       </div>
       <div className="popover-label">Konto &amp; Sync</div>
       <button

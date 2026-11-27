@@ -2,7 +2,8 @@
 import { accountScopedName } from "@/lib/accountScope";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { Terminal, ExternalLink, Activity, Moon, Sun, UserRound } from "lucide-react";
+import { ExternalLink, Activity, Moon, Sun, UserRound } from "lucide-react";
+import { AffenMark } from "./BrandMark";
 import { useChartStore } from "@/stores/useChartStore";
 import { LINK_GROUPS, useLinkStore } from "@/stores/useLinkStore";
 import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
@@ -134,7 +135,7 @@ export function AffenTerminalWindow({
       {deployment}
       <header className="affen-window-header">
         <div className="affen-brand-block">
-          <Terminal size={18} aria-hidden="true" />
+          <AffenMark size={22} variant="tile" />
           <strong>AffenTerminal</strong>
         </div>
 

@@ -10,7 +10,6 @@ import { bindSidebarChartBounds } from "@/lib/chart/sidebarBounds";
 import { bindSidebarResize, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } from "@/lib/chart/sidebarResize";
 import { bindBottomPanelResize, COMPACT_WORKSPACE_QUERY, TABLET_WORKSPACE_QUERY } from "@/lib/chart/bottomPanelResize";
 import {
-  Activity,
   Bell,
   List,
   Layers,
@@ -20,6 +19,7 @@ import {
   X,
   ListTree,
 } from "lucide-react";
+import { AffenMark } from "./BrandMark";
 import { createWorkspaceBackup, restoreWorkspaceText } from "@/lib/workspaceBackup";
 import { useMarketData } from "@/hooks/useMarketData";
 import { getPrimaryChart } from "@/hooks/useVelaChart";
@@ -91,9 +91,9 @@ export default function TradingWorkspace({ deployment, initialSidebar }: Workspa
   if (!mounted)
     return (
       <div className="boot-screen">
-        <Activity size={30} />
+        <AffenMark size={64} variant="tile" />
         <strong>AffenTerminal</strong>
-        <span>Preparing your AffenTerminal workspace…</span>
+        <span>Market · Orderflow · Quant</span>
         {deployment}
       </div>
     );

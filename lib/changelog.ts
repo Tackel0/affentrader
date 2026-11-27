@@ -23,6 +23,29 @@ export const CHANGELOG_CATEGORY_LABELS: Record<ChangelogCategory, string> = {
 
 export const CHANGELOG_RELEASES: readonly ChangelogRelease[] = [
   {
+    id: "2026-11-27-affen-branding",
+    date: "2026-11-27",
+    version: "v1.6",
+    headline: "Neues AffenTerminal-Branding: Minimalistischer Titanium-Ape & OLED-Dark-Mode iPhone-Icons",
+    items: [
+      {
+        category: "feature",
+        title: "Neues geometrisches Affen-Signet (Titanium Crest & Amber Apex)",
+        detail: "Einheitliches, minimalistisches Affen-Emblem in gebürstetem Titan-Silber mit warmem Amber-Gold-Apex auf tiefem OLED-Obsidian — sauber skalierend vom 20px-Toolbar-Icon bis zum 512px-App-Icon.",
+      },
+      {
+        category: "improvement",
+        title: "Optimierte iPhone-Homescreen- & PWA-App-Icons",
+        detail: "Full-bleed 180×180 Apple-Touch-Icon ohne transparente Ecken für saubere iOS-Squircle-Maskierung im Dark Mode sowie neue 192px/512px/Maskable-Icons und OLED-Manifest-Farbe (#07090E).",
+      },
+      {
+        category: "improvement",
+        title: "Durchgängige Brand-Touchpoints in Boot, Menü, Terminal & Login",
+        detail: "Start-Screens, Hauptmenü, AffenTerminal-Header, Toolbar-Launcher und die Login-/Konto-Ansicht tragen jetzt das gemeinsame OLED-Obsidian- & Amber-Gold-Branding.",
+      },
+    ],
+  },
+  {
     id: "2026-11-27-command-risk-boot",
     date: "2026-11-27",
     version: "v1.5",

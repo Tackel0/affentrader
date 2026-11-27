@@ -293,16 +293,24 @@ body {
   border-color: var(--border);
 }
 .menu-product {
-  padding: 10px 16px 17px;
-  font-size: 18px;
-  font-weight: bold !important;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 16px 15px;
+  font-size: 16px;
+  font-weight: 700 !important;
+  letter-spacing: -0.02em;
+}
+.menu-product svg {
+  flex-shrink: 0;
 }
 .menu-product span {
   display: block;
   font-size: 11px;
-  font-weight: normal;
+  font-weight: 400;
+  letter-spacing: 0;
   color: var(--muted);
-  margin-top: 5px;
+  margin-top: 2px;
 }
 .popover-label {
   padding: 9px 16px;

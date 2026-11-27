@@ -14,11 +14,11 @@ import {
   Camera,
   PanelRightClose,
   PanelRightOpen,
-  ExternalLink,
   PenTool,
   List,
   Command,
 } from "lucide-react";
+import { AffenMark } from "./BrandMark";
 import { useChartStore } from "@/stores/useChartStore";
 import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
 import { useLinkStore } from "@/stores/useLinkStore";
@@ -121,7 +121,7 @@ export function WorkspaceToolbar({
           title="AffenTerminal GUI im externen Fenster öffnen"
           onClick={launchTerminalWindow}
         >
-          <ExternalLink size={15} />
+          <AffenMark size={16} variant="icon" />
           <span>AffenTerminal ↗</span>
         </button>
       ) : null}
