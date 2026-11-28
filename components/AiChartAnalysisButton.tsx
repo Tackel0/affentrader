@@ -1,6 +1,6 @@
 "use client";
-import { useState } from "react";
-import { BellPlus, EyeOff, RefreshCw, Sparkles, TrendingUp, X } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Activity, BellPlus, EyeOff, RefreshCw, Sparkles, TrendingUp, X } from "lucide-react";
 import { useDismiss } from "./WorkspaceMenus";
 import { useChartStore } from "@/stores/useChartStore";
 import {
@@ -8,6 +8,7 @@ import {
   buildAiAnalysisOverlays,
   type AiAnalysisLayerConfig,
 } from "@/lib/analysis/aiChartAnalysis";
+import { backtestAiChartAnalysis } from "@/lib/analysis/aiBacktest";
 import { setOverlay } from "@/lib/chart/overlays";
 import { PRIMARY_CELL } from "@/hooks/useOverlays";
 import { symbolLabel } from "@/lib/symbolId";
@@ -32,10 +33,28 @@ export function AiChartAnalysisButton() {
   const on = useChartStore((s) => s.aiAnalysisOn);
   const layers = useChartStore((s) => s.aiAnalysisLayers);
   const report = useChartStore((s) => s.aiAnalysisReport);
+  const candles = useChartStore((s) => s.candles);
   const symbol = useChartStore((s) => s.symbol);
   const timeframe = useChartStore((s) => s.timeframe);
   const [open, setOpen] = useState(false);
   const ref = useDismiss(open, () => setOpen(false));
+
+  // Zero-look-ahead walk-forward backtest on the active chart's loaded history (only computed while popover is open)
+  const historyBacktest = useMemo(() => {
+    if (!open || !report || candles.length < 75) return null;
+    const windowBars = candles.length > 360 ? candles.slice(-360) : candles;
+    return backtestAiChartAnalysis({
+      symbol,
+      timeframe,
+      bars: windowBars,
+      warmupBars: 60,
+      stepBars: 1,
+      minConfidence: 64,
+      maxEntryWaitBars: 4,
+      maxHoldBars: 36,
+      roundTripCostBps: 10,
+    });
+  }, [open, report, candles, symbol, timeframe]);
 
   const triggerAnalysis = () => {
     const state = useChartStore.getState();
@@ -88,7 +107,7 @@ export function AiChartAnalysisButton() {
     useChartStore.getState().set({
       alertDraft: {
         symbol,
-        name: `AI ${plan.direction === "long" ? "Long" : "Short"} Entry (${fmtPrice(plan.entryMid)})`,
+        name: `AI ${report.setupQuality} ${plan.direction === "long" ? "Long" : "Short"} (${fmtPrice(plan.entryMid)})`,
         price: plan.entryMid,
         source: "manual",
       },
@@ -108,19 +127,28 @@ export function AiChartAnalysisButton() {
         ? "BÄRISCH"
         : "NEUTRAL";
 
+  const qualityClass =
+    report?.setupQuality === "A+"
+      ? "aplus"
+      : report?.setupQuality === "B"
+        ? "bsetup"
+        : "wait";
+
   return (
     <div ref={ref} className="toolbar-popover-host">
       <button
         type="button"
         className={`toolbar-button ai-analysis-toolbar-button ${on ? "active" : ""}`}
         aria-label="AI Chartanalyse"
-        title="Professionelle AI Chartanalyse: zeichnet Marktstruktur, Trendlinien, Supply/Demand, FVG, Fib Golden Pocket, S/R, POC & Trade-Setup direkt in den Chart"
+        title="Professionelle AI Chartanalyse v2: zeichnet Marktstruktur, Trendlinien, Supply/Demand, FVG, Fib Golden Pocket, S/R, POC & backgetestete Trade-Setups direkt in den Chart"
         aria-pressed={on}
         aria-expanded={open}
         onClick={triggerAnalysis}
       >
         <Sparkles size={17} />
-        <span>AI Analyse{on && report ? ` · ${report.confidence}%` : ""}</span>
+        <span>
+          AI Analyse{on && report ? ` · ${report.setupQuality}` : ""}
+        </span>
       </button>
 
       {open ? (
@@ -132,16 +160,21 @@ export function AiChartAnalysisButton() {
           <div className="ai-analysis-head">
             <div className="ai-analysis-title">
               <Sparkles size={15} className="ai-sparkle-icon" />
-              <strong>AI Chartanalyse</strong>
+              <strong>AI Analyse v2</strong>
               <span className="ai-analysis-sym mono">
                 {symbolLabel(symbol)} · {timeframe}
               </span>
             </div>
             <div className="ai-analysis-head-actions">
               {report && (
-                <span className={`ai-bias-pill ${report.bias}`}>
-                  {biasText} · {report.confidence}%
-                </span>
+                <>
+                  <span className={`ai-quality-pill ${qualityClass}`} title="Setup-Qualität aus Walk-Forward-Kalibrierung">
+                    {report.setupQuality}
+                  </span>
+                  <span className={`ai-bias-pill ${report.bias}`}>
+                    {biasText} · {report.confidence}%
+                  </span>
+                </>
               )}
               <button
                 type="button"
@@ -162,26 +195,20 @@ export function AiChartAnalysisButton() {
 
               <div className="ai-metrics-strip">
                 <div>
+                  <span>ADX(14)</span>
+                  <strong className="mono">{report.adx14.toFixed(0)}</strong>
+                </div>
+                <div>
                   <span>RSI(14)</span>
                   <strong className="mono">{report.rsi14 !== null ? report.rsi14.toFixed(1) : "—"}</strong>
                 </div>
                 <div>
+                  <span>Rel. Vol</span>
+                  <strong className="mono">{report.relativeVolume.toFixed(1)}×</strong>
+                </div>
+                <div>
                   <span>ATR(14)</span>
                   <strong className="mono">{report.atrPct.toFixed(2)}%</strong>
-                </div>
-                <div>
-                  <span>EMA 20 / 50</span>
-                  <strong className="mono">
-                    {report.ema20 !== null && report.ema50 !== null
-                      ? report.ema20 > report.ema50
-                        ? "Bull ↑"
-                        : "Bear ↓"
-                      : "—"}
-                  </strong>
-                </div>
-                <div>
-                  <span>Vol-POC</span>
-                  <strong className="mono">{report.volumePoc !== null ? fmtPrice(report.volumePoc) : "—"}</strong>
                 </div>
               </div>
 
@@ -205,12 +232,13 @@ export function AiChartAnalysisButton() {
                 ))}
               </ul>
 
-              {report.tradePlan && (
+              {report.tradePlan ? (
                 <div className={`ai-plan-card ${report.tradePlan.direction}`}>
                   <header>
                     <strong>
                       <TrendingUp size={13} />{" "}
-                      {report.tradePlan.direction === "long" ? "Long-Szenario" : "Short-Szenario"}
+                      {report.setupQuality} {report.tradePlan.direction === "long" ? "Long" : "Short"} ·{" "}
+                      {report.tradePlan.entryMode === "breakout" ? "Breakout" : "Retest/Zone"}
                     </strong>
                     <span className="mono">
                       R:R {report.tradePlan.riskReward1.toFixed(1)} / {report.tradePlan.riskReward2.toFixed(1)}
@@ -224,16 +252,18 @@ export function AiChartAnalysisButton() {
                       </strong>
                     </div>
                     <div>
-                      <span>Stop-Loss</span>
+                      <span>Stop (2× ATR)</span>
                       <strong className="sl">{fmtPrice(report.tradePlan.stopLoss)}</strong>
                     </div>
                     <div>
-                      <span>TP 1</span>
+                      <span>TP 1 (50%)</span>
                       <strong className="tp">{fmtPrice(report.tradePlan.target1)}</strong>
                     </div>
                     <div>
-                      <span>TP 2</span>
-                      <strong className="tp">{fmtPrice(report.tradePlan.target2)}</strong>
+                      <span>Runner / TP 2</span>
+                      <strong className="tp">
+                        {fmtPrice(report.tradePlan.target2)} ({report.tradePlan.trailAtrMultiple.toFixed(1)}× Trail)
+                      </strong>
                     </div>
                   </div>
                   <p className="form-help">{report.tradePlan.rationale}</p>
@@ -246,6 +276,54 @@ export function AiChartAnalysisButton() {
                       <span>Paper-Trade öffnen</span>
                     </button>
                   </div>
+                </div>
+              ) : (
+                <div className="ai-wait-card">
+                  <strong>Kein Blind-Einstieg (WAIT)</strong>
+                  <span>
+                    Alle Zonen &amp; Struktur-Levels sind im Chart markiert. Ein Trade-Plan wird erst bei bestätigtem
+                    Makro-Ausbruch (A+) oder sauberem Zonen-Retest (B) ausgelöst.
+                  </span>
+                </div>
+              )}
+
+              {historyBacktest && (
+                <div className="ai-bt-strip" aria-label="Walk-Forward Backtest auf Chart-Historie">
+                  <div className="ai-bt-head">
+                    <strong>
+                      <Activity size={12} /> Chart-Backtest ({Math.min(candles.length, 360)} Kerzen)
+                    </strong>
+                    <span className="mono">
+                      {historyBacktest.trades > 0
+                        ? `${historyBacktest.trades} Trades · Zero-Look-Ahead`
+                        : "Kein Signal im Fenster"}
+                    </span>
+                  </div>
+                  {historyBacktest.trades > 0 && (
+                    <div className="ai-bt-grid mono">
+                      <div>
+                        <span>Winrate</span>
+                        <strong>{historyBacktest.winRatePct.toFixed(0)}%</strong>
+                      </div>
+                      <div>
+                        <span>Profit Factor</span>
+                        <strong className={historyBacktest.profitFactor >= 1.1 ? "pos" : historyBacktest.profitFactor < 0.9 ? "neg" : ""}>
+                          {historyBacktest.profitFactor >= 99 ? "∞" : historyBacktest.profitFactor.toFixed(2)}
+                        </strong>
+                      </div>
+                      <div>
+                        <span>Gesamt-R</span>
+                        <strong className={historyBacktest.totalR >= 0 ? "pos" : "neg"}>
+                          {historyBacktest.totalR >= 0 ? "+" : ""}
+                          {historyBacktest.totalR.toFixed(1)}R
+                        </strong>
+                      </div>
+                      <div>
+                        <span>Max DD</span>
+                        <strong>{historyBacktest.maxDrawdownR.toFixed(1)}R</strong>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -260,7 +338,7 @@ export function AiChartAnalysisButton() {
                 </button>
               </div>
               <p className="ai-disclaimer">
-                Algorithmische Chartanalyse (Marktstruktur, OB/FVG, S/R, POC &amp; Options-Konfluenz) — keine Anlageberatung.
+                Walk-Forward-kalibrierte Chartanalyse (inkl. 0,10% Gebühren/Slippage im Backtest) — keine Anlageberatung.
               </p>
             </>
           )}
@@ -269,3 +347,4 @@ export function AiChartAnalysisButton() {
     </div>
   );
 }
+

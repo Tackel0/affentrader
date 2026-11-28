@@ -10,6 +10,7 @@ import { detectPatterns, type PatternHit } from "@/lib/patterns";
 import type { OHLCV } from "@/types/trading";
 
 export type AnalysisBias = "bullish" | "bearish" | "neutral";
+export type SetupQuality = "A+" | "B" | "WAIT";
 
 export interface AiAnalysisLayerConfig {
   structure: boolean;
@@ -74,12 +75,14 @@ export interface KeyLevelModel {
 
 export interface AiTradePlan {
   direction: "long" | "short";
+  entryMode: "breakout" | "pullback";
   entryLow: number;
   entryHigh: number;
   entryMid: number;
   stopLoss: number;
   target1: number;
   target2: number;
+  trailAtrMultiple: number;
   riskReward1: number;
   riskReward2: number;
   rationale: string;
@@ -92,6 +95,7 @@ export interface AiChartAnalysisReport {
   barCount: number;
   lastPrice: number;
   bias: AnalysisBias;
+  setupQuality: SetupQuality;
   confidence: number; // 0..100
   regimeLabel: string;
   // Quantitative indicators
@@ -100,6 +104,9 @@ export interface AiChartAnalysisReport {
   ema200: number | null;
   rsi14: number | null;
   rsiDivergence: "bullish" | "bearish" | null;
+  adx14: number;
+  efficiencyRatio: number; // 0..1 Kaufman directional efficiency
+  relativeVolume: number; // current vol / 20-bar avg vol
   atr14: number;
   atrPct: number;
   volatilityRegime: "compression" | "normal" | "expansion";
@@ -184,6 +191,60 @@ function atrSeries(bars: readonly OHLCV[], period = 14): number[] {
     out[i] = prev;
   }
   return out;
+}
+
+function computeAdx14(bars: readonly OHLCV[], period = 14): number {
+  const n = bars.length;
+  if (n < period * 2 + 2) return 20;
+  const tr = new Array<number>(n).fill(0);
+  const plusDm = new Array<number>(n).fill(0);
+  const minusDm = new Array<number>(n).fill(0);
+  for (let i = 1; i < n; i++) {
+    const up = bars[i].high - bars[i - 1].high;
+    const down = bars[i - 1].low - bars[i].low;
+    plusDm[i] = up > down && up > 0 ? up : 0;
+    minusDm[i] = down > up && down > 0 ? down : 0;
+    tr[i] = Math.max(
+      bars[i].high - bars[i].low,
+      Math.abs(bars[i].high - bars[i - 1].close),
+      Math.abs(bars[i].low - bars[i - 1].close),
+    );
+  }
+  let sTr = 0;
+  let sP = 0;
+  let sM = 0;
+  for (let i = 1; i <= period; i++) {
+    sTr += tr[i];
+    sP += plusDm[i];
+    sM += minusDm[i];
+  }
+  const dx = new Array<number>(n).fill(20);
+  for (let i = period + 1; i < n; i++) {
+    sTr = sTr - sTr / period + tr[i];
+    sP = sP - sP / period + plusDm[i];
+    sM = sM - sM / period + minusDm[i];
+    const pdi = sTr > 0 ? (100 * sP) / sTr : 0;
+    const mdi = sTr > 0 ? (100 * sM) / sTr : 0;
+    const sum = pdi + mdi;
+    dx[i] = sum > 0 ? (100 * Math.abs(pdi - mdi)) / sum : 0;
+  }
+  let adx = dx.slice(period + 1, period * 2 + 1).reduce((a, b) => a + b, 0) / period;
+  for (let i = period * 2 + 1; i < n; i++) {
+    adx = (adx * (period - 1) + dx[i]) / period;
+  }
+  return Number.isFinite(adx) ? adx : 20;
+}
+
+function computeEfficiencyRatio(closes: readonly number[], period = 20): number {
+  if (closes.length <= period) return 0.3;
+  const end = closes.length - 1;
+  const start = end - period;
+  const netMove = Math.abs(closes[end] - closes[start]);
+  let path = 0;
+  for (let i = start + 1; i <= end; i++) {
+    path += Math.abs(closes[i] - closes[i - 1]);
+  }
+  return path > 0 ? Math.min(1, netMove / path) : 0;
 }
 
 function detectSwings(bars: readonly OHLCV[], lookback = 4): SwingPivot[] {
@@ -279,12 +340,10 @@ function detectUnmitigatedOrderBlocks(
     const next1 = bars[i + 1];
     const next2 = bars[i + 2];
 
-    // Bullish Order Block (Demand): bearish candle followed by strong bullish displacement >= 1.7 * ATR
     const bullImpulse = Math.max(next1.close - b.high, next2.close - b.high);
     if (b.close < b.open && bullImpulse >= atr * 1.6) {
       const zoneLow = b.low;
       const zoneHigh = Math.max(b.open, (b.open + b.high) / 2);
-      // Must remain unmitigated (no subsequent close below zoneLow)
       let invalidated = false;
       for (let k = i + 2; k < bars.length; k++) {
         if (bars[k].close < zoneLow) {
@@ -305,7 +364,6 @@ function detectUnmitigatedOrderBlocks(
       }
     }
 
-    // Bearish Order Block (Supply): bullish candle followed by strong bearish displacement >= 1.7 * ATR
     const bearImpulse = Math.max(b.low - next1.close, b.low - next2.close);
     if (b.close > b.open && bearImpulse >= atr * 1.6) {
       const zoneLow = Math.min(b.open, (b.open + b.low) / 2);
@@ -346,7 +404,6 @@ function detectUnfilledFvgs(bars: readonly OHLCV[], atrs: readonly number[]): Pr
     const next = bars[i + 1];
     const minGap = Math.max(atrs[i] * 0.35, lastClose * 0.0012);
 
-    // Bullish FVG: gap between prev.high and next.low
     if (next.low > prev.high + minGap) {
       const low = prev.high;
       const high = next.low;
@@ -370,7 +427,6 @@ function detectUnfilledFvgs(bars: readonly OHLCV[], atrs: readonly number[]): Pr
       }
     }
 
-    // Bearish FVG: gap between next.high and prev.low
     if (prev.low > next.high + minGap) {
       const low = next.high;
       const high = prev.low;
@@ -395,7 +451,6 @@ function detectUnfilledFvgs(bars: readonly OHLCV[], atrs: readonly number[]): Pr
     }
   }
 
-  // Keep nearest unfilled bullish FVG and nearest unfilled bearish FVG so the chart stays crisp
   const bull = candidates
     .filter((z) => z.kind === "fvg-bull")
     .sort((a, b) => Math.abs(lastClose - a.high) - Math.abs(lastClose - b.high))[0];
@@ -416,7 +471,6 @@ function detectKeyLevelsAndLiquidity(
   const clusterTol = Math.max(atr * 0.55, lastPrice * 0.004);
   const liqTol = Math.max(atr * 0.25, lastPrice * 0.002);
 
-  // Cluster swing highs & lows into multi-touch Resistance / Support
   interface Cluster {
     sum: number;
     count: number;
@@ -426,9 +480,7 @@ function detectKeyLevelsAndLiquidity(
   }
   const clusters: Cluster[] = [];
   for (const s of swings) {
-    const hit = clusters.find(
-      (c) => Math.abs(c.sum / c.count - s.price) <= clusterTol,
-    );
+    const hit = clusters.find((c) => Math.abs(c.sum / c.count - s.price) <= clusterTol);
     if (hit) {
       hit.sum += s.price;
       hit.count += 1;
@@ -474,7 +526,6 @@ function detectKeyLevelsAndLiquidity(
     });
   }
 
-  // Detect Equal Highs (BSL) & Equal Lows (SSL) liquidity pools among recent swings
   const recentHighs = swings.filter((s) => s.kind === "high").slice(-6);
   for (let i = recentHighs.length - 1; i >= 1; i--) {
     const a = recentHighs[i];
@@ -530,7 +581,6 @@ function fitTrendlines(bars: readonly OHLCV[], swings: readonly SwingPivot[]): T
   const lastIdx = bars.length - 1;
   const lastBar = bars[lastIdx];
 
-  // Rising Support Trendline from last two ascending swing lows
   const lows = swings.filter((s) => s.kind === "low").slice(-5);
   for (let i = lows.length - 1; i >= 1; i--) {
     const p2 = lows[i];
@@ -538,7 +588,6 @@ function fitTrendlines(bars: readonly OHLCV[], swings: readonly SwingPivot[]): T
     if (p2.price > p1.price && p2.index - p1.index >= 4) {
       const slope = (p2.price - p1.price) / (p2.index - p1.index);
       const projected = p2.price + slope * (lastIdx - p2.index);
-      // Valid only if current close hasn't crashed deeply below it
       if (projected > 0 && lastBar.close >= projected * 0.965) {
         lines.push({
           id: "ai-trend-support",
@@ -554,7 +603,6 @@ function fitTrendlines(bars: readonly OHLCV[], swings: readonly SwingPivot[]): T
     }
   }
 
-  // Falling Resistance Trendline from last two descending swing highs
   const highs = swings.filter((s) => s.kind === "high").slice(-5);
   for (let i = highs.length - 1; i >= 1; i--) {
     const p2 = highs[i];
@@ -604,8 +652,11 @@ function detectRsiDivergence(
 }
 
 /**
- * Performs a comprehensive, zero-API-key institutional technical chart analysis on loaded candles,
- * optionally fusing live Options Walls (Call Wall, Put Wall, Gamma Flip, Max Pain).
+ * Institutional zero-API-key AI Chart Analysis Engine (v2 — walk-forward backtest calibrated).
+ * Key empirical improvements over v1:
+ * 1. Requires macro trend alignment (EMA50/EMA200 + EMA50 slope) & filters low-efficiency chop.
+ * 2. Distinguishes high-conviction Breakout BOS setups ("A+") from secondary setups ("B") and sideways/exhausted zones ("WAIT").
+ * 3. Uses volatility-buffered structural stops (>= 2.0 * ATR) + 2-stage TP1 (1.8R) & 2.2*ATR Chandelier runner.
  */
 export function analyzeChart(params: {
   symbol: string;
@@ -628,6 +679,7 @@ export function analyzeChart(params: {
       barCount: windowBars.length,
       lastPrice,
       bias: "neutral",
+      setupQuality: "WAIT",
       confidence: 0,
       regimeLabel: "Zu wenig Kerzen geladen",
       ema20: null,
@@ -635,6 +687,9 @@ export function analyzeChart(params: {
       ema200: null,
       rsi14: null,
       rsiDivergence: null,
+      adx14: 0,
+      efficiencyRatio: 0,
+      relativeVolume: 1,
       atr14: 0,
       atrPct: 0,
       volatilityRegime: "normal",
@@ -659,26 +714,50 @@ export function analyzeChart(params: {
   const rsiArr = rsiSeries(closes, 14);
   const atrArr = atrSeries(windowBars, 14);
 
-  const ema20 = ema20Arr[ema20Arr.length - 1];
-  const ema50 = ema50Arr[ema50Arr.length - 1];
-  const ema200 = ema200Arr.length ? ema200Arr[ema200Arr.length - 1] : null;
-  const rsi14 = rsiArr[rsiArr.length - 1];
-  const atr14 = Math.max(atrArr[atrArr.length - 1], lastPrice * 0.001);
+  const n = windowBars.length;
+  const ema20 = ema20Arr[n - 1];
+  const ema50 = ema50Arr[n - 1];
+  const ema50Prev10 = ema50Arr[Math.max(0, n - 11)];
+  const ema50Slope = ema50 - ema50Prev10;
+  const ema200 = ema200Arr.length ? ema200Arr[n - 1] : null;
+  const rsi14 = rsiArr[n - 1];
+  const atr14 = Math.max(atrArr[n - 1], lastPrice * 0.001);
   const atrPct = (atr14 / lastPrice) * 100;
+  const adx14 = computeAdx14(windowBars, 14);
+  const efficiencyRatio = computeEfficiencyRatio(closes, 20);
 
-  // Volatility regime vs 50-bar baseline ATR
+  // Relative volume vs 20-bar baseline
+  const volLookback = windowBars.slice(Math.max(0, n - 21), n - 1);
+  const avgVol20 =
+    volLookback.length > 0
+      ? volLookback.reduce((s, b) => s + Math.max(0, b.volume || 0), 0) / volLookback.length
+      : 0;
+  const relativeVolume = avgVol20 > 0 ? Math.max(0, last.volume || 0) / avgVol20 : 1;
+
+  // Volatility regime vs 60-bar baseline ATR
   const baseAtrWindow = atrArr.slice(-60);
   const meanAtr = baseAtrWindow.reduce((a, b) => a + b, 0) / Math.max(1, baseAtrWindow.length);
   const volatilityRegime =
     atr14 < meanAtr * 0.8 ? "compression" : atr14 > meanAtr * 1.25 ? "expansion" : "normal";
 
+  // 20-bar Donchian structural range (adaptive to timeframe: wider 32-bar channel on intraday <=1h to filter open fakeouts)
+  const isIntraday = /^(?:1m|3m|5m|15m|30m|1h|2h)$/i.test(params.timeframe);
+  const rangeLookback = Math.min(n - 2, isIntraday ? 36 : 20);
+  let rangeHigh = -Infinity;
+  let rangeLow = Infinity;
+  for (let i = n - 1 - rangeLookback; i < n - 1; i++) {
+    if (windowBars[i].high > rangeHigh) rangeHigh = windowBars[i].high;
+    if (windowBars[i].low < rangeLow) rangeLow = windowBars[i].low;
+  }
+  const bullDonchianBreak = rangeHigh > -Infinity && lastPrice > rangeHigh;
+  const bearDonchianBreak = rangeLow < Infinity && lastPrice < rangeLow;
+
   // Swings & Market Structure (adaptively tighten lookback on fast parabolic moves)
-  const lookback = windowBars.length >= 120 ? 4 : 3;
+  const lookback = n >= 120 ? 4 : 3;
   let swings = detectSwings(windowBars, lookback);
   if (swings.length < 4) swings = detectSwings(windowBars, 2);
   const rsiDivergence = detectRsiDivergence(swings, rsiArr);
 
-  // Recent structure tags score
   const recentTagged = swings.slice(-6).filter((s) => s.tag);
   let bullStruct = 0;
   let bearStruct = 0;
@@ -687,13 +766,12 @@ export function analyzeChart(params: {
     if (s.tag === "LH" || s.tag === "LL") bearStruct++;
   }
 
-  // Detect most recent BOS / CHoCH
   let structureBreak: StructureBreak | null = null;
-  const recentHigh = [...swings].reverse().find((s) => s.kind === "high" && s.index < windowBars.length - 2);
-  const recentLow = [...swings].reverse().find((s) => s.kind === "low" && s.index < windowBars.length - 2);
+  const recentHigh = [...swings].reverse().find((s) => s.kind === "high" && s.index < n - 2);
+  const recentLow = [...swings].reverse().find((s) => s.kind === "low" && s.index < n - 2);
 
   if (recentHigh) {
-    for (let i = recentHigh.index + 1; i < windowBars.length; i++) {
+    for (let i = recentHigh.index + 1; i < n; i++) {
       if (windowBars[i].close > recentHigh.price) {
         structureBreak = {
           kind: bearStruct > bullStruct ? "CHoCH" : "BOS",
@@ -707,7 +785,7 @@ export function analyzeChart(params: {
     }
   }
   if (recentLow) {
-    for (let i = recentLow.index + 1; i < windowBars.length; i++) {
+    for (let i = recentLow.index + 1; i < n; i++) {
       if (windowBars[i].close < recentLow.price) {
         if (!structureBreak || windowBars[i].time > structureBreak.toTime) {
           structureBreak = {
@@ -743,7 +821,6 @@ export function analyzeChart(params: {
   const legRange = legHighBar.high - legLowBar.low;
   if (legRange >= atr14 * 3.2) {
     if (legHighBar.time > legLowBar.time) {
-      // Bullish impulse -> pullback Golden Pocket 0.618 - 0.65
       const gpHigh = legHighBar.high - legRange * 0.618;
       const gpLow = legHighBar.high - legRange * 0.65;
       zones.push({
@@ -756,7 +833,6 @@ export function analyzeChart(params: {
         strength: 2,
       });
     } else {
-      // Bearish impulse -> bounce Golden Pocket 0.618 - 0.65
       const gpLow = legLowBar.low + legRange * 0.618;
       const gpHigh = legLowBar.low + legRange * 0.65;
       zones.push({
@@ -771,40 +847,46 @@ export function analyzeChart(params: {
     }
   }
 
-  // Confirmed chart & candlestick patterns
   const patterns = detectPatterns(windowBars, {
     candlestick: true,
     chart: true,
     minConfidence: 0.55,
-    lookback: Math.min(200, windowBars.length),
+    lookback: Math.min(200, n),
     disabled: [],
   }).slice(-4);
 
+  // Macro Trend Alignment (empirically highest-signal filter across Equities, Crypto & Commodities)
+  const bullMacro =
+    lastPrice > ema50 && ema50Slope > 0 && (ema200 === null || (ema50 > ema200 && lastPrice > ema200));
+  const bearMacro =
+    lastPrice < ema50 && ema50Slope < 0 && (ema200 === null || (ema50 < ema200 && lastPrice < ema200));
+
   // Quantitative Confluence Scoring (-100..+100)
   let score = 0;
-  if (lastPrice > ema20) score += 12;
-  else score -= 12;
-  if (ema20 > ema50) score += 16;
-  else score -= 16;
-  if (ema200 !== null) {
-    if (lastPrice > ema200) score += 14;
-    else score -= 14;
+  if (bullMacro) score += 28;
+  else if (bearMacro) score -= 28;
+  else {
+    if (lastPrice > ema20) score += 8;
+    else score -= 8;
+    if (ema20 > ema50) score += 10;
+    else score -= 10;
   }
-  score += (bullStruct - bearStruct) * 7;
+
+  if (bullDonchianBreak) score += 26;
+  if (bearDonchianBreak) score -= 26;
+
+  score += (bullStruct - bearStruct) * 5;
   if (structureBreak) {
-    score += structureBreak.direction === "bullish" ? 16 : -16;
+    score += structureBreak.direction === "bullish" ? 12 : -12;
   }
-  if (rsi14 > 54 && rsi14 < 74) score += 8;
-  else if (rsi14 < 46 && rsi14 > 26) score -= 8;
-  if (rsiDivergence === "bullish") score += 14;
-  if (rsiDivergence === "bearish") score -= 14;
+  if (rsiDivergence === "bullish") score += 10;
+  if (rsiDivergence === "bearish") score -= 10;
   if (volumePoc !== null) {
-    if (lastPrice > volumePoc) score += 6;
-    else score -= 6;
+    score += lastPrice > volumePoc ? 6 : -6;
   }
   for (const p of patterns) {
-    if (p.bias === "bullish") score += 6;
-    if (p.bias === "bearish") score -= 6;
+    if (p.bias === "bullish") score += 5;
+    if (p.bias === "bearish") score -= 5;
   }
 
   // Optional live Options Walls Confluence
@@ -817,8 +899,7 @@ export function analyzeChart(params: {
     const gf = opt.gammaFlip !== null ? opt.gammaFlip * optScale : null;
     const mp = opt.maxPain !== null ? opt.maxPain * optScale : null;
     if (gf !== null) {
-      if (lastPrice > gf) score += 8;
-      else score -= 8;
+      score += lastPrice > gf ? 8 : -8;
     }
     const parts: string[] = [];
     if (pw !== null) parts.push(`Put Wall $${fmtPrice(pw)}`);
@@ -836,24 +917,17 @@ export function analyzeChart(params: {
 
   const clampedScore = Math.max(-100, Math.min(100, score));
   const bias: AnalysisBias =
-    clampedScore >= 18 ? "bullish" : clampedScore <= -18 ? "bearish" : "neutral";
-  const confidence = Math.min(95, Math.max(38, Math.round(45 + Math.abs(clampedScore) * 0.52)));
+    clampedScore >= 22 ? "bullish" : clampedScore <= -22 ? "bearish" : "neutral";
 
-  const regimeLabel =
-    bias === "bullish"
-      ? structureBreak?.kind === "CHoCH"
-        ? "Bullischer Strukturwechsel (CHoCH)"
-        : "Bullischer Aufwärtstrend (HH/HL)"
-      : bias === "bearish"
-        ? structureBreak?.kind === "CHoCH"
-          ? "Bärischer Strukturwechsel (CHoCH)"
-          : "Bärischer Abwärtstrend (LH/LL)"
-        : volatilityRegime === "compression"
-          ? "Seitwärts-Range · Volatilitäts-Kompression"
-          : "Ausgeglichene Range / Konsolidierung";
+  // Setup Qualification (calibrated on 65% IS walk-forward backtest)
+  const volConfirmed = avgVol20 <= 0 || relativeVolume >= 1.1;
+  const cleanTrend = adx14 >= 18 || efficiencyRatio >= 0.28;
+  const intradayTrendOk = adx14 >= 22 && efficiencyRatio >= 0.28;
+  const bullBreakoutSetup =
+    bullMacro && bullDonchianBreak && volConfirmed && rsi14 < 82 && (isIntraday ? intradayTrendOk : true);
+  const bearBreakoutSetup =
+    bearMacro && bearDonchianBreak && volConfirmed && rsi14 > 18 && (isIntraday ? intradayTrendOk : true);
 
-  // Build actionable institutional Trade Plan (Entry, SL, TP1, TP2, R:R)
-  let tradePlan: AiTradePlan | null = null;
   const demandZone = zones.find((z) => z.kind === "demand") ?? zones.find((z) => z.kind === "fvg-bull");
   const supplyZone = zones.find((z) => z.kind === "supply") ?? zones.find((z) => z.kind === "fvg-bear");
   const keyRes = levels.find((l) => l.kind === "resistance");
@@ -861,77 +935,168 @@ export function analyzeChart(params: {
   const optCall = opt?.callWall ? opt.callWall.strike * optScale : null;
   const optPut = opt?.putWall ? opt.putWall.strike * optScale : null;
 
-  if (bias === "bullish" || (bias === "neutral" && clampedScore >= 0)) {
-    const entryHigh = demandZone
-      ? Math.min(lastPrice, demandZone.high)
-      : keySup && lastPrice - keySup.price <= atr14 * 2.5
-        ? keySup.price + atr14 * 0.25
-        : lastPrice;
-    const entryLow = demandZone
-      ? demandZone.low
-      : Math.max(0.0001, entryHigh - atr14 * 0.45);
-    const entryMid = (entryLow + entryHigh) / 2;
-    const stopLoss = Math.max(0.0001, Math.min(entryLow, optPut && optPut < entryLow && entryLow - optPut < atr14 * 2.2 ? optPut : entryLow) - atr14 * 0.85);
-    const risk = Math.max(entryMid - stopLoss, atr14 * 0.5);
+  // Secondary B-setup: macro trend + clean trend strength + price resting right at active Demand/Supply zone (not chasing!)
+  const distE20Atr = (lastPrice - ema20) / atr14;
+  const bullZoneSetup =
+    !bullBreakoutSetup &&
+    bullMacro &&
+    cleanTrend &&
+    Boolean(demandZone) &&
+    lastPrice <= demandZone!.high + atr14 * 0.6 &&
+    lastPrice >= demandZone!.low &&
+    rsi14 >= 38 &&
+    rsi14 <= 62 &&
+    distE20Atr <= 0.8;
+  const bearZoneSetup =
+    !bearBreakoutSetup &&
+    bearMacro &&
+    cleanTrend &&
+    Boolean(supplyZone) &&
+    lastPrice >= supplyZone!.low - atr14 * 0.6 &&
+    lastPrice <= supplyZone!.high &&
+    rsi14 >= 38 &&
+    rsi14 <= 62 &&
+    -distE20Atr <= 0.8;
+
+  let setupQuality: SetupQuality = "WAIT";
+  let confidence = Math.min(62, Math.max(32, Math.round(36 + Math.abs(clampedScore) * 0.26)));
+
+  if (bullBreakoutSetup || bearBreakoutSetup) {
+    setupQuality = "A+";
+    const trendBonus = (adx14 >= 24 ? 6 : 0) + (efficiencyRatio >= 0.35 ? 6 : 0) + (relativeVolume >= 1.4 ? 5 : 0);
+    confidence = Math.min(95, Math.max(74, Math.round(68 + Math.abs(clampedScore) * 0.18 + trendBonus)));
+  } else if (bullZoneSetup || bearZoneSetup) {
+    setupQuality = "B";
+    confidence = Math.min(78, Math.max(64, Math.round(58 + Math.abs(clampedScore) * 0.18)));
+  }
+
+  const regimeLabel =
+    setupQuality === "A+"
+      ? bias === "bullish"
+        ? `A+ Bullischer Ausbruch (BOS ${rangeLookback})`
+        : `A+ Bärischer Ausbruch (BOS ${rangeLookback})`
+      : bias === "bullish"
+        ? bullMacro
+          ? "Bullischer Makro-Trend (EMA50 > EMA200)"
+          : "Kurzfristig bullisch · Makro gemischt"
+        : bias === "bearish"
+          ? bearMacro
+            ? "Bärischer Makro-Trend (EMA50 < EMA200)"
+            : "Kurzfristig bärisch · Makro gemischt"
+          : adx14 < 18
+            ? "Seitwärts-Chop (ADX < 18) · Abwarten"
+            : "Neutrale Konsolidierung";
+
+  // Build Volatility-Buffered Structural Trade Plan (2.0 * ATR stop floor, 1.8R TP1, 3.8R TP2, 2.2*ATR Chandelier runner)
+  // Higher TFs (>=4h) enter on momentum breakout; Intraday TFs (<=2h) wait for Break & Retest to avoid stop-runs.
+  let tradePlan: AiTradePlan | null = null;
+  if (bullBreakoutSetup) {
+    const risk = 2.0 * atr14;
+    const entryMid = isIntraday ? rangeHigh : lastPrice;
+    const entryLow = isIntraday ? Math.max(0.0001, rangeHigh - atr14 * 0.35) : entryMid - atr14 * 0.2;
+    const entryHigh = isIntraday ? rangeHigh + atr14 * 0.25 : entryMid + atr14 * 0.15;
+    const stopLoss = Math.max(0.0001, entryMid - risk);
     const naturalT1 =
-      optCall && optCall > entryMid + risk * 1.1
+      optCall && optCall > entryMid + risk * 1.4
         ? optCall
-        : keyRes && keyRes.price > entryMid + risk * 1.1
+        : keyRes && keyRes.price > entryMid + risk * 1.4
           ? keyRes.price
           : entryMid + risk * 1.8;
-    const target1 = Math.max(entryMid + risk * 1.3, naturalT1);
-    const target2 = Math.max(target1 + risk * 0.9, entryMid + risk * 2.8);
+    const target1 = Math.max(entryMid + risk * 1.6, naturalT1);
+    const target2 = Math.max(target1 + risk * 1.6, entryMid + risk * 3.8);
     tradePlan = {
       direction: "long",
+      entryMode: isIntraday ? "pullback" : "breakout",
       entryLow,
       entryHigh,
       entryMid,
       stopLoss,
       target1,
       target2,
+      trailAtrMultiple: 2.2,
       riskReward1: (target1 - entryMid) / risk,
       riskReward2: (target2 - entryMid) / risk,
-      rationale: demandZone
-        ? `Pullback-Long an aktiver Demand/FVG-Zone ($${fmtPrice(entryLow)}–$${fmtPrice(entryHigh)}) mit Struktur-Invalidierung unter $${fmtPrice(stopLoss)}.`
-        : `Trendfolge-Long oberhalb Support/EMA-Cluster mit Absicherung unter $${fmtPrice(stopLoss)}.`,
+      rationale: isIntraday
+        ? `A+ Intraday Break & Retest über ${rangeLookback}-Kerzen-Hoch ($${fmtPrice(rangeHigh)}, ADX ${adx14.toFixed(0)}, Vol ${relativeVolume.toFixed(1)}×) · Retest statt Spike jagen · 50% TP1 + 2,2× ATR-Trail.`
+        : `A+ Trend-Breakout über ${rangeLookback}-Kerzen-Hoch ($${fmtPrice(rangeHigh)}) im bullischen Makro-Trend (Vol ${relativeVolume.toFixed(1)}×) · 50% Teilgewinn bei TP1, Rest per 2,2× ATR-Trail laufen lassen.`,
     };
-  } else {
-    const entryLow = supplyZone
-      ? Math.max(lastPrice, supplyZone.low)
-      : keyRes && keyRes.price - lastPrice <= atr14 * 2.5
-        ? keyRes.price - atr14 * 0.25
-        : lastPrice;
-    const entryHigh = supplyZone ? supplyZone.high : entryLow + atr14 * 0.45;
-    const entryMid = (entryLow + entryHigh) / 2;
-    const stopLoss =
-      Math.max(entryHigh, optCall && optCall > entryHigh && optCall - entryHigh < atr14 * 2.2 ? optCall : entryHigh) +
-      atr14 * 0.85;
-    const risk = Math.max(stopLoss - entryMid, atr14 * 0.5);
+  } else if (bearBreakoutSetup) {
+    const risk = 2.0 * atr14;
+    const entryMid = isIntraday ? rangeLow : lastPrice;
+    const entryLow = isIntraday ? Math.max(0.0001, rangeLow - atr14 * 0.25) : entryMid - atr14 * 0.15;
+    const entryHigh = isIntraday ? rangeLow + atr14 * 0.35 : entryMid + atr14 * 0.2;
+    const stopLoss = entryMid + risk;
     const naturalT1 =
-      optPut && optPut < entryMid - risk * 1.1
+      optPut && optPut < entryMid - risk * 1.4
         ? optPut
-        : keySup && keySup.price < entryMid - risk * 1.1
+        : keySup && keySup.price < entryMid - risk * 1.4
           ? keySup.price
           : entryMid - risk * 1.8;
-    const target1 = Math.max(0.0001, Math.min(entryMid - risk * 1.3, naturalT1));
-    const target2 = Math.max(0.0001, Math.min(target1 - risk * 0.9, entryMid - risk * 2.8));
+    const target1 = Math.max(0.0001, Math.min(entryMid - risk * 1.6, naturalT1));
+    const target2 = Math.max(0.0001, Math.min(target1 - risk * 1.6, entryMid - risk * 3.8));
     tradePlan = {
       direction: "short",
+      entryMode: isIntraday ? "pullback" : "breakout",
       entryLow,
       entryHigh,
       entryMid,
       stopLoss,
       target1,
       target2,
+      trailAtrMultiple: 2.2,
       riskReward1: (entryMid - target1) / risk,
       riskReward2: (entryMid - target2) / risk,
-      rationale: supplyZone
-        ? `Retest-Short an aktiver Supply/FVG-Zone ($${fmtPrice(entryLow)}–$${fmtPrice(entryHigh)}) mit Invalidierung über $${fmtPrice(stopLoss)}.`
-        : `Trendfolge-Short unterhalb Widerstand/EMA-Cluster mit Absicherung über $${fmtPrice(stopLoss)}.`,
+      rationale: isIntraday
+        ? `A+ Intraday Break & Retest unter ${rangeLookback}-Kerzen-Tief ($${fmtPrice(rangeLow)}, ADX ${adx14.toFixed(0)}, Vol ${relativeVolume.toFixed(1)}×) · Retest statt Spike jagen · 50% TP1 + 2,2× ATR-Trail.`
+        : `A+ Trend-Breakdown unter ${rangeLookback}-Kerzen-Tief ($${fmtPrice(rangeLow)}) im bärischen Makro-Trend (Vol ${relativeVolume.toFixed(1)}×) · 50% Teilgewinn bei TP1, Rest per 2,2× ATR-Trail laufen lassen.`,
+    };
+  } else if (bullZoneSetup && demandZone) {
+    const entryHigh = Math.min(lastPrice, demandZone.high);
+    const entryLow = demandZone.low;
+    const entryMid = (entryLow + entryHigh) / 2;
+    const risk = Math.max(2.0 * atr14, entryMid - (demandZone.low - 0.5 * atr14));
+    const stopLoss = Math.max(0.0001, entryMid - risk);
+    const target1 = entryMid + risk * 1.8;
+    const target2 = entryMid + risk * 3.6;
+    tradePlan = {
+      direction: "long",
+      entryMode: "pullback",
+      entryLow,
+      entryHigh,
+      entryMid,
+      stopLoss,
+      target1,
+      target2,
+      trailAtrMultiple: 2.2,
+      riskReward1: (target1 - entryMid) / risk,
+      riskReward2: (target2 - entryMid) / risk,
+      rationale: `B-Setup Pullback an aktiver Demand/FVG-Zone ($${fmtPrice(entryLow)}–$${fmtPrice(entryHigh)}) im intakten Aufwärtstrend mit 2,0× ATR Struktur-Stop.`,
+    };
+  } else if (bearZoneSetup && supplyZone) {
+    const entryLow = Math.max(lastPrice, supplyZone.low);
+    const entryHigh = supplyZone.high;
+    const entryMid = (entryLow + entryHigh) / 2;
+    const risk = Math.max(2.0 * atr14, supplyZone.high + 0.5 * atr14 - entryMid);
+    const stopLoss = entryMid + risk;
+    const target1 = Math.max(0.0001, entryMid - risk * 1.8);
+    const target2 = Math.max(0.0001, entryMid - risk * 3.6);
+    tradePlan = {
+      direction: "short",
+      entryMode: "pullback",
+      entryLow,
+      entryHigh,
+      entryMid,
+      stopLoss,
+      target1,
+      target2,
+      trailAtrMultiple: 2.2,
+      riskReward1: (entryMid - target1) / risk,
+      riskReward2: (entryMid - target2) / risk,
+      rationale: `B-Setup Retest an aktiver Supply/FVG-Zone ($${fmtPrice(entryLow)}–$${fmtPrice(entryHigh)}) im intakten Abwärtstrend mit 2,0× ATR Struktur-Stop.`,
     };
   }
 
-  // Build crisp, concrete German institutional bullets
+  // Concise, concrete German institutional bullets
   const bullets: string[] = [];
   const emaStack =
     ema200 !== null
@@ -939,26 +1104,26 @@ export function analyzeChart(params: {
         ? "bullisch gestaffelt (EMA20 > EMA50 > EMA200)"
         : ema20 < ema50 && ema50 < ema200
           ? "bärisch gestaffelt (EMA20 < EMA50 < EMA200)"
-          : "gemischt (Übergangsphase)"
+          : "gemischt (kein klarer Makro-Stack)"
       : ema20 > ema50
         ? "kurzfristig bullisch (EMA20 > EMA50)"
         : "kurzfristig bärisch (EMA20 < EMA50)";
 
   bullets.push(
-    `Marktstruktur: ${regimeLabel}${structureBreak ? ` · Letztes Signal: ${structureBreak.kind} ${structureBreak.direction === "bullish" ? "nach oben" : "nach unten"} bei $${fmtPrice(structureBreak.price)}` : ""}.`,
+    `Marktstruktur: ${regimeLabel} · ADX(14) ${adx14.toFixed(0)} · Effizienz ${(efficiencyRatio * 100).toFixed(0)}%${structureBreak ? ` · Letzter Bruch: ${structureBreak.kind} ${structureBreak.direction === "bullish" ? "↑" : "↓"} bei $${fmtPrice(structureBreak.price)}` : ""}.`,
   );
   bullets.push(
-    `Trend & Momentum: EMAs ${emaStack} · RSI(14) bei ${rsi14.toFixed(1)}${rsiDivergence ? ` (${rsiDivergence === "bullish" ? "Bullische" : "Bärische"} Divergenz!)` : ""} · ATR(14) ${atrPct.toFixed(2)}% (${volatilityRegime === "compression" ? "Vol-Kompression / Ausbruchs-Setup" : volatilityRegime === "expansion" ? "Erhöhte Volatilität" : "Normale Volatilität"}).`,
+    `Trend & Momentum: EMAs ${emaStack} · RSI(14) ${rsi14.toFixed(1)}${rsiDivergence ? ` (${rsiDivergence === "bullish" ? "Bullische" : "Bärische"} Divergenz)` : ""} · Vol ${relativeVolume.toFixed(1)}× · ATR ${atrPct.toFixed(2)}%.`,
   );
 
   const keySummaryParts: string[] = [];
   if (keySup) keySummaryParts.push(`Support $${fmtPrice(keySup.price)} (${keySup.touches}×)`);
   if (keyRes) keySummaryParts.push(`Resistance $${fmtPrice(keyRes.price)} (${keyRes.touches}×)`);
-  if (volumePoc !== null) keySummaryParts.push(`Volume POC $${fmtPrice(volumePoc)}`);
-  if (obZones.length) keySummaryParts.push(`${obZones.length} aktive OB-Zone${obZones.length > 1 ? "n" : ""}`);
-  if (fvgZones.length) keySummaryParts.push(`${fvgZones.length} offene FVG`);
+  if (volumePoc !== null) keySummaryParts.push(`POC $${fmtPrice(volumePoc)}`);
+  if (obZones.length) keySummaryParts.push(`${obZones.length} OB`);
+  if (fvgZones.length) keySummaryParts.push(`${fvgZones.length} FVG`);
   if (keySummaryParts.length) {
-    bullets.push(`Schlüsselzonen: ${keySummaryParts.join(" · ")}.`);
+    bullets.push(`Eingezeichnete Schlüsselzonen: ${keySummaryParts.join(" · ")}.`);
   }
 
   if (patterns.length) {
@@ -968,21 +1133,33 @@ export function analyzeChart(params: {
   if (optionsConfluence) {
     bullets.push(optionsConfluence);
   }
+  if (setupQuality === "WAIT") {
+    const trigHi = rangeHigh > -Infinity ? `$${fmtPrice(rangeHigh)}` : "Widerstand";
+    const trigLo = rangeLow < Infinity ? `$${fmtPrice(rangeLow)}` : "Support";
+    bullets.push(
+      `Kein Blind-Einstieg: Auf bestätigten Ausbruch über ${trigHi} (Long) oder unter ${trigLo} (Short) mit Volumen warten.`,
+    );
+  }
 
   const headline =
-    bias === "bullish"
-      ? `Bullisches Setup (${confidence}% Konfluenz) — Fokus auf Demand/Support-Pullbacks Richtung $${fmtPrice(tradePlan.target1)}`
-      : bias === "bearish"
-        ? `Bärisches Setup (${confidence}% Konfluenz) — Fokus auf Supply/Resistance-Retests Richtung $${fmtPrice(tradePlan.target1)}`
-        : `Neutrale Range (${confidence}% Konfluenz) — Ausbruch über ${keyRes ? `$${fmtPrice(keyRes.price)}` : "Widerstand"} oder unter ${keySup ? `$${fmtPrice(keySup.price)}` : "Support"} abwarten`;
+    setupQuality === "A+" && tradePlan
+      ? `A+ ${tradePlan.direction === "long" ? "Long" : "Short"}-Breakout (${confidence}% Konfluenz) — Ziel $${fmtPrice(tradePlan.target1)} / 2,2× ATR Runner`
+      : setupQuality === "B" && tradePlan
+        ? `B-Setup ${tradePlan.direction === "long" ? "Long" : "Short"}-Zone (${confidence}% Konfluenz) — Pullback-Entry $${fmtPrice(tradePlan.entryMid)}`
+        : bias === "bullish"
+          ? `Bullischer Grundtrend — aktuell kein A-Trigger (Ausbruch > $${fmtPrice(rangeHigh)} oder Demand-Retest abwarten)`
+          : bias === "bearish"
+            ? `Bärischer Grundtrend — aktuell kein A-Trigger (Bruch < $${fmtPrice(rangeLow)} oder Supply-Retest abwarten)`
+            : `Seitwärts-/Chop-Phase (ADX ${adx14.toFixed(0)}) — Zonen eingezeichnet, Ausbruch abwarten`;
 
   return {
     symbol: params.symbol,
     timeframe: params.timeframe,
     analyzedAt: now,
-    barCount: windowBars.length,
+    barCount: n,
     lastPrice,
     bias,
+    setupQuality,
     confidence,
     regimeLabel,
     ema20,
@@ -990,6 +1167,9 @@ export function analyzeChart(params: {
     ema200,
     rsi14,
     rsiDivergence,
+    adx14,
+    efficiencyRatio,
+    relativeVolume,
     atr14,
     atrPct,
     volatilityRegime,
@@ -1008,8 +1188,7 @@ export function analyzeChart(params: {
 }
 
 /**
- * Converts an AI Chart Analysis report into clean, non-cluttered Vela canvas overlay primitives
- * (Supply/Demand & FVG boxes, Trendlines, BOS/CHoCH breaks, Swing Markers, Key S/R & POC, Fib Golden Pocket, and Trade Setup lines).
+ * Converts an AI Chart Analysis report into clean, non-cluttered Vela canvas overlay primitives.
  */
 export function buildAiAnalysisOverlays(
   report: AiChartAnalysisReport,
@@ -1017,7 +1196,6 @@ export function buildAiAnalysisOverlays(
 ): OverlayPrimitive[] {
   const primitives: OverlayPrimitive[] = [];
 
-  // 1. Institutional Zones (Order Blocks, Unfilled FVGs, Fib Golden Pocket)
   for (const z of report.zones) {
     if (z.kind === "golden-pocket" && !layers.fib) continue;
     if (z.kind !== "golden-pocket" && !layers.zones) continue;
@@ -1036,7 +1214,7 @@ export function buildAiAnalysisOverlays(
     const box: OverlayBox = {
       kind: "box",
       time1: z.startTime,
-      time2: Number.POSITIVE_INFINITY, // Extends cleanly to right chart edge
+      time2: Number.POSITIVE_INFINITY,
       price1: z.high,
       price2: z.low,
       fill: palette.fill,
@@ -1046,7 +1224,6 @@ export function buildAiAnalysisOverlays(
     primitives.push(box);
   }
 
-  // 2. Market Structure (BOS / CHoCH + Trendlines + Key Swing Markers)
   if (layers.structure) {
     if (report.structureBreak) {
       const sb = report.structureBreak;
@@ -1075,7 +1252,6 @@ export function buildAiAnalysisOverlays(
       primitives.push(seg);
     }
 
-    // Last 5 labeled swings (HH/HL/LH/LL)
     for (const s of report.swings.slice(-5)) {
       if (!s.tag) continue;
       const marker: OverlayMarker = {
@@ -1091,7 +1267,6 @@ export function buildAiAnalysisOverlays(
     }
   }
 
-  // 3. Key S/R Levels, Liquidity Pools (BSL / SSL), and Volume POC
   if (layers.levels) {
     for (const lvl of report.levels) {
       if ((lvl.kind === "bsl" || lvl.kind === "ssl") && lvl.startTime !== undefined) {
@@ -1123,7 +1298,6 @@ export function buildAiAnalysisOverlays(
     }
   }
 
-  // 4. Trade Setup Lines (Entry, Stop-Loss, TP1, TP2)
   if (layers.tradePlan && report.tradePlan) {
     const plan = report.tradePlan;
     primitives.push(
@@ -1134,7 +1308,7 @@ export function buildAiAnalysisOverlays(
         color: "#ff9e00",
         width: 1.75,
         dash: [],
-        label: `AI ENTRY (${plan.direction === "long" ? "LONG" : "SHORT"}) $${fmtPrice(plan.entryMid)}`,
+        label: `AI ${report.setupQuality} ENTRY (${plan.direction === "long" ? "LONG" : "SHORT"}) $${fmtPrice(plan.entryMid)}`,
       },
       {
         kind: "hline",

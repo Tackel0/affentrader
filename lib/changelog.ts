@@ -23,6 +23,24 @@ export const CHANGELOG_CATEGORY_LABELS: Record<ChangelogCategory, string> = {
 
 export const CHANGELOG_RELEASES: readonly ChangelogRelease[] = [
   {
+    id: "2026-11-28-ai-chart-analysis-v2-backtest",
+    date: "2026-11-28",
+    version: "v1.9",
+    headline: "AI Chartanalyse v2: Walk-Forward-backgetestete Engine + Live Chart-Backtest",
+    items: [
+      {
+        category: "improvement",
+        title: "Empirisch kalibrierte AI Chartanalyse v2 (A+ / B / WAIT)",
+        detail: "Über 33.458 echte historische Kerzen (Aktien, Krypto, Rohstoffe) mit striktem Zero-Look-Ahead und 65%/35% IS/OOS-Split verbessert: Makro-Trendfilter (EMA50/200 + Steigung), ADX/Effizienz-Chop-Filter, 2,0× ATR Struktur-Stop, 50% Teilgewinn bei TP1 + 2,2× ATR Chandelier-Runner sowie Break-&-Retest-Logik auf Intraday-Charts.",
+      },
+      {
+        category: "feature",
+        title: "Integrierter Zero-Look-Ahead Chart-Backtest im AI-Analyse-Panel",
+        detail: "Zeigt direkt im AI-Popover Winrate, Profit Factor, Gesamt-R und Max Drawdown (inkl. 0,10% Gebühren/Slippage) der letzten geladenen Chart-Historie.",
+      },
+    ],
+  },
+  {
     id: "2026-11-28-ai-chart-analysis-tokenized-walls",
     date: "2026-11-28",
     version: "v1.8",
