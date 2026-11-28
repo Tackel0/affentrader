@@ -194,24 +194,35 @@ export function registerOverlayLayer() {
             }
             case "box": {
               const x1 = coords.timeToX(primitive.time1);
-              const x2 = coords.timeToX(primitive.time2);
+              const x2 = Number.isFinite(primitive.time2) ? coords.timeToX(primitive.time2) : coords.width;
               const y1 = coords.priceToY(primitive.price1, scale, bounds);
               const y2 = coords.priceToY(primitive.price2, scale, bounds);
+              const left = Math.min(x1, x2);
+              const top = Math.min(y1, y2);
+              const w = Math.max(4, Math.abs(x2 - x1));
+              const h = Math.max(2, Math.abs(y2 - y1));
+              ctx.save();
               ctx.fillStyle = primitive.fill;
-              ctx.fillRect(Math.min(x1, x2), Math.min(y1, y2), Math.abs(x2 - x1), Math.abs(y2 - y1));
+              ctx.fillRect(left, top, w, h);
               ctx.strokeStyle = primitive.stroke;
               ctx.lineWidth = 1;
-              ctx.strokeRect(Math.min(x1, x2), Math.min(y1, y2), Math.abs(x2 - x1), Math.abs(y2 - y1));
+              ctx.strokeRect(left, top, w, h);
               if (primitive.label) {
-                ctx.font = "10px sans-serif";
+                ctx.font = "600 10px system-ui, -apple-system, sans-serif";
+                const textWidth = ctx.measureText(primitive.label).width;
+                const labelX = Math.max(left + 4, Math.min(left + 4, coords.width - textWidth - 8));
+                const labelY = top + 12;
+                ctx.fillStyle = "rgba(8, 10, 15, 0.72)";
+                ctx.fillRect(labelX - 3, top + 2, textWidth + 6, 13);
                 ctx.fillStyle = primitive.stroke;
-                ctx.fillText(primitive.label, Math.min(x1, x2) + 4, Math.min(y1, y2) + 12);
+                ctx.fillText(primitive.label, labelX, labelY);
               }
+              ctx.restore();
               break;
             }
             case "segment": {
               const x1 = coords.timeToX(primitive.from.time);
-              const x2 = coords.timeToX(primitive.to.time);
+              const x2 = Number.isFinite(primitive.to.time) ? coords.timeToX(primitive.to.time) : coords.width;
               const y1 = coords.priceToY(primitive.from.price, scale, bounds);
               const y2 = coords.priceToY(primitive.to.price, scale, bounds);
               ctx.save();
@@ -222,12 +233,18 @@ export function registerOverlayLayer() {
               ctx.moveTo(x1, y1);
               ctx.lineTo(x2, y2);
               ctx.stroke();
-              ctx.restore();
               if (primitive.label) {
-                ctx.font = "10px sans-serif";
+                ctx.setLineDash([]);
+                ctx.font = "600 10px system-ui, -apple-system, sans-serif";
+                const textWidth = ctx.measureText(primitive.label).width;
+                const midX = Number.isFinite(primitive.to.time) ? (x1 + x2) / 2 - textWidth / 2 : coords.width - textWidth - 8;
+                const midY = (y1 + y2) / 2 - 5;
+                ctx.fillStyle = "rgba(8, 10, 15, 0.8)";
+                ctx.fillRect(midX - 3, midY - 10, textWidth + 6, 13);
                 ctx.fillStyle = primitive.color;
-                ctx.fillText(primitive.label, (x1 + x2) / 2, (y1 + y2) / 2 - 6);
+                ctx.fillText(primitive.label, midX, midY);
               }
+              ctx.restore();
               break;
             }
           }

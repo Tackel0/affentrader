@@ -187,6 +187,20 @@ export function CommandPalette() {
         run: () => useChartStore.getState().set({ alertDraft: currentPriceAlertDraft() }),
       },
       {
+        id: "tool-ai-analysis",
+        group: "Chart & Tools",
+        label: useChartStore.getState().aiAnalysisOn
+          ? "AI Chartanalyse ausblenden (Zeichnungen entfernen)"
+          : "AI Chartanalyse starten (Struktur, OB/FVG, Trendlinien & Setup)",
+        hint: "Zeichnet direkt im Chart",
+        keywords: "ai ki chartanalyse analyse bos choch order block fvg trendlinie support resistance fib setup",
+        icon: Sparkles,
+        run: () => {
+          const cur = useChartStore.getState().aiAnalysisOn;
+          useChartStore.getState().set({ aiAnalysisOn: !cur });
+        },
+      },
+      {
         id: "tool-options-walls",
         group: "Chart & Tools",
         label: useChartStore.getState().optionsWallsOn

@@ -5123,3 +5123,204 @@ body {
   gap: 10px;
 }
 
+/* AI Chart Analysis Button & Institutional Report Popover */
+.ai-analysis-toolbar-button {
+  color: #ffb84d;
+  border: 1px solid rgba(255, 158, 0, 0.28);
+  background: rgba(255, 158, 0, 0.08);
+}
+.ai-analysis-toolbar-button:hover {
+  background: rgba(255, 158, 0, 0.16);
+}
+.ai-analysis-toolbar-button.active {
+  color: #07090e;
+  background: #ff9e00;
+  border-color: #ff9e00;
+  font-weight: 700;
+}
+[data-theme="light"] .ai-analysis-toolbar-button {
+  color: #b45309;
+  border-color: rgba(217, 119, 6, 0.34);
+  background: rgba(245, 158, 11, 0.1);
+}
+[data-theme="light"] .ai-analysis-toolbar-button.active {
+  color: #07090e;
+  background: #ff9e00;
+}
+.ai-analysis-popover {
+  width: min(370px, calc(100vw - 20px));
+  max-height: min(74dvh, 620px);
+  overflow-y: auto;
+  padding: 12px 14px;
+  display: grid;
+  gap: 10px;
+}
+.ai-analysis-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ai-analysis-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.ai-sparkle-icon {
+  color: #ff9e00;
+  flex: none;
+}
+.ai-analysis-sym {
+  font-size: 11px;
+  color: var(--muted);
+}
+.ai-analysis-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+.ai-bias-pill {
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.ai-bias-pill.bullish {
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.16);
+  border: 1px solid rgba(34, 197, 94, 0.32);
+}
+.ai-bias-pill.bearish {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.16);
+  border: 1px solid rgba(239, 68, 68, 0.32);
+}
+.ai-bias-pill.neutral {
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+.ai-analysis-headline {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text);
+}
+.ai-metrics-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+.ai-metrics-strip > div {
+  padding: 6px 7px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
+  border: 1px solid var(--border);
+  display: grid;
+  gap: 2px;
+}
+.ai-metrics-strip span {
+  font-size: 10px;
+  color: var(--muted);
+}
+.ai-metrics-strip strong {
+  font-size: 11.5px;
+}
+.ai-layers-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.ai-layer-chip {
+  min-height: 36px;
+  padding: 0 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ai-layer-chip.active {
+  color: #ffb84d;
+  border-color: rgba(255, 158, 0, 0.48);
+  background: rgba(255, 158, 0, 0.13);
+}
+[data-theme="light"] .ai-layer-chip.active {
+  color: #b45309;
+  border-color: rgba(217, 119, 6, 0.45);
+}
+.ai-bullets {
+  margin: 0;
+  padding-left: 16px;
+  display: grid;
+  gap: 5px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text);
+}
+.ai-plan-card {
+  padding: 10px 11px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  display: grid;
+  gap: 8px;
+}
+.ai-plan-card.long { border-left: 3px solid #22c55e; }
+.ai-plan-card.short { border-left: 3px solid #ef4444; }
+.ai-plan-card header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+}
+.ai-plan-card header strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.ai-plan-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+.ai-plan-grid > div {
+  display: grid;
+  gap: 1px;
+  font-size: 11.5px;
+}
+.ai-plan-grid span {
+  font-size: 10px;
+  color: var(--muted);
+}
+.ai-plan-grid strong.sl { color: #ef4444; }
+.ai-plan-grid strong.tp { color: #22c55e; }
+.ai-plan-actions,
+.ai-analysis-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ai-plan-actions > button,
+.ai-analysis-footer > button {
+  flex: 1;
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  font-size: 11.5px;
+}
+.ai-disclaimer {
+  margin: 0;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+

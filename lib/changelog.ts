@@ -23,6 +23,24 @@ export const CHANGELOG_CATEGORY_LABELS: Record<ChangelogCategory, string> = {
 
 export const CHANGELOG_RELEASES: readonly ChangelogRelease[] = [
   {
+    id: "2026-11-28-ai-chart-analysis-tokenized-walls",
+    date: "2026-11-28",
+    version: "v1.8",
+    headline: "AI Chartanalyse-Knopf (automatische Zeichnungen & Setup) + US-Options-Walls auf tokenisierten Märkten",
+    items: [
+      {
+        category: "feature",
+        title: "AI Chartanalyse-Knopf direkt in der Chart-Leiste & per ⌘K",
+        detail: "Analysiert den aktiven Chart in Echtzeit und zeichnet Marktstruktur (BOS/CHoCH, HH/HL/LH/LL), Trendlinien, aktive Order Blocks (Supply/Demand), offene Fair Value Gaps (FVG), Key Support/Resistance, Liquiditätspools (BSL/SSL), Volume POC, Fibonacci Golden Pocket sowie ein konkretes Trade-Setup (Entry, SL, TP1/TP2) ein — komplett ohne API-Key.",
+      },
+      {
+        category: "feature",
+        title: "US-Options-Levels auf Hyperliquid, Bybit, Binance & Kraken",
+        detail: "Put/Call Walls, Gamma Flip, Max Pain und Expected Move (±1σ) von US-Aktien, Indizes (z. B. XYZ100 → NDX, US500 → SPX) und Rohstoff-ETFs (GOLD/PAXG → GLD skaliert) werden automatisch auf tokenisierte Perps & xStocks übernommen.",
+      },
+    ],
+  },
+  {
     id: "2026-11-28-options-walls-gex",
     date: "2026-11-28",
     version: "v1.7",

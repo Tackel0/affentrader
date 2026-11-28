@@ -20,8 +20,16 @@ import { invalidateCanvasLayers } from "@/lib/chart/canvasLayer";
 import { useSetupJournal } from "@/stores/useSetupJournal";
 import { setupOverlays } from "@/lib/screener/setupJournal";
 import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
-import { optionsWallOverlays, resolveOptionsTarget } from "@/lib/market/optionsAnalytics";
+import {
+  computeOptionsPriceScale,
+  optionsWallOverlays,
+  resolveOptionsTarget,
+} from "@/lib/market/optionsAnalytics";
 import { fetchOptionsChain } from "@/hooks/useOptionsChain";
+import {
+  analyzeChart,
+  buildAiAnalysisOverlays,
+} from "@/lib/analysis/aiChartAnalysis";
 
 /** Cell id the active chart paints under (see `bindCellContext`). */
 export const PRIMARY_CELL = "primary";
@@ -331,4 +339,74 @@ export function useOverlays(chart: Vela | null) {
       setOverlay(PRIMARY_CELL, "options", []);
     };
   }, [chart, optionsWallsOn, optionsWallsConfig, symbol, replay, optionsHasBars]);
+
+  // Zero-API-key Institutional AI Chart Analysis (Structure, Trendlines, Supply/Demand, FVGs, Fib, S/R, POC & Trade Setup).
+  const aiAnalysisOn = useChartStore((s) => s.aiAnalysisOn);
+  const aiAnalysisLayers = useChartStore((s) => s.aiAnalysisLayers);
+  useEffect(() => {
+    if (!chart || !aiAnalysisOn || replay) {
+      setOverlay(PRIMARY_CELL, "ai-analysis", []);
+      if (!aiAnalysisOn && useChartStore.getState().aiAnalysisReport !== null) {
+        useChartStore.getState().set({ aiAnalysisReport: null });
+      }
+      return;
+    }
+
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let cachedOpt: import("@/lib/market/optionsAnalytics").OptionsAnalytics | null = null;
+
+    const runAnalysis = () => {
+      timer = null;
+      if (cancelled) return;
+      const state = useChartStore.getState();
+      const bars = state.candles;
+      if (bars.length < 20) return;
+      const target = resolveOptionsTarget(symbol);
+      const lastClose = bars[bars.length - 1]?.close;
+      const optScale =
+        cachedOpt && target?.scaleToChartPrice
+          ? computeOptionsPriceScale(cachedOpt.spot, lastClose, true)
+          : 1;
+      const report = analyzeChart({
+        symbol,
+        timeframe,
+        bars,
+        options: cachedOpt,
+        optionsScale: optScale,
+      });
+      state.set({ aiAnalysisReport: report });
+      setOverlay(PRIMARY_CELL, "ai-analysis", buildAiAnalysisOverlays(report, aiAnalysisLayers));
+    };
+
+    const schedule = () => {
+      if (!timer) timer = setTimeout(runAnalysis, 250);
+    };
+
+    // Run immediately on loaded candles for instant visual feedback
+    runAnalysis();
+
+    // Optionally enrich with live Options Walls confluence when symbol supports options
+    const optTarget = resolveOptionsTarget(symbol);
+    if (optTarget) {
+      fetchOptionsChain(symbol, "near")
+        .then((opt) => {
+          if (!cancelled) {
+            cachedOpt = opt;
+            runAnalysis();
+          }
+        })
+        .catch(() => {
+          // Chart analysis works standalone without options data
+        });
+    }
+
+    const off = marketService.subscribe(symbol, timeframe, schedule);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      off();
+      setOverlay(PRIMARY_CELL, "ai-analysis", []);
+    };
+  }, [chart, aiAnalysisOn, aiAnalysisLayers, symbol, timeframe, epoch, replay, optionsHasBars]);
 }

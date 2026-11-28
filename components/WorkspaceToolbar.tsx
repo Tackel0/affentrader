@@ -33,6 +33,7 @@ import {
   PatternsButton,
 } from "./ChartTools";
 import { OptionsWallsButton } from "./OptionsWallsButton";
+import { AiChartAnalysisButton } from "./AiChartAnalysisButton";
 import {
   MainMenu,
   MainMenuSheet,
@@ -141,7 +142,7 @@ export function WorkspaceToolbar({
         <ChartNoAxesCombined size={20} />
         <span>Indicators</span>
       </button>
-      <div className="desktop-chart-tools"><IndicatorTemplateMenu /><PatternsButton /><OptionsWallsButton /></div>
+      <div className="desktop-chart-tools"><IndicatorTemplateMenu /><PatternsButton /><OptionsWallsButton /><AiChartAnalysisButton /></div>
       <span className="toolbar-divider" />
       <button
         className="toolbar-button"

@@ -5,6 +5,7 @@ import {IconButton} from "./ui";
 import {useDismiss,LayoutMenu,SavedLayoutsMenu,IndicatorTemplateMenu} from "./WorkspaceMenus";
 import {PatternsButton} from "./ChartTools";
 import {OptionsWallsButton} from "./OptionsWallsButton";
+import {AiChartAnalysisButton} from "./AiChartAnalysisButton";
 import {ChartCoverageMenuItem} from "./ChartCoverage";
 import {currentPriceAlertDraft} from "@/lib/alerts/priceDraft";
 import {useChartStore} from "@/stores/useChartStore";
@@ -74,6 +75,7 @@ export function ChartToolbarOverflow({toggleSidebar, phone}:{
       <div className="mobile-controls-component"><IndicatorTemplateMenu/></div>
       <div className="mobile-controls-component"><PatternsButton/></div>
       <div className="mobile-controls-component"><OptionsWallsButton/></div>
+      <div className="mobile-controls-component"><AiChartAnalysisButton/></div>
       <div className="mobile-controls-component"><LayoutMenu/></div>
       <div className="mobile-controls-component"><SavedLayoutsMenu/></div>
       <button type="button" onClick={()=>command("undo")}><Undo2 size={18}/><span>Undo drawing</span></button>

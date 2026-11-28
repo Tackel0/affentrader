@@ -22,6 +22,11 @@ import {
   DEFAULT_OPTIONS_WALLS_CONFIG,
   type OptionsWallsOverlayConfig,
 } from "@/lib/market/optionsAnalytics";
+import {
+  DEFAULT_AI_ANALYSIS_LAYERS,
+  type AiAnalysisLayerConfig,
+  type AiChartAnalysisReport,
+} from "@/lib/analysis/aiChartAnalysis";
 import type {
   AlertDraft,
   BottomTab,
@@ -68,6 +73,10 @@ interface ChartState {
   /** Zero-API-key Options Walls (Call Wall, Put Wall, Gamma Flip, Max Pain, Expected Move) overlay on chart. */
   optionsWallsOn: boolean;
   optionsWallsConfig: OptionsWallsOverlayConfig;
+  /** Zero-API-key AI Chart Analysis overlays (Structure, Trendlines, Supply/Demand, FVG, Fib, Trade Plan). */
+  aiAnalysisOn: boolean;
+  aiAnalysisLayers: AiAnalysisLayerConfig;
+  aiAnalysisReport: AiChartAnalysisReport | null;
   favoriteIntervals: string[];
   /** Trading session for markets that have pre/post-market bars. */
   session: "regular" | "extended";
@@ -171,6 +180,9 @@ export const useChartStore = create<ChartState>()(
       patternHits: [],
       optionsWallsOn: false,
       optionsWallsConfig: DEFAULT_OPTIONS_WALLS_CONFIG,
+      aiAnalysisOn: false,
+      aiAnalysisLayers: DEFAULT_AI_ANALYSIS_LAYERS,
+      aiAnalysisReport: null,
       favoriteIntervals: ["1m", "5m", "15m", "1h", "4h", "1D"],
       session: "regular",
       timezone: "UTC",
@@ -262,6 +274,7 @@ export const useChartStore = create<ChartState>()(
         patternsOn: s.patternsOn,
         optionsWallsOn: s.optionsWallsOn,
         optionsWallsConfig: s.optionsWallsConfig,
+        aiAnalysisLayers: s.aiAnalysisLayers,
         favoriteIntervals: s.favoriteIntervals,
         session: s.session,
         timezone: s.timezone,
