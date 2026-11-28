@@ -348,6 +348,7 @@ export function OptionsFlowPanel({
         <label>
           Ticker (US / BTC / ETH)
           <input
+            aria-label="US-Ticker"
             value={input}
             maxLength={15}
             placeholder="SPY, NVDA, BTC…"
@@ -366,7 +367,7 @@ export function OptionsFlowPanel({
             ))}
           </select>
         </label>
-        <button className="button primary" type="submit" disabled={!pendingTarget}>
+        <button className="button primary" type="submit" aria-label="Optionsflow anzeigen" disabled={!pendingTarget}>
           Laden
         </button>
         {data && (
