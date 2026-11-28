@@ -285,15 +285,25 @@ export function OptionsFlowPanel({
 
   const optionsWallsOn = useChartStore((s) => s.optionsWallsOn);
   const chartSymbol = useChartStore((s) => s.symbol);
-  const wallsActiveForTicker =
-    optionsWallsOn && Boolean(data && resolveOptionsTarget(chartSymbol)?.ticker === data.ticker);
+  const chartMatchesUnderlying = Boolean(data && resolveOptionsTarget(chartSymbol)?.ticker === data.ticker);
+  const wallsActiveForTicker = optionsWallsOn && chartMatchesUnderlying;
 
   const toggleWallsOnChart = () => {
     if (!data) return;
-    const nextSymbol = toChartSymbol(data);
     if (wallsActiveForTicker) {
       useChartStore.getState().set({ optionsWallsOn: false });
+    } else if (chartMatchesUnderlying) {
+      // Keep the user's active tokenized chart (e.g. HL:xyz:NVDA, HL:xyz:XYZ100, BYBIT:LINEAR:TSLAUSDT)
+      useChartStore.getState().set({ optionsWallsOn: true });
+      useChartStore
+        .getState()
+        .toast(
+          `Options Walls aktiv (${data.display})`,
+          `Übernommen auf ${chartSymbol} · Call Wall ${data.callWall ? fmtStrike(data.callWall.strike) : "—"} · Put Wall ${data.putWall ? fmtStrike(data.putWall.strike) : "—"}`,
+          "success",
+        );
     } else {
+      const nextSymbol = toChartSymbol(data);
       useChartStore.getState().set({ symbol: nextSymbol, optionsWallsOn: true });
       useChartStore
         .getState()
@@ -307,7 +317,7 @@ export function OptionsFlowPanel({
 
   const createLevelAlert = (label: string, price: number) => {
     if (!data) return;
-    const sym = toChartSymbol(data);
+    const sym = chartMatchesUnderlying ? chartSymbol : toChartSymbol(data);
     useChartStore.getState().set({
       alertDraft: {
         symbol: sym,
@@ -350,8 +360,8 @@ export function OptionsFlowPanel({
           <input
             aria-label="US-Ticker"
             value={input}
-            maxLength={15}
-            placeholder="SPY, NVDA, BTC…"
+            maxLength={28}
+            placeholder="SPY, NVDA, XYZ100, HL:xyz:TSLA, BTC…"
             onChange={(event) => setInput(event.target.value.toUpperCase())}
           />
         </label>

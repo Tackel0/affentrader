@@ -276,21 +276,44 @@ export function useOverlays(chart: Vela | null) {
     return () => setOverlay(PRIMARY_CELL, "strategy", []);
   }, [chart, strategyReport, showTrades, focusTrade, symbol, timeframe]);
 
-  // Zero-API-key Options Walls (Call Wall, Put Wall, Gamma Flip, Max Pain, Expected Move ±1σ).
+  // Zero-API-key Options Walls (Call Wall, Put Wall, Gamma Flip, Max Pain, Expected Move ±1σ),
+  // including automatic mapping for tokenized stocks/indices/commodities on Hyperliquid, Bybit, Binance & Kraken.
   const optionsWallsOn = useChartStore((s) => s.optionsWallsOn);
   const optionsWallsConfig = useChartStore((s) => s.optionsWallsConfig);
+  const optionsHasBars = useChartStore((s) => s.candles.length > 0);
   useEffect(() => {
-    if (!chart || !optionsWallsOn || replay || !resolveOptionsTarget(symbol)) {
+    const target = resolveOptionsTarget(symbol);
+    if (!chart || !optionsWallsOn || replay || !target) {
       setOverlay(PRIMARY_CELL, "options", []);
       return;
     }
     let cancelled = false;
     const expiry = optionsWallsConfig.expiryMode === "nearest" ? "nearest" : "near";
+    const resolveChartPrice = (): number | undefined => {
+      const state = useChartStore.getState();
+      const q = state.quotes[symbol]?.price;
+      if (q && q > 0) return q;
+      const last = state.candles[state.candles.length - 1]?.close;
+      return last && last > 0 ? last : undefined;
+    };
+    const sourceTag = target.mappedFrom
+      ? target.scaleToChartPrice
+        ? `${target.display}→Chart`
+        : target.display
+      : undefined;
     const load = () => {
       fetchOptionsChain(symbol, expiry)
         .then((analytics) => {
           if (!cancelled) {
-            setOverlay(PRIMARY_CELL, "options", optionsWallOverlays(analytics, optionsWallsConfig));
+            setOverlay(
+              PRIMARY_CELL,
+              "options",
+              optionsWallOverlays(analytics, optionsWallsConfig, {
+                chartPrice: resolveChartPrice(),
+                scaleToChartPrice: target.scaleToChartPrice,
+                sourceTag,
+              }),
+            );
           }
         })
         .catch(() => {
@@ -307,5 +330,5 @@ export function useOverlays(chart: Vela | null) {
       clearInterval(timer);
       setOverlay(PRIMARY_CELL, "options", []);
     };
-  }, [chart, optionsWallsOn, optionsWallsConfig, symbol, replay]);
+  }, [chart, optionsWallsOn, optionsWallsConfig, symbol, replay, optionsHasBars]);
 }

@@ -145,6 +145,73 @@ describe("zero-API-key options analytics engine", () => {
     expect(data.expectedMoveUsd).toBeGreaterThan(1000);
   });
 
+  it("maps tokenized equities, indices, xStocks, Ondo tokens & commodities across Hyperliquid, Bybit, Binance & Kraken while ignoring plain altcoins", () => {
+    // Hyperliquid builder-DEX tokenized stocks & indices
+    expect(resolveOptionsTarget("HL:xyz:NVDA")).toMatchObject({ assetClass: "equity", ticker: "NVDA", display: "NVDA", mappedFrom: "HL:xyz:NVDA" });
+    expect(resolveOptionsTarget("HL:flx:TSLA")).toMatchObject({ assetClass: "equity", ticker: "TSLA", display: "TSLA", mappedFrom: "HL:flx:TSLA" });
+    expect(resolveOptionsTarget("HL:xyz:XYZ100")).toMatchObject({ assetClass: "equity", ticker: "^NDX", display: "NDX", mappedFrom: "HL:xyz:XYZ100" });
+    expect(resolveOptionsTarget("HL:xyz:US500")).toMatchObject({ assetClass: "equity", ticker: "^SPX", display: "SPX", mappedFrom: "HL:xyz:US500" });
+    expect(resolveOptionsTarget("HL:xyz:BRK-B")).toMatchObject({ assetClass: "equity", ticker: "BRK-B", display: "BRK-B", mappedFrom: "HL:xyz:BRK-B" });
+    expect(resolveOptionsTarget("HL:xyz:GOLD")).toMatchObject({ assetClass: "equity", ticker: "GLD", display: "GLD", scaleToChartPrice: true });
+    expect(resolveOptionsTarget("HL:xyz:SILVER")).toMatchObject({ assetClass: "equity", ticker: "SLV", display: "SLV", scaleToChartPrice: true });
+    expect(resolveOptionsTarget("HL:xyz:CL")).toMatchObject({ assetClass: "equity", ticker: "USO", display: "USO", scaleToChartPrice: true });
+
+    // Bybit tokenized stocks, xStocks (*X), and indices
+    expect(resolveOptionsTarget("BYBIT:LINEAR:NVDAUSDT")).toMatchObject({ assetClass: "equity", ticker: "NVDA", display: "NVDA" });
+    expect(resolveOptionsTarget("BYBIT:SPOT:AAPLXUSDT")).toMatchObject({ assetClass: "equity", ticker: "AAPL", display: "AAPL" });
+    expect(resolveOptionsTarget("BYBIT:SPOT:SPYXUSDT")).toMatchObject({ assetClass: "equity", ticker: "SPY", display: "SPY" });
+    expect(resolveOptionsTarget("BYBIT:LINEAR:NAS100USDT")).toMatchObject({ assetClass: "equity", ticker: "^NDX", display: "NDX" });
+    expect(resolveOptionsTarget("BYBIT:LINEAR:SP500USDT")).toMatchObject({ assetClass: "equity", ticker: "^SPX", display: "SPX" });
+
+    // Binance tokenized stocks, Ondo (*ON), and Gold
+    expect(resolveOptionsTarget("NVDAUSDT")).toMatchObject({ assetClass: "equity", ticker: "NVDA", display: "NVDA" });
+    expect(resolveOptionsTarget("BINANCE:TSLAUSDT")).toMatchObject({ assetClass: "equity", ticker: "TSLA", display: "TSLA" });
+    expect(resolveOptionsTarget("TSLAONUSDT")).toMatchObject({ assetClass: "equity", ticker: "TSLA", display: "TSLA" });
+    expect(resolveOptionsTarget("PAXGUSDT")).toMatchObject({ assetClass: "equity", ticker: "GLD", display: "GLD", scaleToChartPrice: true });
+
+    // Kraken xStocks
+    expect(resolveOptionsTarget("KRK:NVDAX/USD")).toMatchObject({ assetClass: "equity", ticker: "NVDA", display: "NVDA" });
+    expect(resolveOptionsTarget("KRK:QQQX/USD")).toMatchObject({ assetClass: "equity", ticker: "QQQ", display: "QQQ" });
+
+    // Non-option altcoins & forex must NOT collide with equity tickers
+    expect(resolveOptionsTarget("DOGEUSDT")).toBeNull();
+    expect(resolveOptionsTarget("XRPUSDT")).toBeNull();
+    expect(resolveOptionsTarget("ADAUSDT")).toBeNull();
+    expect(resolveOptionsTarget("LINKUSDT")).toBeNull();
+    expect(resolveOptionsTarget("SUIUSDT")).toBeNull();
+    expect(resolveOptionsTarget("HL:HYPE")).toBeNull();
+    expect(resolveOptionsTarget("HL:PEPE")).toBeNull();
+    expect(resolveOptionsTarget("BYBIT:LINEAR:ONUSDT")).toBeNull();
+  });
+
+  it("scales ETF-proxy option levels onto tokenized commodity charts (e.g. GLD -> PAXG/GOLD)", () => {
+    const gldAnalytics = computeOptionsAnalytics({
+      ticker: "GLD",
+      display: "GLD",
+      assetClass: "equity",
+      source: "Yahoo Finance (Kein API-Key)",
+      spot: 100,
+      multiplier: 100,
+      contracts: makeChain(),
+      selectedExpiration: EXP,
+      includedExpirations: [EXP],
+      availableExpirations: [EXP],
+      asOf: NOW,
+    });
+    const scaled = optionsWallOverlays(gldAnalytics, undefined, {
+      chartPrice: 3000,
+      scaleToChartPrice: true,
+      sourceTag: "GLD→Chart",
+    });
+    const callWall = scaled.find((l) => l.id === "opt-call-wall");
+    const putWall = scaled.find((l) => l.id === "opt-put-wall");
+    const maxPain = scaled.find((l) => l.id === "opt-max-pain");
+    expect(callWall?.price).toBeCloseTo(3150, 2);
+    expect(putWall?.price).toBeCloseTo(2850, 2);
+    expect(maxPain?.price).toBeCloseTo(3000, 2);
+    expect(callWall?.label).toContain("(GLD→Chart)");
+  });
+
   it("supports OPTIONS, WALLS, GEX, and MAXPAIN terminal command aliases", () => {
     expect(parseTerminalCommand("WALLS")).toMatchObject({ view: "optionsflow" });
     expect(parseTerminalCommand("GEX")).toMatchObject({ view: "optionsflow" });

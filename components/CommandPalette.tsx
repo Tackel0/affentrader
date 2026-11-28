@@ -37,6 +37,7 @@ import { openAffenTerminalWindow } from "@/lib/windowScope";
 import { SYMBOLS, describeSymbol } from "@/lib/symbols";
 import { isYahooTicker, symbolLabel } from "@/lib/symbolId";
 import { normalizeInterval, parseInterval } from "@/lib/market/intervals";
+import { resolveOptionsTarget } from "@/lib/market/optionsAnalytics";
 import type { BottomTab } from "@/types/trading";
 import { Modal } from "./ui";
 
@@ -203,12 +204,13 @@ export function CommandPalette() {
         id: "tool-options-dashboard",
         group: "Module",
         label: "Optionen: Put/Call Walls, GEX & Optionskette öffnen",
-        hint: "US-Aktien, ETFs, BTC & ETH",
-        keywords: "options optionsflow put call walls gex gamma max pain greeks unusual skew",
+        hint: "US-Aktien, Tokenized Perps, BTC & ETH",
+        keywords: "options optionsflow put call walls gex gamma max pain greeks unusual skew hyperliquid bybit binance",
         icon: Activity,
         run: () => {
           openPanel("terminal");
-          const cleanTicker = symbol.replace(/^(?:YF|IEX|SIP|BINANCE|BYBIT|HL):/, "");
+          const resolved = resolveOptionsTarget(symbol);
+          const cleanTicker = resolved?.ticker ?? symbol.replace(/^(?:YF|IEX|SIP|BINANCE|BYBIT|HL):/, "");
           if (typeof window !== "undefined") {
             setTimeout(() => {
               window.dispatchEvent(

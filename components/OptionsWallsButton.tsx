@@ -6,6 +6,7 @@ import { useChartStore } from "@/stores/useChartStore";
 import { useLinkStore } from "@/stores/useLinkStore";
 import { useOptionsChain } from "@/hooks/useOptionsChain";
 import {
+  computeOptionsPriceScale,
   formatCompactCount,
   formatCompactUsd,
   resolveOptionsTarget,
@@ -29,11 +30,18 @@ export function OptionsWallsButton() {
   const on = useChartStore((s) => s.optionsWallsOn);
   const config = useChartStore((s) => s.optionsWallsConfig);
   const symbol = useChartStore((s) => s.symbol);
+  const liveQuotePrice = useChartStore((s) => s.quotes[s.symbol]?.price);
+  const lastCandleClose = useChartStore((s) => s.candles[s.candles.length - 1]?.close);
   const [open, setOpen] = useState(false);
   const ref = useDismiss(open, () => setOpen(false));
   const target = resolveOptionsTarget(symbol);
   const expiry = config.expiryMode === "nearest" ? "nearest" : "near";
   const { data, loading, error, refresh } = useOptionsChain(symbol, expiry, open || on);
+
+  const chartPrice = liveQuotePrice && liveQuotePrice > 0 ? liveQuotePrice : lastCandleClose;
+  const scale = data
+    ? computeOptionsPriceScale(data.spot, chartPrice, Boolean(target?.scaleToChartPrice))
+    : 1;
 
   const patchConfig = (patch: Partial<OptionsWallsOverlayConfig>) =>
     useChartStore.getState().set({ optionsWallsConfig: { ...config, ...patch } });
@@ -60,7 +68,7 @@ export function OptionsWallsButton() {
         type="button"
         className={`toolbar-button options-walls-toolbar-button ${on ? "active" : ""}`}
         aria-label="Options Walls & GEX"
-        title="Put/Call Walls, Gamma Flip, Max Pain & Expected Move (kein API-Key)"
+        title="Put/Call Walls, Gamma Flip, Max Pain & Expected Move (inkl. tokenisierte Aktien auf Hyperliquid, Bybit & Binance)"
         aria-pressed={on}
         aria-expanded={open}
         onClick={() => setOpen(!open)}
@@ -74,6 +82,12 @@ export function OptionsWallsButton() {
             <strong>Put/Call Walls &amp; GEX</strong>
             <span className="options-free-badge">Kein API-Key</span>
           </div>
+          {target?.mappedFrom && (
+            <p className="form-help" style={{ margin: 0 }}>
+              Tokenisiert erkannt: US-Options-Levels von <strong>{target.display}</strong>
+              {target.scaleToChartPrice ? " (auf Chart-Preis skaliert)" : " (1:1 übernommen)"}
+            </p>
+          )}
           <label className="sync-option">
             <span>Levels direkt im Chart anzeigen</span>
             <input
@@ -128,7 +142,7 @@ export function OptionsWallsButton() {
           {!target ? (
             <div className="options-popover-empty">
               <p className="form-help">
-                Für das aktuelle Symbol ist keine kostenlose Optionskette verfügbar. Wechsle auf US-Aktien/ETFs oder BTC/ETH/SOL:
+                Für das aktuelle Symbol ist keine kostenlose Optionskette verfügbar. Unterstützt werden US-Aktien/ETFs, tokenisierte Werte (Hyperliquid, Bybit, Binance, Kraken) sowie BTC/ETH/SOL:
               </p>
               <div className="options-quick-chips">
                 {QUICK_SYMBOLS.map((q) => (
@@ -161,28 +175,28 @@ export function OptionsWallsButton() {
                 <div className="options-mini-row call">
                   <span>Call Wall</span>
                   <strong className="mono">
-                    {data.callWall ? `${fmtStrike(data.callWall.strike)} (${formatCompactCount(data.callWall.openInterest)})` : "—"}
+                    {data.callWall ? `${fmtStrike(data.callWall.strike * scale)} (${formatCompactCount(data.callWall.openInterest)})` : "—"}
                   </strong>
                 </div>
                 <div className="options-mini-row put">
                   <span>Put Wall</span>
                   <strong className="mono">
-                    {data.putWall ? `${fmtStrike(data.putWall.strike)} (${formatCompactCount(data.putWall.openInterest)})` : "—"}
+                    {data.putWall ? `${fmtStrike(data.putWall.strike * scale)} (${formatCompactCount(data.putWall.openInterest)})` : "—"}
                   </strong>
                 </div>
                 <div className="options-mini-row gamma">
                   <span>Gamma Flip</span>
-                  <strong className="mono">{data.gammaFlip !== null ? fmtStrike(data.gammaFlip) : "—"}</strong>
+                  <strong className="mono">{data.gammaFlip !== null ? fmtStrike(data.gammaFlip * scale) : "—"}</strong>
                 </div>
                 <div className="options-mini-row pain">
                   <span>Max Pain</span>
-                  <strong className="mono">{data.maxPain !== null ? fmtStrike(data.maxPain) : "—"}</strong>
+                  <strong className="mono">{data.maxPain !== null ? fmtStrike(data.maxPain * scale) : "—"}</strong>
                 </div>
                 <div className="options-mini-row em">
                   <span>Expected Move</span>
                   <strong className="mono">
                     {data.expectedMovePct !== null && data.expectedMoveUsd !== null
-                      ? `±${data.expectedMovePct.toFixed(1)}% (±$${data.expectedMoveUsd.toFixed(data.expectedMoveUsd >= 100 ? 0 : 2)})`
+                      ? `±${data.expectedMovePct.toFixed(1)}% (±$${(data.expectedMoveUsd * scale).toFixed(data.expectedMoveUsd * scale >= 100 ? 0 : 2)})`
                       : "—"}
                   </strong>
                 </div>

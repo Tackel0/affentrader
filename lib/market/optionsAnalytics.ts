@@ -6,10 +6,14 @@ export type OptionsAssetClass = "equity" | "crypto";
 
 export interface OptionsTarget {
   assetClass: OptionsAssetClass;
-  /** Upstream symbol (e.g. "SPY", "AAPL", "^SPX", or "BTC"). */
+  /** Upstream symbol (e.g. "SPY", "AAPL", "^SPX", "^NDX", "GLD", or "BTC"). */
   ticker: string;
-  /** Clean display label (e.g. "SPY", "SPX", "BTC"). */
+  /** Clean display label (e.g. "SPY", "SPX", "NDX", "GLD", "BTC"). */
   display: string;
+  /** Original tokenized/perp chart symbol when mapped onto US equity/index/ETF options. */
+  mappedFrom?: string;
+  /** True when option strikes are in ETF proxy units (e.g. GLD -> GOLD/PAXG) and scale to the live chart price. */
+  scaleToChartPrice?: boolean;
 }
 
 export interface RawOptionContract {
@@ -160,51 +164,294 @@ export const DEFAULT_OPTIONS_WALLS_CONFIG: OptionsWallsOverlayConfig = {
 };
 
 const CRYPTO_OPTIONS_BASES = new Set(["BTC", "ETH", "SOL"]);
-const INDEX_OPTION_MAP: Record<string, { ticker: string; display: string }> = {
+
+const INDEX_OPTION_MAP: Record<string, { ticker: string; display: string; scaleToChartPrice?: boolean }> = {
   "^GSPC": { ticker: "^SPX", display: "SPX" },
   "^SPX": { ticker: "^SPX", display: "SPX" },
   SPX: { ticker: "^SPX", display: "SPX" },
+  SP500: { ticker: "^SPX", display: "SPX" },
+  SPX500: { ticker: "^SPX", display: "SPX" },
+  USA500: { ticker: "^SPX", display: "SPX" },
+  US500: { ticker: "^SPX", display: "SPX" },
   "^NDX": { ticker: "^NDX", display: "NDX" },
   NDX: { ticker: "^NDX", display: "NDX" },
+  NDX100: { ticker: "^NDX", display: "NDX" },
+  NAS100: { ticker: "^NDX", display: "NDX" },
+  USTEC: { ticker: "^NDX", display: "NDX" },
+  US100: { ticker: "^NDX", display: "NDX" },
+  XYZ100: { ticker: "^NDX", display: "NDX" },
   "^IXIC": { ticker: "QQQ", display: "QQQ" },
   "^VIX": { ticker: "^VIX", display: "VIX" },
   VIX: { ticker: "^VIX", display: "VIX" },
   "^RUT": { ticker: "^RUT", display: "RUT" },
   RUT: { ticker: "^RUT", display: "RUT" },
+  US2000: { ticker: "^RUT", display: "RUT" },
+  "^DJI": { ticker: "DIA", display: "DIA", scaleToChartPrice: true },
+  DJI: { ticker: "DIA", display: "DIA", scaleToChartPrice: true },
+  US30: { ticker: "DIA", display: "DIA", scaleToChartPrice: true },
+  WS30: { ticker: "DIA", display: "DIA", scaleToChartPrice: true },
+};
+
+const COMMODITY_PROXY_MAP: Record<string, { ticker: string; display: string }> = {
+  GOLD: { ticker: "GLD", display: "GLD" },
+  XAU: { ticker: "GLD", display: "GLD" },
+  PAXG: { ticker: "GLD", display: "GLD" },
+  XAUT: { ticker: "GLD", display: "GLD" },
+  "GC=F": { ticker: "GLD", display: "GLD" },
+  SILVER: { ticker: "SLV", display: "SLV" },
+  XAG: { ticker: "SLV", display: "SLV" },
+  "SI=F": { ticker: "SLV", display: "SLV" },
+  CL: { ticker: "USO", display: "USO" },
+  OIL: { ticker: "USO", display: "USO" },
+  WTI: { ticker: "USO", display: "USO" },
+  USOIL: { ticker: "USO", display: "USO" },
+  BRENT: { ticker: "USO", display: "USO" },
+  "CL=F": { ticker: "USO", display: "USO" },
+  "BZ=F": { ticker: "USO", display: "USO" },
+  NG: { ticker: "UNG", display: "UNG" },
+  NATGAS: { ticker: "UNG", display: "UNG" },
+  "NG=F": { ticker: "UNG", display: "UNG" },
 };
 
 /**
- * Resolves any AffenTerminal chart symbol (Yahoo, IEX, SIP, Binance, Bybit, Hyperliquid, or plain ticker)
+ * Known US stocks & ETFs frequently listed as tokenized perps / spot tokens on Hyperliquid, Bybit,
+ * Binance, Kraken xStocks (*X), and Ondo (*ON). Excludes ambiguous crypto ticker collisions.
+ */
+const KNOWN_TOKENIZED_US_EQUITIES = new Set([
+  "NVDA", "AAPL", "MSFT", "AMZN", "GOOGL", "GOOG", "META", "TSLA",
+  "AVGO", "AMD", "TSM", "MU", "INTC", "QCOM", "ASML", "ARM", "AMAT", "LRCX", "KLAC", "TXN", "ADI", "MRVL", "NXPI",
+  "SPY", "QQQ", "IWM", "DIA", "VOO", "VTI", "SMH", "SOXX", "XLK", "XLF", "XLE", "XLV", "XLI", "TLT", "GLD", "SLV", "USO", "UNG", "IBIT", "ARKK", "TQQQ", "SQQQ",
+  "PLTR", "NFLX", "ORCL", "CRM", "NOW", "UBER", "ABNB", "ADBE", "CRWD", "PANW", "DDOG", "NET", "ZS", "MDB", "SNOW", "SHOP", "SPOT", "PYPL", "XYZ", "SOFI",
+  "COIN", "HOOD", "MSTR", "CRCL", "MARA", "RIOT", "CLSK", "IREN", "CORZ", "HUT", "CIFR", "WULF", "SMCI", "RDDT", "APP", "RBLX", "U", "SNAP", "PINS", "DKNG",
+  "JPM", "BRK.B", "BRK-B", "BAC", "WFC", "GS", "MS", "V", "MA", "AXP", "BLK", "SCHW",
+  "WMT", "COST", "HD", "LOW", "MCD", "SBUX", "KO", "PEP", "NKE", "DIS", "CMCSA", "TGT",
+  "LLY", "UNH", "JNJ", "ABBV", "MRK", "PFE", "BMY", "GILD", "AMGN", "NVO", "HIMS",
+  "XOM", "CVX", "COP", "SLB", "OXY", "FCX", "NEM", "GE", "GEV", "CAT", "DE", "BA", "LMT", "RTX", "HON", "UPS", "FDX",
+  "BABA", "PDD", "JD", "BIDU", "NIO", "XPEV", "LI", "RIVN", "LCID", "F", "GM", "GME", "AMC", "IONQ", "RGTI", "QBTS", "OKLO", "SMR", "VST", "CEG",
+]);
+
+const TOKENIZED_QUOTES = ["USDT", "USDC", "FDUSD", "BUSD", "TUSD", "USD", "PERP"];
+const FX_CODES = /^(?:EUR|USD|GBP|JPY|CHF|AUD|CAD|NZD|SEK|NOK|MXN|SGD|HKD|CNH|TRY|ZAR){2}$/;
+
+function stripTokenizedQuote(raw: string): { base: string; hadQuote: boolean } {
+  const noSlash = raw.replace(/[-/](USDT|USDC|FDUSD|BUSD|TUSD|USD|PERP)$/i, "");
+  if (noSlash !== raw) return { base: noSlash, hadQuote: true };
+  for (const q of TOKENIZED_QUOTES) {
+    if (q === "TUSD" && raw.length <= 6) continue;
+    if (raw.length > q.length + 1 && raw.endsWith(q)) {
+      return { base: raw.slice(0, -q.length), hadQuote: true };
+    }
+  }
+  return { base: raw, hadQuote: false };
+}
+
+function normalizeEquityClass(ticker: string): string {
+  if (ticker === "BRKB" || ticker === "BRK.B") return "BRK-B";
+  if (ticker === "BRKA" || ticker === "BRK.A") return "BRK-A";
+  if (ticker === "BFB" || ticker === "BF.B") return "BF-B";
+  return ticker.replace(/\./g, "-");
+}
+
+function matchKnownTokenizedEquity(candidate: string): string | null {
+  const norm = normalizeEquityClass(candidate);
+  if (KNOWN_TOKENIZED_US_EQUITIES.has(candidate) || KNOWN_TOKENIZED_US_EQUITIES.has(norm)) {
+    return norm;
+  }
+  // Kraken / Bybit / Solana xStocks suffix (e.g. NVDAX, AAPLX, TSLAX, SPYX, QQQX, MSTRX, COINX)
+  if (candidate.length >= 3 && candidate.endsWith("X")) {
+    const stripped = candidate.slice(0, -1);
+    const strippedNorm = normalizeEquityClass(stripped);
+    if (KNOWN_TOKENIZED_US_EQUITIES.has(stripped) || KNOWN_TOKENIZED_US_EQUITIES.has(strippedNorm)) {
+      return strippedNorm;
+    }
+  }
+  // Ondo tokenized equities suffix (e.g. NVDAON, TSLAON, AAPLON, SPYON, QQQON)
+  if (candidate.length >= 4 && candidate.endsWith("ON")) {
+    const stripped = candidate.slice(0, -2);
+    const strippedNorm = normalizeEquityClass(stripped);
+    if (KNOWN_TOKENIZED_US_EQUITIES.has(stripped) || KNOWN_TOKENIZED_US_EQUITIES.has(strippedNorm)) {
+      return strippedNorm;
+    }
+  }
+  return null;
+}
+
+/**
+ * Resolves any AffenTerminal chart symbol — Yahoo, Alpaca IEX/SIP, Hyperliquid (main + builder DEXes
+ * like `HL:xyz:NVDA`, `HL:xyz:XYZ100`, `HL:flx:TSLA`), Bybit (`BYBIT:LINEAR:NVDAUSDT`, `BYBIT:SPOT:AAPLXUSDT`),
+ * Binance (`NVDAUSDT`, `PAXGUSDT`, `BTCUSDT`), Kraken (`KRK:NVDAX/USD`), or plain tickers —
  * into a free zero-API-key options target (US Equity/ETF/Index or Deribit Crypto).
  */
 export function resolveOptionsTarget(symbol: string): OptionsTarget | null {
-  const trimmed = symbol.trim().toUpperCase();
+  const original = symbol.trim();
+  const trimmed = original.toUpperCase();
   if (!trimmed) return null;
 
-  // Strip known venue prefixes
-  const bare = trimmed.replace(/^(?:YF|IEX|SIP|BINANCE|BYBIT|HL|HYPERLIQUID|COINBASE|OKX):/, "");
+  // 1. Hyperliquid (`HL:BTC`, `HL:xyz:NVDA`, `HL:xyz:XYZ100`, `HL:flx:TSLA`, `HL:xyz:GOLD`, `HL:xyz:US500`)
+  if (trimmed.startsWith("HL:") || trimmed.startsWith("HYPERLIQUID:")) {
+    const rest = trimmed.replace(/^(?:HL|HYPERLIQUID):/, "");
+    const colon = rest.indexOf(":");
+    const isBuilderDex = colon > 0;
+    const rawCoin = isBuilderDex ? rest.slice(colon + 1) : rest;
+    const { base } = stripTokenizedQuote(rawCoin);
 
-  // Check index mappings first (^GSPC -> ^SPX, ^VIX, etc.)
-  const indexHit = INDEX_OPTION_MAP[bare];
-  if (indexHit) {
-    return { assetClass: "equity", ticker: indexHit.ticker, display: indexHit.display };
+    const idx = INDEX_OPTION_MAP[base];
+    if (idx) {
+      return {
+        assetClass: "equity",
+        ticker: idx.ticker,
+        display: idx.display,
+        mappedFrom: original,
+        scaleToChartPrice: idx.scaleToChartPrice,
+      };
+    }
+    const comm = COMMODITY_PROXY_MAP[base];
+    if (comm) {
+      return {
+        assetClass: "equity",
+        ticker: comm.ticker,
+        display: comm.display,
+        mappedFrom: original,
+        scaleToChartPrice: true,
+      };
+    }
+    if (CRYPTO_OPTIONS_BASES.has(base)) {
+      return { assetClass: "crypto", ticker: base, display: base };
+    }
+    if (FX_CODES.test(base)) return null;
+
+    const knownEq = matchKnownTokenizedEquity(base);
+    if (knownEq) {
+      return { assetClass: "equity", ticker: knownEq, display: knownEq, mappedFrom: original };
+    }
+    // Any Hyperliquid HIP-3 builder-DEX equity ticker (e.g. xyz:*, flx:*, vntl:*, hyna:*, km:*)
+    if (isBuilderDex && /^[A-Z]{1,5}(?:[.-][AB])?$/.test(base)) {
+      const norm = normalizeEquityClass(base);
+      return { assetClass: "equity", ticker: norm, display: norm, mappedFrom: original };
+    }
+    return null;
   }
 
-  // Check crypto pairs (BTCUSDT, ETHUSD, BTC-USD, SOLPERP, BTC, ETH, SOL)
-  const cryptoMatch = /^(BTC|ETH|SOL)(?:[-/]?(?:USDT|USDC|USD|PERP|BUSD))?$/.exec(bare);
-  if (cryptoMatch && CRYPTO_OPTIONS_BASES.has(cryptoMatch[1])) {
-    const base = cryptoMatch[1];
+  // 2. Bybit / Kraken / Binance / OKX / Coinbase tokenized & crypto venues
+  const venuePrefix = /^(?:BYBIT:(?:SPOT|LINEAR):|BYBIT:|BINANCE:|KRK:|KRAKEN:|OKX:|COINBASE:)/.exec(trimmed);
+  const withoutVenue = venuePrefix ? trimmed.slice(venuePrefix[0].length) : trimmed;
+
+  // Handle Yahoo / Alpaca explicitly before tokenized quote stripping
+  if (trimmed.startsWith("YF:") || trimmed.startsWith("IEX:") || trimmed.startsWith("SIP:")) {
+    const bare = trimmed.replace(/^(?:YF|IEX|SIP):/, "");
+    const idx = INDEX_OPTION_MAP[bare];
+    if (idx) {
+      return {
+        assetClass: "equity",
+        ticker: idx.ticker,
+        display: idx.display,
+        scaleToChartPrice: idx.scaleToChartPrice,
+      };
+    }
+    const comm = COMMODITY_PROXY_MAP[bare];
+    if (comm) {
+      return {
+        assetClass: "equity",
+        ticker: comm.ticker,
+        display: comm.display,
+        mappedFrom: original,
+        scaleToChartPrice: true,
+      };
+    }
+    const cryptoMatch = /^(BTC|ETH|SOL)(?:[-/]?(?:USDT|USDC|USD))?$/.exec(bare);
+    if (cryptoMatch && CRYPTO_OPTIONS_BASES.has(cryptoMatch[1])) {
+      return { assetClass: "crypto", ticker: cryptoMatch[1], display: cryptoMatch[1] };
+    }
+    if (/(?:=X|=F)$/.test(bare) || FX_CODES.test(bare)) return null;
+    if (IEX_TICKER.test(bare) && /^[A-Z]{1,5}(?:[.-][AB])?$/.test(bare)) {
+      if (trimmed.startsWith("YF:") && exchangeOfTicker(bare).id !== "us") return null;
+      const norm = normalizeEquityClass(bare);
+      return { assetClass: "equity", ticker: norm, display: norm };
+    }
+    return null;
+  }
+
+  // Direct index or commodity alias (e.g. "XYZ100", "NAS100", "US500", "SPX", "PAXG")
+  const directIdx = INDEX_OPTION_MAP[withoutVenue];
+  if (directIdx) {
+    const isMapped = withoutVenue !== directIdx.ticker && withoutVenue !== directIdx.display;
+    return {
+      assetClass: "equity",
+      ticker: directIdx.ticker,
+      display: directIdx.display,
+      mappedFrom: isMapped ? original : undefined,
+      scaleToChartPrice: directIdx.scaleToChartPrice,
+    };
+  }
+  const directComm = COMMODITY_PROXY_MAP[withoutVenue];
+  if (directComm) {
+    return {
+      assetClass: "equity",
+      ticker: directComm.ticker,
+      display: directComm.display,
+      mappedFrom: original,
+      scaleToChartPrice: true,
+    };
+  }
+
+  // Strip crypto/perp quote suffix (e.g. NVDAUSDT -> NVDA, NVDAX/USD -> NVDAX, PAXGUSDT -> PAXG, BTCUSDT -> BTC)
+  const { base, hadQuote } = stripTokenizedQuote(withoutVenue);
+
+  if (CRYPTO_OPTIONS_BASES.has(base)) {
     return { assetClass: "crypto", ticker: base, display: base };
   }
 
-  // Reject other crypto quote pairs (e.g. DOGEUSDT, XRPUSDC) and forex pairs (e.g. EURUSD, USDJPY, EURUSD=X)
-  if (/(?:USDT|USDC|BUSD|PERP|=X|=F)$/.test(bare)) return null;
-  if (/^(?:EUR|USD|GBP|JPY|CHF|AUD|CAD|NZD){2}$/.test(bare)) return null;
+  if (hadQuote || venuePrefix) {
+    const idx = INDEX_OPTION_MAP[base];
+    if (idx) {
+      return {
+        assetClass: "equity",
+        ticker: idx.ticker,
+        display: idx.display,
+        mappedFrom: original,
+        scaleToChartPrice: idx.scaleToChartPrice,
+      };
+    }
+    const comm = COMMODITY_PROXY_MAP[base];
+    if (comm) {
+      return {
+        assetClass: "equity",
+        ticker: comm.ticker,
+        display: comm.display,
+        mappedFrom: original,
+        scaleToChartPrice: true,
+      };
+    }
+    if (FX_CODES.test(base) || FX_CODES.test(withoutVenue)) return null;
 
-  // Check US equities / ETFs (1-5 letter US symbols, plus optional share class like BRK.B / BF.A)
-  if (IEX_TICKER.test(bare) && /^[A-Z]{1,5}(?:\.[AB])?$/.test(bare)) {
-    if (trimmed.startsWith("YF:") && exchangeOfTicker(bare).id !== "us") return null;
-    return { assetClass: "equity", ticker: bare, display: bare };
+    const knownEq = matchKnownTokenizedEquity(base);
+    if (knownEq) {
+      return {
+        assetClass: "equity",
+        ticker: knownEq,
+        display: knownEq,
+        mappedFrom: original,
+      };
+    }
+    return null;
+  }
+
+  // Plain unprefixed input (e.g. typed in Options panel: "NVDA", "SPY", "NVDAX", "BRK.B")
+  if (/(?:=X|=F)$/.test(withoutVenue) || FX_CODES.test(withoutVenue)) return null;
+
+  const tokenizedPlain = matchKnownTokenizedEquity(withoutVenue);
+  if (tokenizedPlain && tokenizedPlain !== withoutVenue) {
+    return {
+      assetClass: "equity",
+      ticker: tokenizedPlain,
+      display: tokenizedPlain,
+      mappedFrom: original,
+    };
+  }
+
+  if (IEX_TICKER.test(withoutVenue) && /^[A-Z]{1,5}(?:[.-][AB])?$/.test(withoutVenue)) {
+    const norm = normalizeEquityClass(withoutVenue);
+    return { assetClass: "equity", ticker: norm, display: norm };
   }
 
   return null;
@@ -852,89 +1099,127 @@ export function formatCompactUsd(value: number): string {
   return `${sign}$${Math.round(abs)}`;
 }
 
+export interface OptionsOverlayTransform {
+  /** Live price of the active chart symbol (used to scale ETF-proxy options like GLD -> PAXG/GOLD). */
+  chartPrice?: number;
+  /** True when option strikes are in ETF units and should be scaled by chartPrice / analytics.spot. */
+  scaleToChartPrice?: boolean;
+  /** Short provenance tag appended on tokenized charts (e.g. "NVDA", "NDX", "GLD→Chart"). */
+  sourceTag?: string;
+}
+
+/**
+ * Computes a guarded scale multiplier when translating ETF-proxy options (e.g. GLD -> GOLD/PAXG,
+ * SLV -> SILVER, USO -> CL/OIL) onto a tokenized perp chart's price coordinate system.
+ */
+export function computeOptionsPriceScale(
+  optionsSpot: number,
+  chartPrice?: number,
+  scaleToChartPrice = false,
+): number {
+  if (!scaleToChartPrice || !(optionsSpot > 0) || !(chartPrice && chartPrice > 0)) return 1;
+  const ratio = chartPrice / optionsSpot;
+  return Number.isFinite(ratio) && ratio > 0.05 && ratio < 200 ? ratio : 1;
+}
+
 /**
  * Builds crisp horizontal price-level overlays (Put Wall, Call Wall, Gamma Flip, Max Pain, Expected Move ±1σ)
- * for direct rendering on the main Vela price chart.
+ * for direct rendering on the main Vela price chart (including tokenized Hyperliquid/Bybit/Binance/Kraken charts).
  */
 export function optionsWallOverlays(
   analytics: OptionsAnalytics,
   config: OptionsWallsOverlayConfig = DEFAULT_OPTIONS_WALLS_CONFIG,
+  transform?: OptionsOverlayTransform,
 ): OverlayHLine[] {
   const lines: OverlayHLine[] = [];
-  const fmtK = (p: number) => (p >= 1000 ? Math.round(p).toLocaleString("en-US") : p.toFixed(p % 1 === 0 ? 0 : 2));
+  const scale = computeOptionsPriceScale(
+    analytics.spot,
+    transform?.chartPrice,
+    Boolean(transform?.scaleToChartPrice),
+  );
+  const tag = transform?.sourceTag ? ` (${transform.sourceTag})` : "";
+  const mapPrice = (p: number) => p * scale;
+  const fmtK = (p: number) =>
+    p >= 1000 ? Math.round(p).toLocaleString("en-US") : p.toFixed(p % 1 === 0 ? 0 : 2);
 
   if (config.showWalls) {
     if (analytics.callWall) {
       const w = analytics.callWall;
+      const price = mapPrice(w.strike);
       const metric = w.openInterest > 0 ? `${formatCompactCount(w.openInterest)} OI` : `${formatCompactCount(w.volume)} Vol`;
       lines.push({
         kind: "hline",
         id: "opt-call-wall",
-        price: w.strike,
+        price,
         color: "#22c55e",
         width: 2,
         dash: [],
-        label: `CALL WALL $${fmtK(w.strike)} · ${metric}`,
+        label: `CALL WALL $${fmtK(price)}${tag} · ${metric}`,
       });
     }
     if (analytics.putWall) {
       const w = analytics.putWall;
+      const price = mapPrice(w.strike);
       const metric = w.openInterest > 0 ? `${formatCompactCount(w.openInterest)} OI` : `${formatCompactCount(w.volume)} Vol`;
       lines.push({
         kind: "hline",
         id: "opt-put-wall",
-        price: w.strike,
+        price,
         color: "#ef4444",
         width: 2,
         dash: [],
-        label: `PUT WALL $${fmtK(w.strike)} · ${metric}`,
+        label: `PUT WALL $${fmtK(price)}${tag} · ${metric}`,
       });
     }
   }
 
   if (config.showGammaFlip && analytics.gammaFlip !== null) {
+    const price = mapPrice(analytics.gammaFlip);
     lines.push({
       kind: "hline",
       id: "opt-gamma-flip",
-      price: analytics.gammaFlip,
+      price,
       color: "#f59e0b",
       width: 1.5,
       dash: [6, 4],
-      label: `GAMMA FLIP $${fmtK(analytics.gammaFlip)}`,
+      label: `GAMMA FLIP $${fmtK(price)}${tag}`,
     });
   }
 
   if (config.showMaxPain && analytics.maxPain !== null) {
+    const price = mapPrice(analytics.maxPain);
     lines.push({
       kind: "hline",
       id: "opt-max-pain",
-      price: analytics.maxPain,
+      price,
       color: "#a855f7",
       width: 1.5,
       dash: [4, 4],
-      label: `MAX PAIN $${fmtK(analytics.maxPain)}`,
+      label: `MAX PAIN $${fmtK(price)}${tag}`,
     });
   }
 
   if (config.showExpectedMove && analytics.expectedHigh !== null && analytics.expectedLow !== null) {
+    const high = mapPrice(analytics.expectedHigh);
+    const low = mapPrice(analytics.expectedLow);
     const pct = analytics.expectedMovePct !== null ? ` ±${analytics.expectedMovePct.toFixed(1)}%` : "";
     lines.push({
       kind: "hline",
       id: "opt-em-high",
-      price: analytics.expectedHigh,
+      price: high,
       color: "#38bdf8",
       width: 1,
       dash: [2, 4],
-      label: `EM +1σ $${fmtK(analytics.expectedHigh)}${pct}`,
+      label: `EM +1σ $${fmtK(high)}${pct}`,
     });
     lines.push({
       kind: "hline",
       id: "opt-em-low",
-      price: analytics.expectedLow,
+      price: low,
       color: "#38bdf8",
       width: 1,
       dash: [2, 4],
-      label: `EM -1σ $${fmtK(analytics.expectedLow)}${pct}`,
+      label: `EM -1σ $${fmtK(low)}${pct}`,
     });
   }
 
