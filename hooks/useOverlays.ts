@@ -20,6 +20,8 @@ import { invalidateCanvasLayers } from "@/lib/chart/canvasLayer";
 import { useSetupJournal } from "@/stores/useSetupJournal";
 import { setupOverlays } from "@/lib/screener/setupJournal";
 import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
+import { optionsWallOverlays, resolveOptionsTarget } from "@/lib/market/optionsAnalytics";
+import { fetchOptionsChain } from "@/hooks/useOptionsChain";
 
 /** Cell id the active chart paints under (see `bindCellContext`). */
 export const PRIMARY_CELL = "primary";
@@ -273,4 +275,37 @@ export function useOverlays(chart: Vela | null) {
     setOverlay(PRIMARY_CELL, "strategy", strategyOverlays(strategyReport, focusTrade));
     return () => setOverlay(PRIMARY_CELL, "strategy", []);
   }, [chart, strategyReport, showTrades, focusTrade, symbol, timeframe]);
+
+  // Zero-API-key Options Walls (Call Wall, Put Wall, Gamma Flip, Max Pain, Expected Move ±1σ).
+  const optionsWallsOn = useChartStore((s) => s.optionsWallsOn);
+  const optionsWallsConfig = useChartStore((s) => s.optionsWallsConfig);
+  useEffect(() => {
+    if (!chart || !optionsWallsOn || replay || !resolveOptionsTarget(symbol)) {
+      setOverlay(PRIMARY_CELL, "options", []);
+      return;
+    }
+    let cancelled = false;
+    const expiry = optionsWallsConfig.expiryMode === "nearest" ? "nearest" : "near";
+    const load = () => {
+      fetchOptionsChain(symbol, expiry)
+        .then((analytics) => {
+          if (!cancelled) {
+            setOverlay(PRIMARY_CELL, "options", optionsWallOverlays(analytics, optionsWallsConfig));
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setOverlay(PRIMARY_CELL, "options", []);
+        });
+    };
+    load();
+    const timer = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      load();
+    }, 120_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+      setOverlay(PRIMARY_CELL, "options", []);
+    };
+  }, [chart, optionsWallsOn, optionsWallsConfig, symbol, replay]);
 }

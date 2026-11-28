@@ -693,12 +693,67 @@ function buildMockApiPayload(urlStr) {
     }
     return { closeMs: Date.UTC(2026, 10, 20, 21, 0, 0), prices };
   }
+  if (url.pathname === "/api/options-chain") {
+    const sym = (url.searchParams.get("symbol") ?? "SPY").toUpperCase();
+    return {
+      ticker: sym,
+      display: sym,
+      assetClass: "equity",
+      source: "Yahoo Finance (Kein API-Key)",
+      asOf: now,
+      spot: 600,
+      multiplier: 100,
+      selectedExpiration: "near",
+      includedExpirations: ["2026-12-04"],
+      availableExpirations: ["2026-12-04", "2026-12-11"],
+      contractCount: 40,
+      callWall: { strike: 610, openInterest: 34200, volume: 8100, gexUsd: 42000000, distancePct: 1.67 },
+      putWall: { strike: 590, openInterest: 29800, volume: 6400, gexUsd: -36000000, distancePct: -1.67 },
+      callVolumeWall: { strike: 610, openInterest: 34200, volume: 8100, gexUsd: 42000000, distancePct: 1.67 },
+      putVolumeWall: { strike: 590, openInterest: 29800, volume: 6400, gexUsd: -36000000, distancePct: -1.67 },
+      topCallWalls: [{ strike: 610, openInterest: 34200, volume: 8100, gexUsd: 42000000, distancePct: 1.67 }],
+      topPutWalls: [{ strike: 590, openInterest: 29800, volume: 6400, gexUsd: -36000000, distancePct: -1.67 }],
+      majorPositiveGex: { strike: 610, openInterest: 34200, volume: 8100, gexUsd: 42000000, distancePct: 1.67 },
+      majorNegativeGex: { strike: 590, openInterest: 29800, volume: 6400, gexUsd: -36000000, distancePct: -1.67 },
+      netGexUsd: 18500000,
+      callGexUsd: 62000000,
+      putGexUsd: -43500000,
+      gammaRegime: "positive",
+      gammaFlip: 596.5,
+      netDeltaExposureUsd: 120000000,
+      maxPain: 600,
+      maxPainDistancePct: 0,
+      expectedMoveUsd: 8.4,
+      expectedMovePct: 1.4,
+      expectedHigh: 608.4,
+      expectedLow: 591.6,
+      totalCallOi: 112000,
+      totalPutOi: 104000,
+      totalCallVol: 28000,
+      totalPutVol: 24000,
+      pcRatioOi: 0.93,
+      pcRatioVol: 0.86,
+      atmIv: 0.168,
+      put25Iv: 0.21,
+      call25Iv: 0.145,
+      skew25: 0.065,
+      strikes: [
+        { strike: 590, callOi: 4000, putOi: 29800, callVol: 900, putVol: 6400, callGexUsd: 5000000, putGexUsd: -36000000, netGexUsd: -31000000, callIv: 0.19, putIv: 0.21, callDelta: 0.78, putDelta: -0.22, callGamma: 0.02, putGamma: 0.02, callTheta: -0.18, putTheta: -0.16, callBid: 11.2, callAsk: 11.5, putBid: 1.1, putAsk: 1.2, callMid: 11.35, putMid: 1.15, callInTheMoney: true, putInTheMoney: false },
+        { strike: 600, callOi: 16000, putOi: 14500, callVol: 5200, putVol: 4800, callGexUsd: 24000000, putGexUsd: -21000000, netGexUsd: 3000000, callIv: 0.168, putIv: 0.172, callDelta: 0.52, putDelta: -0.48, callGamma: 0.035, putGamma: 0.035, callTheta: -0.26, putTheta: -0.25, callBid: 4.8, callAsk: 5.0, putBid: 4.7, putAsk: 4.9, callMid: 4.9, putMid: 4.8, callInTheMoney: false, putInTheMoney: false },
+        { strike: 610, callOi: 34200, putOi: 3200, callVol: 8100, putVol: 700, callGexUsd: 42000000, putGexUsd: -4000000, netGexUsd: 38000000, callIv: 0.145, putIv: 0.155, callDelta: 0.24, putDelta: -0.76, callGamma: 0.021, putGamma: 0.021, callTheta: -0.17, putTheta: -0.15, callBid: 1.05, callAsk: 1.15, putBid: 10.9, putAsk: 11.2, callMid: 1.1, putMid: 11.05, callInTheMoney: false, putInTheMoney: true },
+      ],
+      unusual: [
+        { contractSymbol: `${sym}261204C00610000`, optionType: "call", strike: 610, expiration: "2026-12-04", volume: 8100, openInterest: 3420, volOiRatio: 2.37, mid: 1.1, notionalUsd: 891000, iv: 0.145, delta: 0.24, moneyness: "OTM" },
+      ],
+    };
+  }
   return {};
 }
 
 const MOCKED_API_PREFIXES = new Set([
   "/api/osint-map",
   "/api/feeds",
+  "/api/options-chain",
   "/api/terminal-opportunities",
   "/api/terminal-setups",
   "/api/terminal-social",

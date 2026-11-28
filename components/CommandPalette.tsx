@@ -186,6 +186,41 @@ export function CommandPalette() {
         run: () => useChartStore.getState().set({ alertDraft: currentPriceAlertDraft() }),
       },
       {
+        id: "tool-options-walls",
+        group: "Chart & Tools",
+        label: useChartStore.getState().optionsWallsOn
+          ? "Put/Call Walls & GEX im Chart ausblenden"
+          : "Put/Call Walls, Gamma Flip & Max Pain im Chart anzeigen",
+        hint: "Kein API-Key nötig",
+        keywords: "options put call wall walls gex gamma flip max pain expected move overlay",
+        icon: Layers,
+        run: () => {
+          const cur = useChartStore.getState().optionsWallsOn;
+          useChartStore.getState().set({ optionsWallsOn: !cur });
+        },
+      },
+      {
+        id: "tool-options-dashboard",
+        group: "Module",
+        label: "Optionen: Put/Call Walls, GEX & Optionskette öffnen",
+        hint: "US-Aktien, ETFs, BTC & ETH",
+        keywords: "options optionsflow put call walls gex gamma max pain greeks unusual skew",
+        icon: Activity,
+        run: () => {
+          openPanel("terminal");
+          const cleanTicker = symbol.replace(/^(?:YF|IEX|SIP|BINANCE|BYBIT|HL):/, "");
+          if (typeof window !== "undefined") {
+            setTimeout(() => {
+              window.dispatchEvent(
+                new CustomEvent("affentrader:terminal-view", {
+                  detail: { view: "optionsflow", ticker: cleanTicker },
+                }),
+              );
+            }, 60);
+          }
+        },
+      },
+      {
         id: "tool-compare",
         group: "Chart & Tools",
         label: "Symbol vergleichen (Compare / Spread)",

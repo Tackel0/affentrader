@@ -32,6 +32,7 @@ import {
   IntervalPicker,
   PatternsButton,
 } from "./ChartTools";
+import { OptionsWallsButton } from "./OptionsWallsButton";
 import {
   MainMenu,
   MainMenuSheet,
@@ -140,7 +141,7 @@ export function WorkspaceToolbar({
         <ChartNoAxesCombined size={20} />
         <span>Indicators</span>
       </button>
-      <div className="desktop-chart-tools"><IndicatorTemplateMenu /><PatternsButton /></div>
+      <div className="desktop-chart-tools"><IndicatorTemplateMenu /><PatternsButton /><OptionsWallsButton /></div>
       <span className="toolbar-divider" />
       <button
         className="toolbar-button"

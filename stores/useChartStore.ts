@@ -18,6 +18,10 @@ import {
   type PatternHit,
   type PatternOptions,
 } from "@/lib/patterns";
+import {
+  DEFAULT_OPTIONS_WALLS_CONFIG,
+  type OptionsWallsOverlayConfig,
+} from "@/lib/market/optionsAnalytics";
 import type {
   AlertDraft,
   BottomTab,
@@ -61,6 +65,9 @@ interface ChartState {
   /** Pattern detection is opt-in per chart because it scans the whole history. */
   patternsOn: boolean;
   patternHits: PatternHit[];
+  /** Zero-API-key Options Walls (Call Wall, Put Wall, Gamma Flip, Max Pain, Expected Move) overlay on chart. */
+  optionsWallsOn: boolean;
+  optionsWallsConfig: OptionsWallsOverlayConfig;
   favoriteIntervals: string[];
   /** Trading session for markets that have pre/post-market bars. */
   session: "regular" | "extended";
@@ -162,6 +169,8 @@ export const useChartStore = create<ChartState>()(
       patternOptions: DEFAULT_PATTERN_OPTIONS,
       patternsOn: false,
       patternHits: [],
+      optionsWallsOn: false,
+      optionsWallsConfig: DEFAULT_OPTIONS_WALLS_CONFIG,
       favoriteIntervals: ["1m", "5m", "15m", "1h", "4h", "1D"],
       session: "regular",
       timezone: "UTC",
@@ -251,6 +260,8 @@ export const useChartStore = create<ChartState>()(
         compares: s.compares,
         patternOptions: s.patternOptions,
         patternsOn: s.patternsOn,
+        optionsWallsOn: s.optionsWallsOn,
+        optionsWallsConfig: s.optionsWallsConfig,
         favoriteIntervals: s.favoriteIntervals,
         session: s.session,
         timezone: s.timezone,

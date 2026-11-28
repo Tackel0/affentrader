@@ -28,7 +28,7 @@ export const TERMINAL_MODULES: readonly TerminalModuleMeta[] = [
   { id: "help", label: "Commands", selectLabel: "HELP · Keys", command: "HELP", paneTitle: "COMMANDS CHEAT SHEET", group: "Werkzeuge" },
   { id: "journal", label: "Setup-Journal", selectLabel: "JOURNAL · Setups", command: "JOURNAL", paneTitle: "SETUP JOURNAL", group: "Aktien-Research" },
   { id: "insiders", label: "Insider", selectLabel: "INSIDER · SEC", command: "INSIDER", paneTitle: "INSIDER-MELDUNGEN", group: "Aktien-Research" },
-  { id: "optionsflow", label: "Optionsflow", selectLabel: "OPTIONSFLOW · OPRA", command: "OPTIONSFLOW", paneTitle: "OPTIONSFLOW", group: "Aktien-Research" },
+  { id: "optionsflow", label: "Optionsflow", selectLabel: "OPTIONS · Walls & GEX", command: "OPTIONSFLOW", paneTitle: "OPTIONS · WALLS & GEX", group: "Aktien-Research" },
   { id: "social", label: "Social-Recherche", selectLabel: "SOCIAL · X & Reddit", command: "SOCIAL", paneTitle: "SOCIAL-RECHERCHE", group: "Aktien-Research" },
 ];
 
@@ -42,7 +42,9 @@ export const BASE_AUTOCOMPLETE_ITEMS: readonly AutocompleteItem[] = [
   { key: "OPPS", description: "Trade-Möglichkeiten & Setups Hub (F2)", category: "VIEW" },
   { key: "JOURNAL", description: "Setup-Watchlist und Signal-Historie", category: "VIEW" },
   { key: "INSIDER", description: "SEC Form 4 Recherche", category: "VIEW" },
-  { key: "OPTIONSFLOW", description: "Alpaca OPRA Optionsausführungen", category: "VIEW" },
+  { key: "OPTIONSFLOW", description: "Put/Call Walls, GEX, Max Pain, Expected Move & Greeks (kein API-Key)", category: "VIEW" },
+  { key: "WALLS", description: "Put & Call Walls, Gamma Flip & Optionskette (US + BTC/ETH)", category: "VIEW" },
+  { key: "GEX", description: "Dealer Gamma Exposure & Zero Gamma Profil", category: "VIEW" },
   { key: "SOCIAL", description: "Ticker-Trends auf X und WallStreetBets DE", category: "VIEW" },
   { key: "FA", description: "Fundamentals, Ratios & SEC Form 4 (F3)", category: "VIEW" },
   { key: "SCAN", description: "Stock Base Scanner (Confirmed Bases) (F6)", category: "VIEW" },

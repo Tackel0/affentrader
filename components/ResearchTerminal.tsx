@@ -596,6 +596,17 @@ export function ResearchTerminal({
   };
 
   useEffect(() => {
+    const onExternalView = (event: Event) => {
+      const detail = (event as CustomEvent<{ view?: TerminalView; ticker?: string }>).detail;
+      if (!detail?.view) return;
+      if (detail.ticker) setTicker(detail.ticker);
+      openPrimaryView(detail.view);
+    };
+    window.addEventListener("affentrader:terminal-view", onExternalView);
+    return () => window.removeEventListener("affentrader:terminal-view", onExternalView);
+  });
+
+  useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (modulePickerOpen) return;
       if (e.altKey && e.key.toLowerCase() === "k") {

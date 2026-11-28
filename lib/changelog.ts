@@ -23,6 +23,29 @@ export const CHANGELOG_CATEGORY_LABELS: Record<ChangelogCategory, string> = {
 
 export const CHANGELOG_RELEASES: readonly ChangelogRelease[] = [
   {
+    id: "2026-11-28-options-walls-gex",
+    date: "2026-11-28",
+    version: "v1.7",
+    headline: "Put & Call Walls, Dealer GEX, Gamma Flip, Max Pain & Options-Suite komplett ohne API-Key",
+    items: [
+      {
+        category: "feature",
+        title: "Put Wall, Call Wall, Gamma Flip, Max Pain & Expected Move (±1σ) direkt im Chart",
+        detail: "Über den neuen „Walls“-Button in der Chart-Leiste oder per ⌘K lassen sich die wichtigsten Options-Levels direkt als beschriftete Linien über die Kerzen legen — komplett ohne API-Key für US-Aktien/ETFs/Indizes (Yahoo Finance + Nasdaq-Fallback) sowie BTC, ETH & SOL (Deribit Public).",
+      },
+      {
+        category: "feature",
+        title: "Vollständiges Options- & GEX-Dashboard im AffenTerminal",
+        detail: "Interaktives Strike-Profil (Open Interest, Dealer GEX & Volumen), Positive/Negative Gamma-Regime-Erkennung, 25Δ Volatilitäts-Skew, P/C-Ratios, Unusual Activity (Vol/OI & Tagesprämie) sowie Black-Scholes-Optionskette mit Δ/Γ/Θ und 1-Klick-Preis-Alerts auf jede Wall.",
+      },
+      {
+        category: "improvement",
+        title: "Maximierte mobile Chart-Fläche (36px Flush-Leiste & bündige Top-Ausrichtung)",
+        detail: "Untere Phone-Leiste von 52px auf eine bündige 36px-OLED-Leiste verschlankt und überflüssigen Top-Abstand in mobilen Browsern entfernt.",
+      },
+    ],
+  },
+  {
     id: "2026-11-27-affen-branding",
     date: "2026-11-27",
     version: "v1.6",

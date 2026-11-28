@@ -167,10 +167,28 @@ export function registerOverlayLayer() {
               ctx.stroke();
               ctx.restore();
               if (primitive.label) {
-                ctx.font = "11px sans-serif";
+                ctx.save();
+                ctx.font = "600 10.5px system-ui, -apple-system, sans-serif";
+                const textWidth = ctx.measureText(primitive.label).width;
+                const padX = 5;
+                const boxW = textWidth + padX * 2;
+                const boxH = 16;
+                const boxX = Math.max(4, coords.width - boxW - 6);
+                const boxY = y - boxH - 2;
+                ctx.fillStyle = "rgba(8, 10, 15, 0.84)";
+                ctx.beginPath();
+                if (typeof ctx.roundRect === "function") {
+                  ctx.roundRect(boxX, boxY, boxW, boxH, 4);
+                } else {
+                  ctx.rect(boxX, boxY, boxW, boxH);
+                }
+                ctx.fill();
+                ctx.strokeStyle = primitive.color;
+                ctx.lineWidth = 0.75;
+                ctx.stroke();
                 ctx.fillStyle = primitive.color;
-                const width = ctx.measureText(primitive.label).width;
-                ctx.fillText(primitive.label, coords.width - width - 8, y - 4);
+                ctx.fillText(primitive.label, boxX + padX, boxY + 11.5);
+                ctx.restore();
               }
               break;
             }
